@@ -23,6 +23,14 @@
 
       <form id="settings" autocomplete="off">
         <fieldset>
+          <legend>Data</legend>
+          <label>Data source
+            <select name="source" id="source"></select>
+          </label>
+          <p class="muted small">Public APIs are called at most once every 2.5s, with calls grouped and only the history that fits on screen.</p>
+        </fieldset>
+
+        <fieldset>
           <legend>Markets</legend>
           <p class="muted small">Up to 8 markets. Tick up to 4 to chart; the rest are listed under the charts, or fill the screen if none are ticked. Changes apply immediately.</p>
           <ul id="markets"></ul>
@@ -41,7 +49,7 @@
             <input name="refresh" id="refresh" inputmode="text" placeholder="2m" />
           </label>
           <label>Show chart for
-            <input name="display" id="display" inputmode="text" placeholder="10s" />
+            <input name="display" id="display" inputmode="text" placeholder="12s" />
           </label>
           <p class="muted small">Durations accept s, m or h, e.g. <code>90s</code>, <code>2m</code>, <code>1h</code>.</p>
         </fieldset>

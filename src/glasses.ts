@@ -18,10 +18,11 @@ const LABEL_ID = 2;
 const LABEL_NAME = 'label';
 const TILE_ID_BASE = 3;
 // Text renders from the container's top-left, so the box is placed to centre
-// "Loading…" (~80px wide) rather than centred itself.
-const LABEL_X = 248;
+// the message, using the glasses font's rough width per character
+// ("Loading… ~4s" is ~118px in the simulator).
+const LABEL_CHAR_W = 9.5;
 const LABEL_Y = 130;
-const LABEL_W = 120;
+const LABEL_W = 200;
 const LABEL_H = 30;
 
 /**
@@ -33,11 +34,13 @@ const LABEL_H = 30;
  *  - "loading": the same, plus a small centred text container with a message,
  *    shown while the chart is fetched, drawn and encoded.
  *  - "chart": up to 4 image tiles (each max 288x144) covering the 576x288 screen,
- *    in front of the loading message, plus the empty text container behind
- *    them to receive touch events.
+ *    plus the empty text container behind them to receive touch events. If
+ *    the loading message was up, it stays behind the tiles until they cover it.
  */
 export class Glasses {
   private pageCreated = false;
+  /** The message `loading` last put up, kept behind the tiles by `show`. */
+  private loadingMessage = 'Loading…';
   private queue: Promise<unknown> = Promise.resolve();
 
   private constructor(readonly bridge: EvenAppBridge) {}
@@ -78,10 +81,12 @@ export class Glasses {
   }
 
   loading(message = 'Loading…'): Promise<void> {
+    this.loadingMessage = message;
     return this.serial(() => this.setPage([], [], message));
   }
 
-  show(tiles: Tile[]): Promise<void> {
+  /** `keepLoading`: leave the loading message behind the tiles, so it stays up until they cover it. */
+  show(tiles: Tile[], keepLoading = false): Promise<void> {
     return this.serial(async () => {
       const images = tiles.map((t, i) => new ImageContainerProperty({
         xPosition: t.x,
@@ -92,8 +97,7 @@ export class Glasses {
         containerName: `tile-${i}`,
         zOrderIndex: 2 + i,
       }));
-      // Keep the loading message behind the tiles so it stays up until they cover it.
-      await this.setPage(images, tiles, 'Loading…');
+      await this.setPage(images, tiles, keepLoading ? this.loadingMessage : undefined);
     });
   }
 
@@ -112,7 +116,7 @@ export class Glasses {
     const texts = [capture];
     if (message) {
       texts.push(new TextContainerProperty({
-        xPosition: LABEL_X,
+        xPosition: Math.round(288 - (message.length * LABEL_CHAR_W) / 2),
         yPosition: LABEL_Y,
         width: LABEL_W,
         height: LABEL_H,

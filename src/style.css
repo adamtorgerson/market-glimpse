@@ -73,6 +73,8 @@ fieldset {
   background: var(--panel);
   margin: 16px 0 0;
   padding: 12px;
+  /* Fieldsets default to their content's min width; let the market rows shrink to fit. */
+  min-width: 0;
 }
 legend { padding: 0 6px; color: var(--muted); font-size: 0.9rem; }
 

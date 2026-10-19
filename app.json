@@ -8,8 +8,14 @@
   "permissions": [
     {
       "name": "network",
-      "desc": "Fetches public market candle data from Kraken.",
-      "whitelist": ["https://api.kraken.com"]
+      "desc": "Fetches public market data from the selected exchange (Kraken, OKX, Coinbase or Gate) and index prices from CoinGecko.",
+      "whitelist": [
+        "https://api.kraken.com",
+        "https://www.okx.com",
+        "https://api.exchange.coinbase.com",
+        "https://api.gateio.ws",
+        "https://api.coingecko.com"
+      ]
     }
   ],
   "supported_languages": ["en"]

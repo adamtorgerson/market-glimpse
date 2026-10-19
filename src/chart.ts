@@ -1,4 +1,4 @@
-import type { Candle, MarketData } from './kraken';
+import type { MarketData } from './sources/types';
 import { formatInterval, type CandleWidth } from './settings';
 
 export const SCREEN_W = 576;
@@ -15,6 +15,11 @@ const VOL_DOWN = '#404040';
 const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 /** Line height of the market list under the charts. */
 const LIST_LINE_H = 18;
+const LIST_PX = 13;
+const LIST_FONT = `${LIST_PX}px ${FONT}`;
+/** Space between a market's name, price and volume, and between markets on a line. */
+const CELL_GAP = 5;
+const ITEM_GAP = 18;
 const TIME_AXIS_H = 14;
 
 interface Rect { x: number; y: number; w: number; h: number }
@@ -28,12 +33,15 @@ export interface ScreenModel {
   candleWidth: CandleWidth;
   /** When the data was fetched; stamped in the bottom-right corner. */
   updated: Date;
+  /** Data source name, shown in the bottom-left corner. */
+  source: string;
 }
 
 interface PanelStyle {
   pad: number;
   headerH: number;
   titleFont: string;
+  /** Price and time axis labels; also the high/low and volume labels in the plot. */
   axisFont: string;
 }
 
@@ -72,12 +80,14 @@ export function renderScreen(ctx: CanvasRenderingContext2D, model: ScreenModel):
     // No charts: the market list gets the whole screen, above the timestamp.
     const stampRow: Rect = { x: 0, y: SCREEN_H - TIME_AXIS_H, w: SCREEN_W, h: TIME_AXIS_H };
     drawMarketList(ctx, model.ticker, { ...chartArea, h: stampRow.y }, true);
-    drawStamp(ctx, stampRow, `12px ${FONT}`, 4, model.updated);
+    drawCorner(ctx, stampRow, `12px ${FONT}`, 4, formatStamp(model.updated), 'right');
+    drawCorner(ctx, stampRow, `12px ${FONT}`, 4, model.source, 'left');
     ctx.restore();
     return DEFAULT_AXIS_W;
   }
   if (model.ticker.length) {
-    const h = model.ticker.length * LIST_LINE_H + 4;
+    ctx.font = LIST_FONT;
+    const h = flowLines(ctx, model.ticker, SCREEN_W - 12).length * LIST_LINE_H + 4;
     chartArea.h -= h;
     drawMarketList(ctx, model.ticker, { x: 0, y: chartArea.h, w: SCREEN_W, h }, false);
   }
@@ -109,7 +119,7 @@ export function renderScreen(ctx: CanvasRenderingContext2D, model: ScreenModel):
   // Label only the bottom row; panels above line up with it.
   const bottom = Math.max(...rects.map((r) => r.y + r.h));
   const columns = geoms.filter((_, i) => rects[i]!.y + rects[i]!.h === bottom);
-  drawTimeAxis(ctx, timeAxis, columns, frame, style, model.updated);
+  drawTimeAxis(ctx, timeAxis, columns, frame, style, model);
   ctx.restore();
   return axisW;
 }
@@ -199,7 +209,9 @@ function drawPanel(
   const titleW = ctx.measureText(title).width;
   ctx.font = axisFont;
   ctx.fillStyle = MID;
-  ctx.fillText(formatInterval(interval), r.x + pad + titleW + 5, r.y + headerH / 2 + 1);
+  const intervalText = formatInterval(interval);
+  ctx.fillText(intervalText, r.x + pad + titleW + 5, r.y + headerH / 2 + 1);
+  const titleEnd = r.x + pad + titleW + 5 + ctx.measureText(intervalText).width;
 
   if (data.error || data.candles.length === 0) {
     ctx.font = axisFont;
@@ -211,16 +223,15 @@ function drawPanel(
   }
 
   const last = data.candles[data.candles.length - 1]!;
-  const change = change24h(data.candles);
   ctx.textAlign = 'right';
-  const changeText = change === null ? '' : `${change >= 0 ? '+' : ''}${(change * 100).toFixed(2)}%`;
-  ctx.font = axisFont;
-  ctx.fillStyle = MID;
-  ctx.fillText(changeText, r.x + r.w - pad, r.y + headerH / 2 + 1);
-  const changeW = changeText ? ctx.measureText(changeText).width + 6 : 0;
   ctx.font = titleFont;
   ctx.fillStyle = FG;
-  ctx.fillText(formatPrice(last.close), r.x + r.w - pad - changeW, r.y + headerH / 2);
+  const priceText = formatPrice(data.last ?? last.close);
+  ctx.fillText(priceText, r.x + r.w - pad, r.y + headerH / 2);
+  if (data.index !== undefined) {
+    const priceStart = r.x + r.w - pad - ctx.measureText(priceText).width;
+    drawIndex(ctx, formatPrice(data.index), titleEnd + 8, priceStart - 8, r.x + r.w / 2, r.y + headerH / 2 + 1, axisFont);
+  }
 
   const { plot, vol, body } = g;
   // Place candles by time, not index, so every panel shares the time scale.
@@ -313,6 +324,7 @@ function drawPanel(
   ctx.fillRect(plot.x + plot.w + 1, y(last.close), 3, 1);
 
   // Highest volume, beside its bar, on whichever side has more room.
+  ctx.font = axisFont;
   if (maxVol > 0) {
     const vx = slotLeft(g, maxVolK);
     const onLeft = vx > vol.x + vol.w / 2;
@@ -339,19 +351,39 @@ function drawPanel(
   ctx.restore();
 }
 
+/** "Index 81,950" centred at `cx` if it fits between `minX` and `maxX`; drops the label first, then gives up. */
+function drawIndex(ctx: CanvasRenderingContext2D, value: string, minX: number, maxX: number, cx: number, cy: number, font: string): void {
+  ctx.font = font;
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  const label = 'Index ';
+  const labelW = ctx.measureText(label).width, valueW = ctx.measureText(value).width;
+  for (const showLabel of [true, false]) {
+    const w = valueW + (showLabel ? labelW : 0);
+    const x = Math.min(Math.max(cx - w / 2, minX), maxX - w);
+    if (x < minX) continue;
+    if (showLabel) {
+      ctx.fillStyle = DIM;
+      ctx.fillText(label, x, cy);
+    }
+    ctx.fillStyle = MID;
+    ctx.fillText(value, x + (showLabel ? labelW : 0), cy);
+    return;
+  }
+}
+
 function drawTimeAxis(
   ctx: CanvasRenderingContext2D,
   r: Rect,
   columns: Geometry[],
   frame: TimeFrame,
   s: PanelStyle,
-  updated: Date,
+  model: ScreenModel,
 ): void {
   ctx.save();
-  ctx.font = s.axisFont;
-  ctx.textBaseline = 'top';
-
-  const stampLeft = drawStamp(ctx, r, s.axisFont, s.pad, updated) - 6;
+  // Source name bottom-left, frame timestamp bottom-right; time labels keep clear of both.
+  const sourceRight = drawCorner(ctx, r, s.axisFont, s.pad, model.source, 'left') + 6;
+  const stampLeft = drawCorner(ctx, r, s.axisFont, s.pad, formatStamp(model.updated), 'right') - 6;
 
   ctx.font = s.axisFont;
   ctx.textBaseline = 'top';
@@ -359,7 +391,7 @@ function drawTimeAxis(
   const utc = frame.intervalSec >= 86400;
   const step = frame.ticks.length > 1 ? frame.ticks[1]! - frame.ticks[0]! : frame.intervalSec;
   for (const g of columns) {
-    const minX = g.plot.x, maxX = Math.min(g.plot.x + g.plot.w + 30, stampLeft);
+    const minX = Math.max(g.plot.x, sourceRight), maxX = Math.min(g.plot.x + g.plot.w + 30, stampLeft);
     for (const t of frame.ticks) {
       const px = slotCenter(g, Math.round((frame.lastTime - t) / frame.intervalSec));
       const label = formatTime(t, step, utc);
@@ -418,87 +450,119 @@ function formatTime(t: number, step: number, utc: boolean): string {
   return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
 }
 
-/** Frame timestamp, right-aligned in `r`. Returns its left edge. */
-function drawStamp(ctx: CanvasRenderingContext2D, r: Rect, font: string, pad: number, updated: Date): number {
-  const stamp = updated.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  const x = r.x + r.w - pad;
+function formatStamp(updated: Date): string {
+  return updated.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+/** `text` in the bottom-left or bottom-right corner of `r`. Returns its inner edge. */
+function drawCorner(ctx: CanvasRenderingContext2D, r: Rect, font: string, pad: number, text: string, side: 'left' | 'right'): number {
+  const x = side === 'left' ? r.x + pad : r.x + r.w - pad;
   ctx.font = font;
-  ctx.textAlign = 'right';
+  ctx.textAlign = side;
   ctx.textBaseline = 'top';
   ctx.fillStyle = FG;
-  ctx.fillText(stamp, x, r.y + 2);
-  return x - ctx.measureText(stamp).width;
+  ctx.fillText(text, x, r.y + 2);
+  const w = ctx.measureText(text).width;
+  return side === 'left' ? x + w : x - w;
+}
+
+type Cell = { text: string; color: string; bold?: boolean };
+
+/** Name, price and 24h volume (unlabelled), or name and error. */
+function marketCells(m: MarketData): Cell[] {
+  const last = m.last ?? m.candles.at(-1)?.close;
+  if (m.error || last === undefined) return [{ text: m.market, color: MID }, { text: m.error ?? 'no data', color: DIM }];
+  const cells: Cell[] = [{ text: m.market, color: MID }, { text: formatPrice(last), color: FG, bold: true }];
+  if (m.dayVolume !== undefined) cells.push({ text: formatVolume(m.dayVolume), color: MID });
+  return cells;
+}
+
+function cellFont(c: Cell, px: number): string {
+  return `${c.bold ? '600 ' : ''}${px}px ${FONT}`;
+}
+
+/** Markets packed left to right, wrapping onto a new line when the next one doesn't fit in `width`. */
+function flowLines(ctx: CanvasRenderingContext2D, items: MarketData[], width: number): Cell[][][] {
+  const lines: Cell[][][] = [];
+  let lineW = 0;
+  for (const m of items) {
+    const cells = marketCells(m);
+    const w = cells.reduce((sum, c, i) => {
+      ctx.font = cellFont(c, LIST_PX);
+      return sum + ctx.measureText(c.text).width + (i ? CELL_GAP : 0);
+    }, 0);
+    if (lines.length && lineW + ITEM_GAP + w <= width) {
+      lines.at(-1)!.push(cells);
+      lineW += ITEM_GAP + w;
+    } else {
+      lines.push([cells]);
+      lineW = w;
+    }
+  }
+  return lines;
 }
 
 /**
- * One market per line, in columns: market, price, 24h change, 24h volume.
- * Under the charts it uses small fixed lines; `full` scales it to fill `r`.
+ * The markets that aren't charted. Under the charts they flow along each line,
+ * wrapping as needed; `full` (no charts) gives one market per line in columns,
+ * scaled to fill `r`.
  */
 function drawMarketList(ctx: CanvasRenderingContext2D, items: MarketData[], r: Rect, full: boolean): void {
   if (items.length === 0) return;
   ctx.save();
-  const lineH = full ? Math.min(40, Math.floor((r.h - 8) / items.length)) : LIST_LINE_H;
-  const px = full ? Math.max(13, Math.min(24, Math.round(lineH * 0.6))) : 13;
-  const font = `${px}px ${FONT}`;
-  const gap = full ? 24 : 16;
-  const x0 = r.x + 6, xEnd = r.x + r.w - 6;
-  let y = full ? r.y + Math.round((r.h - items.length * lineH) / 2) : r.y + 4;
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  const x0 = r.x + 6;
+  const draw = (c: Cell, x: number, cy: number, px: number) => {
+    ctx.font = cellFont(c, px);
+    ctx.fillStyle = c.color;
+    ctx.fillText(c.text, x, cy);
+    return ctx.measureText(c.text).width;
+  };
+
   if (!full) {
     ctx.fillStyle = DIM;
     ctx.fillRect(r.x, r.y, r.w, 1);
+    let y = r.y + 4;
+    for (const line of flowLines(ctx, items, r.w - 12)) {
+      const cy = y + LIST_LINE_H / 2 + 1;
+      let x = x0;
+      for (const cells of line) {
+        for (const c of cells) x += draw(c, x, cy, LIST_PX) + CELL_GAP;
+        x += ITEM_GAP - CELL_GAP;
+      }
+      y += LIST_LINE_H;
+    }
+    ctx.restore();
+    return;
   }
 
-  // [market, price, change, volume] per row, with each cell's colour.
-  const rows = items.map((m): [string, string][] => {
-    const last = m.candles.at(-1);
-    if (m.error || !last) return [[m.market, MID], [m.error ?? 'no data', DIM], ['', DIM], ['', DIM]];
-    const ch = change24h(m.candles);
-    const base = m.market.split('-')[0];
-    return [
-      [m.market, MID],
-      [formatPrice(last.close), FG],
-      [ch === null ? '' : `${ch >= 0 ? '+' : ''}${(ch * 100).toFixed(2)}%`, MID],
-      [m.dayVolume === undefined ? '' : `Vol ${formatVolume(m.dayVolume)} ${base}`, MID],
-    ];
-  });
-
-  ctx.font = font;
-  ctx.textBaseline = 'middle';
-  const colW = [0, 1, 2].map((i) => {
-    ctx.font = i === 1 ? `600 ${px}px ${FONT}` : font;
-    // Error rows span the columns, so they don't set widths.
-    return Math.max(...rows.map((row) => row[1]![1] === DIM && i > 0 ? 0 : ctx.measureText(row[i]![0]).width));
-  });
-  // Market left-aligned; price, change and volume right-aligned.
-  const priceR = x0 + colW[0]! + gap + colW[1]!;
-  const changeR = priceR + gap + colW[2]!;
+  const lineH = Math.min(40, Math.floor((r.h - 8) / items.length));
+  const px = Math.max(13, Math.min(24, Math.round(lineH * 0.6)));
+  const gap = 24;
+  const rows = items.map(marketCells);
+  // Columns: name left-aligned, price right-aligned, volume left-aligned beside it.
+  const colW = (i: number) => Math.max(...rows.map((row) => {
+    if (!row[i] || (i > 0 && row[1]!.color === DIM)) return 0; // Errors span the columns.
+    ctx.font = cellFont(row[i]!, px);
+    return ctx.measureText(row[i]!.text).width;
+  }));
+  const priceR = x0 + colW(0) + gap + colW(1);
+  let y = r.y + Math.round((r.h - items.length * lineH) / 2);
   for (const row of rows) {
     const cy = y + lineH / 2 + 1;
-    const cells: [number, CanvasTextAlign][] = row[1]![1] === DIM
-      ? [[x0, 'left'], [x0 + colW[0]! + gap, 'left'], [0, 'left'], [0, 'left']]
-      : [[x0, 'left'], [priceR, 'right'], [changeR, 'right'], [xEnd, 'right']];
-    row.forEach(([text, color], i) => {
-      if (!text) return;
-      ctx.fillStyle = color;
-      ctx.textAlign = cells[i]![1];
-      ctx.font = i === 1 && color === FG ? `600 ${px}px ${FONT}` : font;
-      ctx.fillText(text, cells[i]![0], cy);
-    });
+    draw(row[0]!, x0, cy, px);
+    if (row[1]!.color === DIM) {
+      draw(row[1]!, x0 + colW(0) + gap, cy, px);
+    } else {
+      ctx.textAlign = 'right';
+      draw(row[1]!, priceR, cy, px);
+      ctx.textAlign = 'left';
+      if (row[2]) draw(row[2], priceR + gap / 2, cy, px);
+    }
     y += lineH;
   }
   ctx.restore();
-}
-
-/** Change from the close ~24h ago (or the oldest candle we have) to the latest close. */
-function change24h(candles: Candle[]): number | null {
-  if (candles.length < 2) return null;
-  const last = candles[candles.length - 1]!;
-  const cutoff = Date.now() / 1000 - 86400;
-  let ref = candles[0]!.open;
-  for (let i = candles.length - 2; i >= 0; i--) {
-    if (candles[i]!.time <= cutoff) { ref = candles[i]!.close; break; }
-  }
-  return ref ? last.close / ref - 1 : null;
 }
 
 export function formatPrice(p: number): string {

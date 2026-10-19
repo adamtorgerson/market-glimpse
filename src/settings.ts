@@ -1,5 +1,4 @@
-export const KRAKEN_INTERVALS = [1, 5, 15, 30, 60, 240, 1440, 10080, 21600] as const;
-export type KrakenInterval = (typeof KRAKEN_INTERVALS)[number];
+import { DEFAULT_SOURCE, getSource, SOURCES } from './sources';
 
 export const CANDLE_WIDTHS = ['wide', 'narrow', 'thin'] as const;
 export type CandleWidth = (typeof CANDLE_WIDTHS)[number];
@@ -8,12 +7,14 @@ export const MAX_CHARTS = 4;
 export const MAX_MARKETS = 8;
 
 export interface Settings {
+  /** Market data source id, e.g. "kraken". */
+  source: string;
   /** Markets to monitor, e.g. "BTC-USDC". */
   markets: string[];
   /** Subset of `markets` drawn as charts (0–4). The rest are listed under the charts, or full screen if none. */
   charts: string[];
-  /** Candle width in minutes. */
-  interval: KrakenInterval;
+  /** Candle size in minutes; one the source supports. */
+  interval: number;
   /** Candle body width: wide = 6px (4px in quadrants), narrow = 3px, thin = 2px. */
   candleWidth: CandleWidth;
   /** Seconds between updates. */
@@ -23,12 +24,13 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
+  source: DEFAULT_SOURCE,
   markets: ['BTC-USDC', 'ETH-USDC'],
   charts: ['BTC-USDC'],
   interval: 5,
-  candleWidth: 'thin',
+  candleWidth: 'narrow',
   refreshSec: 120,
-  displaySec: 10,
+  displaySec: 12,
 };
 
 export function normalizeMarket(raw: string): string {
@@ -38,15 +40,14 @@ export function normalizeMarket(raw: string): string {
 /** Coerce arbitrary (possibly stale or hand-edited) input into valid settings. */
 export function sanitize(input: Partial<Settings>): Settings {
   const d = DEFAULT_SETTINGS;
+  const source = SOURCES.some((s) => s.id === input.source) ? input.source! : d.source;
   const markets = dedupe((input.markets ?? d.markets).map(normalizeMarket).filter(Boolean)).slice(0, MAX_MARKETS);
   if (markets.length === 0) markets.push(...d.markets);
 
   let charts = dedupe((input.charts ?? d.charts).map(normalizeMarket)).filter((m) => markets.includes(m));
   charts = charts.slice(0, MAX_CHARTS);
 
-  const interval = (KRAKEN_INTERVALS as readonly number[]).includes(Number(input.interval))
-    ? (Number(input.interval) as KrakenInterval)
-    : d.interval;
+  const interval = nearestInterval(getSource(source).intervals, Number(input.interval) || d.interval);
 
   const candleWidth = (CANDLE_WIDTHS as readonly string[]).includes(input.candleWidth as string)
     ? input.candleWidth!
@@ -56,7 +57,14 @@ export function sanitize(input: Partial<Settings>): Settings {
   // The chart has to come down before the next update goes up.
   const displaySec = Math.min(clampInt(input.displaySec, 1, 3600, d.displaySec), refreshSec - 1);
 
-  return { markets, charts, interval, candleWidth, refreshSec, displaySec };
+  return { source, markets, charts, interval, candleWidth, refreshSec, displaySec };
+}
+
+/** `minutes` if supported, else the supported size closest to it (by ratio). */
+export function nearestInterval(supported: readonly number[], minutes: number): number {
+  if (supported.includes(minutes)) return minutes;
+  const dist = (m: number) => Math.abs(Math.log(m / minutes));
+  return supported.reduce((best, m) => (dist(m) < dist(best) ? m : best));
 }
 
 function clampInt(v: unknown, min: number, max: number, fallback: number): number {
