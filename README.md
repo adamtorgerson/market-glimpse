@@ -25,14 +25,22 @@ refreshes every 2m, chart shown for 12s, narrow candles.
 - **Candle width**: Wide (6px, or 4px in quadrants), Narrow (3px, the default)
   or Thin (2px). Narrower candles fit more history. At 2px, down candles are
   drawn solid and dimmer rather than hollow.
+- **Show index price (CoinGecko)**: on by default. Turn it off to skip the
+  CoinGecko request on each update.
+- **Manual only**: no scheduled updates. Nothing is fetched and the glasses
+  stay dark until you press **Show now** or tap the glasses, which saves
+  battery on both devices. The refresh rate is ignored while this is on.
 - **Refresh every / Show chart for**: durations like `30s`, `2m`, `1h`. The
   refresh must leave room for one request per 2.5s: 15s minimum, and 2.5s
   per request beyond that (1 + one per chart, so 15s always fits).
 
 Changes apply as you make them. Ticking or unticking a chart, or changing the
-candle size, candle width or data source, updates the glasses at once, like
+candle size, candle width, index price or data source, updates the glasses at once, like
 **Show now**. Other changes (markets in the list, refresh rate, show-for time)
 wait for the next scheduled update. A new refresh rate re-times that update.
+
+The phone page's "Next update in…" countdown only ticks while the page is
+visible, so it doesn't wake the phone every second in the background.
 
 Settings persist through the Even app's storage, or through `localStorage` in a
 plain browser.
@@ -46,8 +54,12 @@ down. It covers the rate limit's current wait, the update's actual requests
 (including Kraken's one-time pair list), each API's recent response times,
 and recent draw and upload times. If an update is already running, it shows
 that update's remaining time.
-Either way the chart goes up as four tiles, which appear one by one as they
-arrive. The SDK can't hold them back and reveal them together.
+Either way the chart goes up as four 288×144 tiles, each drawn as soon as it
+arrives. The SDK can't hold them back and reveal them together: a page takes
+at most 4 images, text containers have no background to hide them behind,
+and a rebuild clears them. So all four are sent at once instead of waiting for
+each to be acknowledged, keeping the gap between the first and last short.
+Any tile the bridge rejects is retried on its own.
 
 On the glasses, a tap while the chart is up dismisses it early. A tap while
 the display is dark fetches and shows a fresh chart.

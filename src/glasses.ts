@@ -142,15 +142,21 @@ export class Glasses {
       throw new Error('Could not rebuild glasses page');
     }
 
-    // The link is slow; send tiles one at a time. Each tile shows as soon as it
-    // lands, and there's no way to hide them until all four are in: text
+    // Each tile shows as soon as it lands, and there's no way to hold them back
+    // and reveal all four together: a page takes at most 4 images, text
     // containers have no background to cover them, and a rebuild clears them.
+    // So send all four at once rather than waiting for each to be
+    // acknowledged, to keep the gap between the first and last tile short.
+    // Any the bridge rejects are retried one at a time.
+    const upload = (i: number) => this.bridge.updateImageRawData(new ImageRawDataUpdate({
+      containerID: TILE_ID_BASE + i,
+      containerName: `tile-${i}`,
+      imageData: tiles[i]!.png,
+    }));
+    const results = await Promise.all(tiles.map((_, i) => upload(i).catch(() => null)));
     for (let i = 0; i < tiles.length; i++) {
-      const res = await this.bridge.updateImageRawData(new ImageRawDataUpdate({
-        containerID: TILE_ID_BASE + i,
-        containerName: `tile-${i}`,
-        imageData: tiles[i]!.png,
-      }));
+      if (results[i] !== null && ImageRawDataUpdateResult.isSuccess(results[i]!)) continue;
+      const res = await upload(i);
       if (!ImageRawDataUpdateResult.isSuccess(res)) throw new Error(`Image upload failed: ${res}`);
     }
   }

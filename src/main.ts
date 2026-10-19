@@ -70,6 +70,11 @@ function setShowing(v: boolean): void {
 }
 let inFlight: AbortController | null = null;
 
+/** Charted markets to look up on CoinGecko; none if the index is turned off. */
+function indexMarkets(s: Settings): string[] {
+  return s.showIndex ? s.charts : [];
+}
+
 function marketRequest(s: Settings): MarketRequest {
   return {
     markets: s.markets,
@@ -121,7 +126,7 @@ let uploadMs = 1000;
 function estimateUpdateMs(): number {
   const fetchMs = Math.max(
     getSource(settings.source).estimateMs(marketRequest(settings)),
-    estimateIndexMs(settings.charts),
+    estimateIndexMs(indexMarkets(settings)),
   );
   return fetchMs + drawMs + (glasses ? uploadMs : 0);
 }
@@ -146,7 +151,7 @@ async function runUpdate(ctrl: AbortController, showAt: number): Promise<void> {
     // Different APIs, so these run side by side; each keeps its own rate limit.
     const [markets, index] = await Promise.all([
       getSource(s.source).fetch(marketRequest(s), ctrl.signal),
-      fetchIndexPrices(s.charts, ctrl.signal),
+      fetchIndexPrices(indexMarkets(s), ctrl.signal),
     ]);
     data = markets.map((d) => ({ ...d, index: index.get(d.market) }));
   } catch {
@@ -217,14 +222,17 @@ async function hide(): Promise<void> {
  * slack, so the finished chart goes up on time with no loading screen.
  */
 function restartSchedule(opts: UpdateOptions = {}): void {
-  void update(opts);
+  // Manual-only: nothing is fetched until the user asks.
+  if (opts.manual || !settings.manualOnly) void update(opts);
   scheduleAt(Date.now() + settings.refreshSec * 1000);
 }
 
-/** Schedule the next chart for `at` (ms), and the ones after it every `refreshSec`. */
+/** Schedule the next chart for `at` (ms), and the ones after it every `refreshSec`. None in manual-only mode. */
 function scheduleAt(at: number): void {
   clearTimeout(nextTimer);
-  nextAt = at;
+  nextAt = settings.manualOnly ? 0 : at;
+  syncCountdown();
+  if (settings.manualOnly) return;
   const leadMs = estimateUpdateMs() + 1000;
   nextTimer = setTimeout(() => {
     void update({ showAt: at });
@@ -237,12 +245,27 @@ function setStatus(text: string, errors: string[] = []): void {
   if (errors.length) statusEl.textContent += ` · ${errors.join('; ')}`;
 }
 
-setInterval(() => {
+function renderSchedule(): void {
+  const shown = `shown for ${formatDuration(settings.displaySec)}`;
+  if (settings.manualOnly) {
+    scheduleEl.textContent = `Manual only: press Show now or tap the glasses · ${shown}`;
+    return;
+  }
   const secs = Math.max(0, Math.round((nextAt - Date.now()) / 1000));
-  scheduleEl.textContent = nextAt
-    ? `Next update in ${formatDuration(secs)} · every ${formatDuration(settings.refreshSec)}, shown for ${formatDuration(settings.displaySec)}`
-    : '';
-}, 1000);
+  scheduleEl.textContent = nextAt ? `Next update in ${formatDuration(secs)} · every ${formatDuration(settings.refreshSec)}, ${shown}` : '';
+}
+
+// The countdown only ticks while the page is visible (and there is one), so
+// the phone isn't woken every second for text nobody can see.
+let countdownTimer: ReturnType<typeof setInterval> | undefined;
+function syncCountdown(): void {
+  clearInterval(countdownTimer);
+  countdownTimer = undefined;
+  if (document.hidden) return;
+  renderSchedule();
+  if (!settings.manualOnly) countdownTimer = setInterval(renderSchedule, 1000);
+}
+document.addEventListener('visibilitychange', syncCountdown);
 
 // ── Settings form ───────────────────────────────────────────────────────
 
@@ -252,6 +275,8 @@ const marketList = $<HTMLUListElement>('markets');
 const addMarketBtn = $<HTMLButtonElement>('add-market');
 const intervalSel = $<HTMLSelectElement>('interval');
 const candleWidthSel = $<HTMLSelectElement>('candle-width');
+const showIndexBox = $<HTMLInputElement>('show-index');
+const manualOnlyBox = $<HTMLInputElement>('manual-only');
 const refreshInput = $<HTMLInputElement>('refresh');
 const displayInput = $<HTMLInputElement>('display');
 const formError = $('form-error');
@@ -330,6 +355,9 @@ function fillForm(s: Settings): void {
   for (const m of s.markets) addMarketRow(m, s.charts.includes(m));
   candleWidthSel.value = s.candleWidth;
   refreshWidthLabels();
+  showIndexBox.checked = s.showIndex;
+  manualOnlyBox.checked = s.manualOnly;
+  refreshInput.disabled = s.manualOnly;
   refreshInput.value = formatDuration(s.refreshSec);
   displayInput.value = formatDuration(s.displaySec);
   formError.textContent = '';
@@ -342,9 +370,10 @@ function readForm(): Settings {
   })).filter((r) => r.market);
   if (rows.length === 0) throw new Error('Add at least one market.');
 
+  const manualOnly = manualOnlyBox.checked;
   const refreshSec = parseDuration(refreshInput.value, 'Refresh');
   const displaySec = parseDuration(displayInput.value, 'Show-for');
-  if (displaySec >= refreshSec) throw new Error('Show-for must be shorter than the refresh interval.');
+  if (!manualOnly && displaySec >= refreshSec) throw new Error('Show-for must be shorter than the refresh interval.');
 
   const next = sanitize({
     source: sourceSel.value,
@@ -352,6 +381,8 @@ function readForm(): Settings {
     charts: rows.filter((r) => r.charted).map((r) => r.market),
     interval: Number(intervalSel.value),
     candleWidth: candleWidthSel.value as CandleWidth,
+    showIndex: showIndexBox.checked,
+    manualOnly,
     refreshSec,
     displaySec,
   });
@@ -359,7 +390,7 @@ function readForm(): Settings {
   // requests before the next one is due.
   const src = getSource(next.source);
   const minRefresh = Math.max(15, Math.ceil((src.requestsPerUpdate(marketRequest(next)) * MIN_GAP_MS) / 1000));
-  if (refreshSec < minRefresh) {
+  if (!manualOnly && refreshSec < minRefresh) {
     throw new Error(`Refresh must be at least ${formatDuration(minRefresh)} for ${next.charts.length} chart(s) (one ${src.label} request per ${MIN_GAP_MS / 1000}s).`);
   }
   return next;
@@ -383,6 +414,7 @@ async function applyForm(): Promise<void> {
     if (text.value) text.value = normalizeMarket(text.value);
   }
   refreshInput.value = formatDuration(next.refreshSec);
+  refreshInput.disabled = next.manualOnly;
   displayInput.value = formatDuration(next.displaySec);
 
   if (JSON.stringify(next) === JSON.stringify(settings)) return;
@@ -393,8 +425,11 @@ async function applyForm(): Promise<void> {
   // Show now. Anything else (markets in the list, timings) waits for the
   // schedule, re-timed if the refresh rate changed.
   const chartChanged = next.source !== prev.source || next.interval !== prev.interval
-    || next.candleWidth !== prev.candleWidth || next.charts.join() !== prev.charts.join();
+    || next.candleWidth !== prev.candleWidth || next.charts.join() !== prev.charts.join()
+    || next.showIndex !== prev.showIndex;
   if (chartChanged) restartSchedule({ cancel: true, manual: true });
+  // Leaving manual-only: fetch in the background now and start the schedule.
+  else if (prev.manualOnly && !next.manualOnly) restartSchedule();
   else scheduleAt(nextAt - prev.refreshSec * 1000 + next.refreshSec * 1000);
 }
 
@@ -440,6 +475,22 @@ function formatDuration(sec: number): string {
 async function boot(): Promise<void> {
   canvas.width = SCREEN_W;
   canvas.height = SCREEN_H;
+  drawPlaceholder('Loading…');
+  setStatus('Connecting to glasses…');
+  glasses = await Glasses.connect();
+  // Tap while the chart is up dismisses it; tap while dark pulls a fresh one.
+  glasses?.onTap(toggleChart);
+  settings = await loadSettings();
+  fillForm(settings);
+  if (settings.manualOnly) {
+    drawPlaceholder('Press Show now');
+    setStatus(glasses ? 'Glasses connected' : 'Browser preview (glasses not connected)');
+  }
+  restartSchedule();
+}
+
+/** Message on the phone preview before there's a chart to show. */
+function drawPlaceholder(text: string): void {
   const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, SCREEN_W, SCREEN_H);
@@ -447,14 +498,7 @@ async function boot(): Promise<void> {
   ctx.font = '20px system-ui, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('Loading…', SCREEN_W / 2, SCREEN_H / 2);
-  setStatus('Connecting to glasses…');
-  glasses = await Glasses.connect();
-  // Tap while the chart is up dismisses it; tap while dark pulls a fresh one.
-  glasses?.onTap(toggleChart);
-  settings = await loadSettings();
-  fillForm(settings);
-  restartSchedule();
+  ctx.fillText(text, SCREEN_W / 2, SCREEN_H / 2);
 }
 
 void boot();

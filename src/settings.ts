@@ -17,6 +17,10 @@ export interface Settings {
   interval: number;
   /** Candle body width: wide = 6px (4px in quadrants), narrow = 3px, thin = 2px. */
   candleWidth: CandleWidth;
+  /** Show CoinGecko's index price in each chart header (one extra request per update). */
+  showIndex: boolean;
+  /** No scheduled updates: fetch and show only on Show now or a tap. */
+  manualOnly: boolean;
   /** Seconds between updates. */
   refreshSec: number;
   /** Seconds the chart stays on the glasses after each update. */
@@ -29,6 +33,8 @@ export const DEFAULT_SETTINGS: Settings = {
   charts: ['BTC-USDC'],
   interval: 5,
   candleWidth: 'narrow',
+  showIndex: true,
+  manualOnly: false,
   refreshSec: 120,
   displaySec: 12,
 };
@@ -57,7 +63,10 @@ export function sanitize(input: Partial<Settings>): Settings {
   // The chart has to come down before the next update goes up.
   const displaySec = Math.min(clampInt(input.displaySec, 1, 3600, d.displaySec), refreshSec - 1);
 
-  return { source, markets, charts, interval, candleWidth, refreshSec, displaySec };
+  const showIndex = typeof input.showIndex === 'boolean' ? input.showIndex : d.showIndex;
+  const manualOnly = typeof input.manualOnly === 'boolean' ? input.manualOnly : d.manualOnly;
+
+  return { source, markets, charts, interval, candleWidth, showIndex, manualOnly, refreshSec, displaySec };
 }
 
 /** `minutes` if supported, else the supported size closest to it (by ratio). */
