@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>MarketGlimpse</title>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>MarketGlimpse</h1>
+        <p id="status" class="muted">Starting…</p>
+      </header>
+
+      <section class="preview" aria-label="Glasses preview">
+        <canvas id="screen" width="576" height="288"></canvas>
+      </section>
+      <p id="schedule" class="muted small"></p>
+
+      <div class="actions">
+        <button id="show-now" type="button">Show now</button>
+      </div>
+
+      <form id="settings" autocomplete="off">
+        <fieldset>
+          <legend>Markets</legend>
+          <p class="muted small">Up to 8 markets. Tick up to 4 to chart; the rest are listed under the charts, or fill the screen if none are ticked. Changes apply immediately.</p>
+          <ul id="markets"></ul>
+          <button id="add-market" type="button" class="secondary">+ Add market</button>
+        </fieldset>
+
+        <fieldset>
+          <legend>Chart</legend>
+          <label>Candle size
+            <select name="interval" id="interval"></select>
+          </label>
+          <label>Candle width
+            <select name="candle-width" id="candle-width"></select>
+          </label>
+          <label>Refresh every
+            <input name="refresh" id="refresh" inputmode="text" placeholder="2m" />
+          </label>
+          <label>Show chart for
+            <input name="display" id="display" inputmode="text" placeholder="10s" />
+          </label>
+          <p class="muted small">Durations accept s, m or h, e.g. <code>90s</code>, <code>2m</code>, <code>1h</code>.</p>
+        </fieldset>
+
+        <p id="form-error" class="error" role="alert"></p>
+        <div class="actions">
+          <button id="reset" type="button" class="secondary">Restore defaults</button>
+        </div>
+      </form>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,105 @@
+:root {
+  color-scheme: dark;
+  --bg: #0d0f0e;
+  --panel: #171a19;
+  --line: #2a2f2d;
+  --fg: #e8ece9;
+  --muted: #8b948f;
+  --accent: #4ade80;
+  --error: #f87171;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+main {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+h1 { font-size: 1.3rem; margin: 0 0 4px; }
+.muted { color: var(--muted); margin: 0; }
+.small { font-size: 0.85rem; }
+.error { color: var(--error); min-height: 1.2em; margin: 8px 0 0; }
+
+.preview {
+  position: relative;
+  margin: 16px 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: #000;
+}
+.preview canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  image-rendering: pixelated;
+}
+/* Tint to approximate the green waveguide display. */
+.preview::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--accent);
+  mix-blend-mode: multiply;
+  pointer-events: none;
+}
+
+.actions { display: flex; gap: 8px; margin: 12px 0; }
+
+button {
+  font: inherit;
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #04110a;
+  font-weight: 600;
+}
+button.secondary { background: transparent; color: var(--fg); border-color: var(--line); }
+button:disabled { opacity: 0.4; }
+
+fieldset {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  margin: 16px 0 0;
+  padding: 12px;
+}
+legend { padding: 0 6px; color: var(--muted); font-size: 0.9rem; }
+
+label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 10px 0;
+}
+
+input, select {
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  min-width: 0;
+}
+label > input, label > select { width: 8rem; }
+
+#markets { list-style: none; margin: 10px 0; padding: 0; }
+#markets li { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+#markets li input[type="text"] { flex: 1; text-transform: uppercase; }
+#markets li label { margin: 0; gap: 6px; font-size: 0.9rem; color: var(--muted); }
+#markets li input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent); }
+#markets li button { padding: 6px 12px; }
+
+code { color: var(--fg); }
