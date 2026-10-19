@@ -27,7 +27,7 @@
           <label>Data source
             <select name="source" id="source"></select>
           </label>
-          <p class="muted small">Public APIs are called at most once every 2.5s, with calls grouped and only the history that fits on screen.</p>
+          <p class="muted small">Public APIs are called at most once every 1.5s, with calls grouped and only the history that fits on screen.</p>
         </fieldset>
 
         <fieldset>
@@ -51,6 +51,13 @@
           <label>Manual only (Show now or tap)
             <input type="checkbox" name="manual-only" id="manual-only" />
           </label>
+          <label class="sub">Also update when I look up
+            <input type="checkbox" name="look-up" id="look-up" />
+          </label>
+          <div class="sub row">
+            <span id="look-up-status" class="muted small">Not calibrated</span>
+            <button id="calibrate" type="button" class="secondary">Calibrate</button>
+          </div>
           <label>Refresh every
             <input name="refresh" id="refresh" inputmode="text" placeholder="2m" />
           </label>

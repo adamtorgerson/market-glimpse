@@ -4,12 +4,14 @@ import {
   ImageContainerProperty,
   ImageRawDataUpdate,
   ImageRawDataUpdateResult,
+  ImuReportPace,
   OsEventTypeList,
   RebuildPageContainer,
   StartUpPageCreateResult,
   TextContainerProperty,
   waitForEvenAppBridge,
 } from '@evenrealities/even_hub_sdk';
+import type { Vec } from './lookup';
 import type { Tile } from './png';
 
 const CAPTURE_ID = 1;
@@ -17,6 +19,8 @@ const CAPTURE_NAME = 'capture';
 const LABEL_ID = 2;
 const LABEL_NAME = 'label';
 const TILE_ID_BASE = 3;
+// Corner text on the loading screen: app name, data source, time.
+const CORNER_ID_BASE = 7;
 // Text renders from the container's top-left, so the box is placed to centre
 // the message, using the glasses font's rough width per character
 // ("Loading… ~4s" is ~118px in the simulator).
@@ -24,6 +28,17 @@ const LABEL_CHAR_W = 9.5;
 const LABEL_Y = 130;
 const LABEL_W = 200;
 const LABEL_H = 30;
+// Glyphs sit ~6px below a text container's top, and are ~21px tall.
+const CORNER_PAD = 4;
+const CORNER_H = 30;
+
+/** What the loading screen shows: a centred message plus three corners. */
+export interface LoadingScreen {
+  message: string;
+  topLeft: string;
+  bottomLeft: string;
+  bottomRight: string;
+}
 
 /**
  * Thin wrapper over the Even Hub bridge.
@@ -31,16 +46,17 @@ const LABEL_H = 30;
  * The page alternates between two layouts:
  *  - "blank": one empty text container. Nothing lit = display effectively off,
  *    while the app stays alive so the refresh timer keeps running.
- *  - "loading": the same, plus a small centred text container with a message,
- *    shown while the chart is fetched, drawn and encoded.
+ *  - "loading": the same, plus text containers for a centred message and
+ *    three corners (app name, data source, time), shown while the chart is
+ *    fetched, drawn and encoded.
  *  - "chart": up to 4 image tiles (each max 288x144) covering the 576x288 screen,
  *    plus the empty text container behind them to receive touch events. If
  *    the loading message was up, it stays behind the tiles until they cover it.
  */
 export class Glasses {
   private pageCreated = false;
-  /** The message `loading` last put up, kept behind the tiles by `show`. */
-  private loadingMessage = 'Loading…';
+  /** The screen `loading` last put up, kept behind the tiles by `show`. */
+  private loadingScreen: LoadingScreen | null = null;
   private queue: Promise<unknown> = Promise.resolve();
 
   private constructor(readonly bridge: EvenAppBridge) {}
@@ -80,12 +96,29 @@ export class Glasses {
     return this.serial(() => this.setPage([], []));
   }
 
-  loading(message = 'Loading…'): Promise<void> {
-    this.loadingMessage = message;
-    return this.serial(() => this.setPage([], [], message));
+  loading(screen: LoadingScreen): Promise<void> {
+    this.loadingScreen = screen;
+    return this.serial(() => this.setPage([], [], screen));
   }
 
-  /** `keepLoading`: leave the loading message behind the tiles, so it stays up until they cover it. */
+  /** Just a centred message, e.g. calibration prompts. */
+  message(text: string): Promise<void> {
+    return this.serial(() => this.setPage([], [], { message: text, topLeft: '', bottomLeft: '', bottomRight: '' }));
+  }
+
+  /** Start or stop the glasses' motion-sensor (IMU) readings. */
+  async setImu(on: boolean): Promise<void> {
+    if (!(await this.bridge.imuControl(on, ImuReportPace.P500))) throw new Error('Could not switch the motion sensor');
+  }
+
+  onImu(cb: (v: Vec) => void): () => void {
+    return this.bridge.onEvenHubEvent((e) => {
+      const d = e.sysEvent?.eventType === OsEventTypeList.IMU_DATA_REPORT ? e.sysEvent.imuData : undefined;
+      if (d) cb([d.x ?? 0, d.y ?? 0, d.z ?? 0]);
+    });
+  }
+
+  /** `keepLoading`: leave the loading screen behind the tiles, so it stays up until they cover it. */
   show(tiles: Tile[], keepLoading = false): Promise<void> {
     return this.serial(async () => {
       const images = tiles.map((t, i) => new ImageContainerProperty({
@@ -95,13 +128,14 @@ export class Glasses {
         height: t.h,
         containerID: TILE_ID_BASE + i,
         containerName: `tile-${i}`,
-        zOrderIndex: 2 + i,
+        // In front of the loading screen's text (z 0–4).
+        zOrderIndex: 5 + i,
       }));
-      await this.setPage(images, tiles, keepLoading ? this.loadingMessage : undefined);
+      await this.setPage(images, tiles, keepLoading ? this.loadingScreen ?? undefined : undefined);
     });
   }
 
-  private async setPage(images: ImageContainerProperty[], tiles: Tile[], message?: string): Promise<void> {
+  private async setPage(images: ImageContainerProperty[], tiles: Tile[], screen?: LoadingScreen): Promise<void> {
     const capture = new TextContainerProperty({
       xPosition: 0,
       yPosition: 0,
@@ -114,17 +148,39 @@ export class Glasses {
       zOrderIndex: 0,
     });
     const texts = [capture];
-    if (message) {
+    if (screen) {
+      // Text renders from each container's top-left, so containers are placed
+      // by the text's estimated width to centre or right-align it.
+      const widthOf = (t: string) => Math.ceil(t.length * LABEL_CHAR_W);
+      const corners: [string, number, number][] = [
+        [screen.topLeft, CORNER_PAD, 0],
+        [screen.bottomLeft, CORNER_PAD, 288 - CORNER_H],
+        [screen.bottomRight, 576 - CORNER_PAD - widthOf(screen.bottomRight), 288 - CORNER_H],
+      ];
+      corners.forEach(([text, x, y], i) => {
+        if (!text) return;
+        texts.push(new TextContainerProperty({
+          xPosition: Math.max(0, x),
+          yPosition: y,
+          width: Math.min(576 - Math.max(0, x), widthOf(text) + 20),
+          height: CORNER_H,
+          containerID: CORNER_ID_BASE + i,
+          containerName: `corner-${i}`,
+          content: text,
+          isEventCapture: 0,
+          zOrderIndex: 1 + i,
+        }));
+      });
       texts.push(new TextContainerProperty({
-        xPosition: Math.round(288 - (message.length * LABEL_CHAR_W) / 2),
+        xPosition: Math.round(288 - widthOf(screen.message) / 2),
         yPosition: LABEL_Y,
         width: LABEL_W,
         height: LABEL_H,
         containerID: LABEL_ID,
         containerName: LABEL_NAME,
-        content: message,
+        content: screen.message,
         isEventCapture: 0,
-        zOrderIndex: 1,
+        zOrderIndex: 4,
       }));
     }
     const fields = {

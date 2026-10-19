@@ -1,6 +1,7 @@
 import './style.css';
 import { candleCapacity, DEFAULT_AXIS_W, renderScreen, SCREEN_H, SCREEN_W } from './chart';
 import { Glasses } from './glasses';
+import { calibrate, LookUpDetector, type Vec } from './lookup';
 import { encodeTiles } from './png';
 import { average, MIN_GAP_MS } from './sources/http';
 import { getSource, SOURCES } from './sources';
@@ -20,6 +21,7 @@ import {
 } from './settings';
 
 const STORAGE_KEY = 'kraken-candles.settings';
+const APP_NAME = 'MarketGlimpse';
 // Largest image container the glasses accept.
 const TILE_W = 288;
 const TILE_H = 144;
@@ -139,7 +141,12 @@ function showLoading(etaSec: number): void {
   clearTimeout(hideTimer);
   setShowing(true);
   loading = true;
-  glasses.loading(`Loading… ~${etaSec}s`).catch((e) => setStatus(`Glasses error: ${(e as Error).message}`));
+  glasses.loading({
+    message: `Loading… ~${etaSec}s`,
+    topLeft: APP_NAME,
+    bottomLeft: getSource(settings.source).label,
+    bottomRight: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+  }).catch((e) => setStatus(`Glasses error: ${(e as Error).message}`));
 }
 
 async function runUpdate(ctrl: AbortController, showAt: number): Promise<void> {
@@ -277,6 +284,9 @@ const intervalSel = $<HTMLSelectElement>('interval');
 const candleWidthSel = $<HTMLSelectElement>('candle-width');
 const showIndexBox = $<HTMLInputElement>('show-index');
 const manualOnlyBox = $<HTMLInputElement>('manual-only');
+const lookUpBox = $<HTMLInputElement>('look-up');
+const lookUpStatus = $('look-up-status');
+const calibrateBtn = $<HTMLButtonElement>('calibrate');
 const refreshInput = $<HTMLInputElement>('refresh');
 const displayInput = $<HTMLInputElement>('display');
 const formError = $('form-error');
@@ -357,6 +367,8 @@ function fillForm(s: Settings): void {
   refreshWidthLabels();
   showIndexBox.checked = s.showIndex;
   manualOnlyBox.checked = s.manualOnly;
+  lookUpBox.checked = s.lookUpUpdate;
+  syncLookUpControls(s);
   refreshInput.disabled = s.manualOnly;
   refreshInput.value = formatDuration(s.refreshSec);
   displayInput.value = formatDuration(s.displaySec);
@@ -383,6 +395,8 @@ function readForm(): Settings {
     candleWidth: candleWidthSel.value as CandleWidth,
     showIndex: showIndexBox.checked,
     manualOnly,
+    lookUpUpdate: lookUpBox.checked,
+    lookUpCal: settings.lookUpCal,
     refreshSec,
     displaySec,
   });
@@ -416,11 +430,13 @@ async function applyForm(): Promise<void> {
   refreshInput.value = formatDuration(next.refreshSec);
   refreshInput.disabled = next.manualOnly;
   displayInput.value = formatDuration(next.displaySec);
+  syncLookUpControls(next);
 
   if (JSON.stringify(next) === JSON.stringify(settings)) return;
   const prev = settings;
   settings = next;
   await saveSettings(settings);
+  syncLookUp();
   // Changes to what's charted, or how, show the new chart right away, like
   // Show now. Anything else (markets in the list, timings) waits for the
   // schedule, re-timed if the refresh rate changed.
@@ -470,6 +486,93 @@ function formatDuration(sec: number): string {
   return `${sec}s`;
 }
 
+// ── Look up to update ───────────────────────────────────────────────────
+
+let lookUpDetector: LookUpDetector | null = null;
+/** Readings being collected for calibration; null when not calibrating. */
+let calibrationSamples: Vec[] | null = null;
+let imuOn = false;
+
+function onImuReading(v: Vec): void {
+  if (calibrationSamples) calibrationSamples.push(v);
+  else lookUpDetector?.push(v);
+}
+
+/** Look-up only applies in manual-only mode, once calibrated. */
+function lookUpActive(s: Settings): boolean {
+  return s.manualOnly && s.lookUpUpdate && s.lookUpCal !== null;
+}
+
+/**
+ * Run the motion sensor only while something needs it (look-up in use, or
+ * calibrating), since streaming readings costs battery on both devices.
+ */
+function syncLookUp(): void {
+  lookUpDetector = lookUpActive(settings)
+    ? new LookUpDetector(settings.lookUpCal!, () => {
+      // Like a tap while dark; ignored while a chart (or loading) is up.
+      if (!showing) restartSchedule({ manual: true });
+    })
+    : null;
+  const want = glasses !== null && (lookUpDetector !== null || calibrationSamples !== null);
+  if (want === imuOn) return;
+  imuOn = want;
+  glasses?.setImu(want).catch((e) => {
+    imuOn = !want;
+    lookUpStatus.textContent = (e as Error).message;
+  });
+}
+
+function syncLookUpControls(s: Settings): void {
+  lookUpBox.disabled = !s.manualOnly;
+  calibrateBtn.disabled = !glasses || calibrationSamples !== null;
+  if (calibrationSamples) return; // Calibration is writing its own status.
+  lookUpStatus.textContent = !glasses
+    ? 'Connect the glasses to calibrate'
+    : s.lookUpCal ? 'Calibrated' : 'Not calibrated: press Calibrate first';
+}
+
+/** Collect motion-sensor readings for `ms` while `prompt` is on the glasses. */
+async function collect(prompt: string, settleMs: number, ms: number): Promise<Vec[]> {
+  lookUpStatus.textContent = prompt;
+  await glasses!.message(prompt);
+  await new Promise((r) => setTimeout(r, settleMs));
+  calibrationSamples = [];
+  await new Promise((r) => setTimeout(r, ms));
+  const samples = calibrationSamples;
+  calibrationSamples = [];
+  return samples;
+}
+
+calibrateBtn.addEventListener('click', async () => {
+  if (!glasses || calibrationSamples) return;
+  clearTimeout(hideTimer);
+  setShowing(true);
+  calibrationSamples = [];
+  syncLookUpControls(settings);
+  syncLookUp();
+  let result: ReturnType<typeof calibrate>;
+  try {
+    const level = await collect('Look straight ahead', 2000, 2000);
+    const up = await collect('Now look up', 2000, 2000);
+    result = calibrate(level, up);
+  } catch (e) {
+    result = (e as Error).message;
+  }
+  calibrationSamples = null;
+  if (typeof result === 'string') {
+    await glasses.message('Calibration failed').catch(() => {});
+  } else {
+    settings = { ...settings, lookUpCal: result };
+    await saveSettings(settings);
+    await glasses.message('Calibrated').catch(() => {});
+  }
+  syncLookUp();
+  syncLookUpControls(settings);
+  if (typeof result === 'string') lookUpStatus.textContent = result;
+  hideTimer = setTimeout(hide, 1500);
+});
+
 // ── Boot ────────────────────────────────────────────────────────────────
 
 async function boot(): Promise<void> {
@@ -480,8 +583,10 @@ async function boot(): Promise<void> {
   glasses = await Glasses.connect();
   // Tap while the chart is up dismisses it; tap while dark pulls a fresh one.
   glasses?.onTap(toggleChart);
+  glasses?.onImu(onImuReading);
   settings = await loadSettings();
   fillForm(settings);
+  syncLookUp();
   if (settings.manualOnly) {
     drawPlaceholder('Press Show now');
     setStatus(glasses ? 'Glasses connected' : 'Browser preview (glasses not connected)');

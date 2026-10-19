@@ -30,8 +30,16 @@ refreshes every 2m, chart shown for 12s, narrow candles.
 - **Manual only**: no scheduled updates. Nothing is fetched and the glasses
   stay dark until you press **Show now** or tap the glasses, which saves
   battery on both devices. The refresh rate is ignored while this is on.
+  - **Also update when I look up**: a look-up acts like a tap. Press
+    **Calibrate** first, and follow the prompts on the glasses: look straight
+    ahead, then up, holding each for a few seconds. The SDK has no look-up
+    event and doesn't document its motion-sensor readings, so the app learns
+    your two positions. It triggers when your head moves 70% of the way from
+    the first to the second, and re-arms once you're back below 30%. The
+    sensor only runs while this is on (or while calibrating), since streaming
+    readings costs battery.
 - **Refresh every / Show chart for**: durations like `30s`, `2m`, `1h`. The
-  refresh must leave room for one request per 2.5s: 15s minimum, and 2.5s
+  refresh must leave room for one request per 1.5s: 15s minimum, and 1.5s
   per request beyond that (1 + one per chart, so 15s always fits).
 
 Changes apply as you make them. Ticking or unticking a chart, or changing the
@@ -48,7 +56,9 @@ plain browser.
 Scheduled updates fetch in the background while the display stays dark. They
 start early, by the same estimate plus a second, so the
 finished chart goes up on schedule with no loading screen. **Show now**, or a
-tap while the display is dark, shows "Loading… ~4s" until the chart is ready.
+tap while the display is dark, shows "Loading… ~3s" until the chart is ready,
+with the app name top-left, the data source bottom-left and the time
+bottom-right.
 The number is estimated once when "Loading…" goes up, and doesn't count
 down. It covers the rate limit's current wait, the update's actual requests
 (including Kraken's one-time pair list), each API's recent response times,
@@ -68,7 +78,7 @@ the display is dark fetches and shows a fresh chart.
 
 Every data source follows these rules (`src/sources/http.ts`):
 
-1. No more than one request every 2.5 seconds per API. `PublicApi` queues
+1. No more than one request every 1.5 seconds per API. `PublicApi` queues
    requests and spaces them out.
 2. Group calls into as few requests as possible.
 3. When requesting history, request only as much as will be displayed.
@@ -89,8 +99,8 @@ OKX, Coinbase and Gate can't return tickers for a chosen list of markets, only
 for one market or for all of them. For 2 or more listed markets, the app
 makes one all-markets request (30–110KB compressed) rather than one per
 market. With nothing listed, no ticker request is made at all. A default
-update (1 chart, 1 listed market) is 2 requests and takes about 2.5s. 4
-charts with 2 or more listed markets take about 10s.
+update (1 chart, 1 listed market) is 2 requests and takes about 2s. 4
+charts with 2 or more listed markets take about 6.5s.
 
 Kraken's Ticker does take a list, but fails outright if any pair in it is
 unknown. So Kraken's pair list is fetched once per session and markets are
@@ -107,7 +117,7 @@ across exchanges), centred between the market name and the exchange's price. One
 `simple/price` request covers every chart, looked up by symbol (`XBT` and
 `XDG` are mapped to `btc` and `doge`). Stablecoin quotes such as USDC and USDT
 are priced in USD. It runs alongside the exchange's requests, with its own
-2.5s limit. If CoinGecko doesn't know a coin, or the request fails, the index
+1.5s limit. If CoinGecko doesn't know a coin, or the request fails, the index
 is left out. CoinGecko's keyless API is rate-limited per IP. A rejected
 request shows up as a network error in the console, and the chart is drawn
 without the index.

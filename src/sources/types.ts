@@ -33,7 +33,7 @@ export interface MarketRequest {
 
 /**
  * A public market-data API. Every source must follow the rules in http.ts:
- * at most one request every 2.5 seconds, calls grouped into as few requests as
+ * at most one request every 1.5 seconds, calls grouped into as few requests as
  * the API allows, and no more history than will be displayed.
  */
 export interface MarketSource {

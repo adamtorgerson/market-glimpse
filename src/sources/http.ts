@@ -1,6 +1,6 @@
 /**
  * Rules for every public API this app calls:
- *  1. No more than one request every 2.5 seconds (per API).
+ *  1. No more than one request every 1.5 seconds (per API).
  *  2. Group calls into as few requests as the API allows.
  *  3. When requesting history, request only as much as will be displayed.
  *
@@ -9,7 +9,7 @@
  * when their signal aborts are dropped without being sent. Rules 2 and 3 are
  * up to each source.
  */
-export const MIN_GAP_MS = 2500;
+export const MIN_GAP_MS = 1500;
 
 export class PublicApi {
   private queue: Promise<unknown> = Promise.resolve();

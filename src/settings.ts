@@ -1,3 +1,4 @@
+import { isCalibration, type LookUpCalibration } from './lookup';
 import { DEFAULT_SOURCE, getSource, SOURCES } from './sources';
 
 export const CANDLE_WIDTHS = ['wide', 'narrow', 'thin'] as const;
@@ -21,6 +22,10 @@ export interface Settings {
   showIndex: boolean;
   /** No scheduled updates: fetch and show only on Show now or a tap. */
   manualOnly: boolean;
+  /** In manual-only mode, also update when the wearer looks up (needs `lookUpCal`). */
+  lookUpUpdate: boolean;
+  /** Motion-sensor readings looking ahead and looking up; null until calibrated. */
+  lookUpCal: LookUpCalibration | null;
   /** Seconds between updates. */
   refreshSec: number;
   /** Seconds the chart stays on the glasses after each update. */
@@ -35,6 +40,8 @@ export const DEFAULT_SETTINGS: Settings = {
   candleWidth: 'narrow',
   showIndex: true,
   manualOnly: false,
+  lookUpUpdate: false,
+  lookUpCal: null,
   refreshSec: 120,
   displaySec: 12,
 };
@@ -65,8 +72,10 @@ export function sanitize(input: Partial<Settings>): Settings {
 
   const showIndex = typeof input.showIndex === 'boolean' ? input.showIndex : d.showIndex;
   const manualOnly = typeof input.manualOnly === 'boolean' ? input.manualOnly : d.manualOnly;
+  const lookUpUpdate = typeof input.lookUpUpdate === 'boolean' ? input.lookUpUpdate : d.lookUpUpdate;
+  const lookUpCal = isCalibration(input.lookUpCal) ? input.lookUpCal : null;
 
-  return { source, markets, charts, interval, candleWidth, showIndex, manualOnly, refreshSec, displaySec };
+  return { source, markets, charts, interval, candleWidth, showIndex, manualOnly, lookUpUpdate, lookUpCal, refreshSec, displaySec };
 }
 
 /** `minutes` if supported, else the supported size closest to it (by ratio). */
