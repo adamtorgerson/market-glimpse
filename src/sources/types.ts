@@ -9,7 +9,7 @@ export interface Candle {
 
 export interface MarketData {
   market: string;
-  /** Only for charted markets; empty for the rest. */
+  /** Only for charted markets and those with a line graph; empty for the rest. */
   candles: Candle[];
   /** Latest trade price. */
   last?: number;
@@ -25,9 +25,14 @@ export interface MarketRequest {
   markets: string[];
   /** The subset that needs candles. */
   charts: string[];
+  /**
+   * Listed (not charted) markets that need candles too, for a line graph in
+   * the market list. They still get a ticker, for price and 24h volume.
+   */
+  lines: string[];
   /** Candle size in minutes. */
   interval: number;
-  /** Candles that fit across one chart: request no more history than this. */
+  /** Candles that fit across one chart (or line graph): request no more history than this. */
   candles: number;
 }
 

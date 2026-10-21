@@ -3,7 +3,7 @@ import { candleCapacity, DEFAULT_AXIS_W, renderScreen, SCREEN_H, SCREEN_W } from
 import { Glasses, type UploadStats } from './glasses';
 import { calibrate, LookUpDetector, type Vec } from './lookup';
 import { encodeTiles } from './png';
-import { buildTextChart, drawTextChart, serializeBox, textCandles, type TextBox } from './textchart';
+import { buildTextChart, buildTextList, drawTextChart, serializeBox, textCandles, type TextBox } from './textchart';
 import { average, MIN_GAP_MS } from './sources/http';
 import { runSpeedTest } from './speedtest';
 import { getSource, SOURCES } from './sources';
@@ -84,12 +84,15 @@ function marketRequest(s: Settings): MarketRequest {
   return {
     markets: s.markets,
     charts: s.charts,
+    // With nothing charted, the image market list has a line graph per market,
+    // over the period one chart would show.
+    lines: s.charts.length === 0 && !s.textList ? s.markets : [],
     interval: s.interval,
     candles: capacity(s.charts.length, s.candleWidth),
   };
 }
 
-/** Candles that fit across each chart. */
+/** Candles that fit across each chart (one full-screen chart if none). */
 function capacity(nCharts: number, width: CandleWidth): number {
   return isTextWidth(width) ? textCandles(width) : candleCapacity(nCharts, width, lastAxisW);
 }
@@ -180,11 +183,15 @@ async function runUpdate(ctrl: AbortController, showAt: number): Promise<void> {
   const charts = s.charts.map((m) => byMarket.get(m)!);
   const ticker = s.markets.filter((m) => !s.charts.includes(m)).map((m) => byMarket.get(m)!);
   const source = getSource(s.source).label;
-  // Text candles draw the one chart in the glasses' font; with no chart, the
-  // market list is drawn as usual.
+  // Text candles draw the one chart in the glasses' font, and the text list
+  // the market list; otherwise the screen goes as image tiles.
   let textBoxes: TextBox[] | null = null;
   if (isTextWidth(s.candleWidth) && charts.length === 1) {
     textBoxes = buildTextChart({ chart: charts[0]!, width: s.candleWidth, ticker, interval: s.interval, updated: new Date(), source });
+  } else if (charts.length === 0 && s.textList) {
+    textBoxes = buildTextList({ items: ticker, updated: new Date(), source });
+  }
+  if (textBoxes) {
     drawTextChart(ctx, textBoxes);
   } else {
     lastAxisW = renderScreen(ctx, { charts, ticker, interval: s.interval, candleWidth: s.candleWidth, updated: new Date(), source });
@@ -326,6 +333,7 @@ const addMarketBtn = $<HTMLButtonElement>('add-market');
 const intervalSel = $<HTMLSelectElement>('interval');
 const candleWidthSel = $<HTMLSelectElement>('candle-width');
 const showIndexBox = $<HTMLInputElement>('show-index');
+const textListBox = $<HTMLInputElement>('text-list');
 const manualOnlyBox = $<HTMLInputElement>('manual-only');
 const lookUpBox = $<HTMLInputElement>('look-up');
 const lookUpStatus = $('look-up-status');
@@ -411,6 +419,7 @@ function fillForm(s: Settings): void {
   for (const m of s.markets) addMarketRow(m, s.charts.includes(m));
   candleWidthSel.value = s.candleWidth;
   syncMarketControls();
+  textListBox.checked = s.textList;
   showIndexBox.checked = s.showIndex;
   manualOnlyBox.checked = s.manualOnly;
   lookUpBox.checked = s.lookUpUpdate;
@@ -439,6 +448,7 @@ function readForm(): Settings {
     charts: rows.filter((r) => r.charted).map((r) => r.market),
     interval: Number(intervalSel.value),
     candleWidth: candleWidthSel.value as CandleWidth,
+    textList: textListBox.checked,
     showIndex: showIndexBox.checked,
     manualOnly,
     lookUpUpdate: lookUpBox.checked,
@@ -449,9 +459,10 @@ function readForm(): Settings {
   // Keep within the one-request-per-MIN_GAP_MS budget: an update has to finish its
   // requests before the next one is due.
   const src = getSource(next.source);
-  const minRefresh = Math.max(15, Math.ceil((src.requestsPerUpdate(marketRequest(next)) * MIN_GAP_MS) / 1000));
+  const requests = src.requestsPerUpdate(marketRequest(next));
+  const minRefresh = Math.max(15, Math.ceil((requests * MIN_GAP_MS) / 1000));
   if (!manualOnly && refreshSec < minRefresh) {
-    throw new Error(`Refresh must be at least ${formatDuration(minRefresh)} for ${next.charts.length} chart(s) (one ${src.label} request per ${MIN_GAP_MS / 1000}s).`);
+    throw new Error(`Refresh must be at least ${formatDuration(minRefresh)} for ${requests} ${src.label} requests per update (one per ${MIN_GAP_MS / 1000}s).`);
   }
   return next;
 }
@@ -488,7 +499,7 @@ async function applyForm(): Promise<void> {
   // schedule, re-timed if the refresh rate changed.
   const chartChanged = next.source !== prev.source || next.interval !== prev.interval
     || next.candleWidth !== prev.candleWidth || next.charts.join() !== prev.charts.join()
-    || next.showIndex !== prev.showIndex;
+    || next.showIndex !== prev.showIndex || (next.textList !== prev.textList && next.charts.length === 0);
   if (chartChanged) restartSchedule({ cancel: true, manual: true });
   // Leaving manual-only: fetch in the background now and start the schedule.
   else if (prev.manualOnly && !next.manualOnly) restartSchedule();

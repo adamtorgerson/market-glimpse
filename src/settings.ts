@@ -33,6 +33,11 @@ export interface Settings {
    * than sent as images (one chart only).
    */
   candleWidth: CandleWidth;
+  /**
+   * With no market charted, send the market list as text instead of an image.
+   * The image list has a line graph per market (one candle request each).
+   */
+  textList: boolean;
   /** Show CoinGecko's index price in each chart header (one extra request per update). */
   showIndex: boolean;
   /** No scheduled updates: fetch and show only on Show now or a tap. */
@@ -53,6 +58,7 @@ export const DEFAULT_SETTINGS: Settings = {
   charts: ['BTC-USDC'],
   interval: 5,
   candleWidth: 'narrow',
+  textList: false,
   showIndex: true,
   manualOnly: false,
   lookUpUpdate: false,
@@ -86,12 +92,13 @@ export function sanitize(input: Partial<Settings>): Settings {
   // The chart has to come down before the next update goes up.
   const displaySec = Math.min(clampInt(input.displaySec, 1, 3600, d.displaySec), refreshSec - 1);
 
+  const textList = typeof input.textList === 'boolean' ? input.textList : d.textList;
   const showIndex = typeof input.showIndex === 'boolean' ? input.showIndex : d.showIndex;
   const manualOnly = typeof input.manualOnly === 'boolean' ? input.manualOnly : d.manualOnly;
   const lookUpUpdate = typeof input.lookUpUpdate === 'boolean' ? input.lookUpUpdate : d.lookUpUpdate;
   const lookUpCal = isCalibration(input.lookUpCal) ? input.lookUpCal : null;
 
-  return { source, markets, charts, interval, candleWidth, showIndex, manualOnly, lookUpUpdate, lookUpCal, refreshSec, displaySec };
+  return { source, markets, charts, interval, candleWidth, textList, showIndex, manualOnly, lookUpUpdate, lookUpCal, refreshSec, displaySec };
 }
 
 /** `minutes` if supported, else the supported size closest to it (by ratio). */

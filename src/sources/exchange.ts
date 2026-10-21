@@ -15,7 +15,7 @@ export interface Ticker {
  * under the charts need a ticker. Per update: none listed, no ticker request;
  * one listed, a single-market ticker; two or more, the all-markets ticker
  * (rule 2: one request, though a large one). Then one candle request per
- * chart, asking only for the candles that fit (rule 3).
+ * chart or line graph, asking only for the candles that fit (rule 3).
  */
 export interface ExchangeSpec {
   id: string;
@@ -55,7 +55,7 @@ export function exchangeSource(spec: ExchangeSpec): MarketSource {
 
     requestsPerUpdate(req) {
       const listed = req.markets.length - req.charts.length;
-      return (listed > 0 ? 1 : 0) + req.charts.length;
+      return (listed > 0 ? 1 : 0) + req.charts.length + req.lines.length;
     },
 
     estimateMs(req) {
@@ -95,9 +95,9 @@ export function exchangeSource(spec: ExchangeSpec): MarketSource {
 
       const bar = spec.intervals[req.interval];
       const intervalSec = req.interval * 60;
-      for (const m of req.charts) {
+      for (const m of [...req.charts, ...req.lines]) {
         const d = out.get(m)!;
-        if (unknown.has(m)) {
+        if (unknown.has(m) || d.error === 'unknown pair') {
           d.error = 'unknown pair';
           continue;
         }

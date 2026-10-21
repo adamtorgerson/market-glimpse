@@ -19,7 +19,13 @@ refreshes every 2m, chart shown for 12s, narrow candles.
   with its price and 24h volume (unlabelled, in the base currency, e.g.
   `ETH-USDC 2,400.22 4.4K`).
   Several markets share a line, and the list wraps onto more lines as needed.
-  Tick none and the list fills the screen, one market per line.
+  Tick none and the list fills the screen, one market per line, each with
+  an unlabelled line graph of its closing prices over the period one chart
+  would show (the candle size times the candles that fit). Each graph costs
+  a candle request, so 8 markets take about 13s to fetch.
+- **Market list as text**: with no market ticked, the glasses draw the list
+  in their own font instead (name, price and 24h volume, no line graphs).
+  It goes up in one step, and only the ticker is fetched.
 - **Candle size**: whatever the source offers. Kraken has 1m to 15d, OKX 1m
   to 1w, Coinbase 1m to 1d, and Gate 1m to 1w. Switching source keeps the size
   if the new source has it, or else picks the nearest.
@@ -59,10 +65,12 @@ refreshes every 2m, chart shown for 12s, narrow candles.
     readings costs battery.
 - **Refresh every / Show chart for**: durations like `30s`, `2m`, `1h`. The
   refresh must leave room for one request per 1.5s: 15s minimum, and 1.5s
-  per request beyond that (1 + one per chart, so 15s always fits).
+  per request beyond that (1 + one per chart or line graph; at most 10
+  with 8 markets, so 15s always fits).
 
 Changes apply as you make them. Ticking or unticking a chart, or changing the
-candle size, candle width, index price or data source, updates the glasses at once, like
+candle size, candle width, index price or data source (or the text list
+with nothing ticked), updates the glasses at once, like
 **Show now**. Other changes (markets in the list, refresh rate, show-for time)
 wait for the next scheduled update. A new refresh rate re-times that update.
 
@@ -118,11 +126,13 @@ Every data source follows these rules (`src/sources/http.ts`):
 3. When requesting history, request only as much as will be displayed.
 
 No exchange offers candles for several markets in one request, so each chart
-gets its own candle request, sized to the candles that fit across it. A
-chart's price is its latest candle's close. Only the markets listed under the
-charts need a ticker request, for price and 24h volume.
+gets its own candle request, sized to the candles that fit across it. So does
+each line graph in the full-screen market list, sized like one full-screen
+chart. A chart's price is its latest candle's close. Only the markets listed
+under the charts (or in the full-screen list) need a ticker request, for
+price and 24h volume.
 
-| Source | Ticker for listed markets | Candles (1 per chart) |
+| Source | Ticker for listed markets | Candles (1 per chart or line graph) |
 |---|---|---|
 | Kraken | `Ticker?pair=A,B,…` (just those markets) | `OHLC` with `since` |
 | OKX | 1: `market/ticker?instId=`; 2+: `market/tickers?instType=SPOT` | `market/candles` with `limit` |

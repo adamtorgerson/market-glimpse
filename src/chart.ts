@@ -1,4 +1,4 @@
-import type { MarketData } from './sources/types';
+import type { Candle, MarketData } from './sources/types';
 import { formatInterval, type CandleWidth } from './settings';
 
 export const SCREEN_W = 576;
@@ -505,7 +505,7 @@ function flowLines(ctx: CanvasRenderingContext2D, items: MarketData[], width: nu
 /**
  * The markets that aren't charted. Under the charts they flow along each line,
  * wrapping as needed; `full` (no charts) gives one market per line in columns,
- * scaled to fill `r`.
+ * scaled to fill `r`, with a line graph of each market's candles to the right.
  */
 function drawMarketList(ctx: CanvasRenderingContext2D, items: MarketData[], r: Rect, full: boolean): void {
   if (items.length === 0) return;
@@ -548,9 +548,12 @@ function drawMarketList(ctx: CanvasRenderingContext2D, items: MarketData[], r: R
     return ctx.measureText(row[i]!.text).width;
   }));
   const priceR = x0 + colW(0) + gap + colW(1);
+  const graphX = priceR + gap / 2 + colW(2) + gap;
+  const graphW = r.x + r.w - 6 - graphX;
   let y = r.y + Math.round((r.h - items.length * lineH) / 2);
-  for (const row of rows) {
+  for (const [i, row] of rows.entries()) {
     const cy = y + lineH / 2 + 1;
+    if (graphW >= 40) drawLineGraph(ctx, items[i]!.candles, { x: graphX, y: y + 3, w: graphW, h: lineH - 6 });
     draw(row[0]!, x0, cy, px);
     if (row[1]!.color === DIM) {
       draw(row[1]!, x0 + colW(0) + gap, cy, px);
@@ -565,13 +568,34 @@ function drawMarketList(ctx: CanvasRenderingContext2D, items: MarketData[], r: R
   ctx.restore();
 }
 
+/** Closes as an unlabelled line across `r`, bright if the price ended up, dimmer if down. */
+function drawLineGraph(ctx: CanvasRenderingContext2D, candles: Candle[], r: Rect): void {
+  if (candles.length < 2) return;
+  const closes = candles.map((c) => c.close);
+  const lo = Math.min(...closes), hi = Math.max(...closes);
+  const t0 = candles[0]!.time, t1 = candles.at(-1)!.time;
+  ctx.save();
+  ctx.strokeStyle = closes.at(-1)! >= closes[0]! ? FG : MID;
+  ctx.lineWidth = 1;
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  candles.forEach((c, i) => {
+    const x = r.x + (c.time - t0) / (t1 - t0) * r.w;
+    const y = hi === lo ? r.y + r.h / 2 : r.y + (hi - c.close) / (hi - lo) * r.h;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+  ctx.restore();
+}
+
 export function formatPrice(p: number): string {
   const abs = Math.abs(p);
   const digits = abs >= 10000 ? 0 : abs >= 100 ? 2 : abs >= 1 ? 3 : abs >= 0.01 ? 5 : 8;
   return p.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
 
-function formatVolume(v: number): string {
+export function formatVolume(v: number): string {
   if (v >= 1e9) return `${(v / 1e9).toFixed(1)}B`;
   if (v >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
   if (v >= 1e3) return `${(v / 1e3).toFixed(1)}K`;

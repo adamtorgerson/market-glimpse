@@ -60,8 +60,8 @@ export const kraken: MarketSource = {
 
   requestsPerUpdate(req) {
     // One grouped Ticker for every market, plus OHLC (single-pair only) per
-    // chart, plus the pair list until it has been loaded.
-    return 1 + req.charts.length + (pairsPromise ? 0 : 1);
+    // chart or line graph, plus the pair list until it has been loaded.
+    return 1 + req.charts.length + req.lines.length + (pairsPromise ? 0 : 1);
   },
 
   estimateMs(req) {
@@ -104,11 +104,11 @@ export const kraken: MarketSource = {
       for (const m of known.keys()) out.get(m)!.error = describe(e);
     }
 
-    // Rule 3: OHLC from just far enough back to fill the chart.
+    // Rule 3: OHLC from just far enough back to fill the chart or line graph.
     const intervalSec = req.interval * 60;
     const current = Math.floor(Date.now() / 1000 / intervalSec) * intervalSec;
     const since = current - req.candles * intervalSec;
-    for (const m of req.charts) {
+    for (const m of [...req.charts, ...req.lines]) {
       const p = known.get(m);
       if (!p) continue;
       try {

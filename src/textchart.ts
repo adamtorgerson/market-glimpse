@@ -1,4 +1,4 @@
-import { formatPrice, formatTime, SCREEN_H, SCREEN_W, timeTicks } from './chart';
+import { formatPrice, formatTime, formatVolume, SCREEN_H, SCREEN_W, timeTicks } from './chart';
 import { formatInterval, type TextWidth } from './settings';
 import type { MarketData } from './sources/types';
 
@@ -71,9 +71,11 @@ const TIME_KEY_GAP = 80;
 
 /** Advance widths of the firmware font, measured in the simulator; other characters are estimated. '1' and '2' are 1px narrower before another of themselves. */
 const WIDTHS: Record<string, number> = {
-  '1': 8, ':': 4, '.': 5, ',': 5, ' ': 5, '·': 5, "'": 4, '|': 4, l: 4,
-  A: 13, D: 12, F: 10, I: 5, J: 8, M: 16, N: 12, O: 12, S: 11,
-  a: 11, b: 11, c: 10, e: 10, g: 11, n: 11, o: 10, p: 11, r: 7, t: 6, u: 11, v: 11, y: 11,
+  '1': 8, ':': 4, '.': 5, ',': 5, ' ': 5, '·': 5, "'": 4, '|': 4, '-': 10,
+  A: 13, B: 12, C: 11, D: 12, E: 10, F: 10, G: 12, H: 12, I: 5, J: 8, K: 12, L: 9, M: 16,
+  N: 12, O: 12, P: 12, Q: 12, R: 12, S: 11, T: 10, U: 12, V: 13, W: 16, X: 13, Y: 13, Z: 12,
+  a: 11, b: 11, c: 10, e: 10, g: 11, h: 11, i: 5, k: 9, l: 4, m: 16, n: 11, o: 10, p: 11,
+  q: 11, r: 7, s: 10, t: 6, u: 11, v: 11, w: 15, x: 11, y: 11, z: 9,
 };
 
 /** One text container: brightness 0–4 and its lines, from `y` down. */
@@ -139,6 +141,53 @@ export function buildTextChart(m: TextChartModel): TextBox[] {
   }
 }
 
+export interface TextListModel {
+  items: MarketData[];
+  updated: Date;
+  source: string;
+}
+
+/** Brightness of the market list's names, volumes and errors. */
+const MID = 2;
+
+/**
+ * The market list (nothing charted) as text: one market per line, with the
+ * name and 24h volume mid-bright and the price bright and right-aligned, plus
+ * the source and time on the bottom line. Columns are lined up by the font's
+ * measured widths, so they may be off by a px or two.
+ */
+export function buildTextList(m: TextListModel): TextBox[] {
+  const rows = m.items.length;
+  const footerY = SCREEN_H - LINE_H;
+  const y = Math.max(0, Math.round((footerY - rows * LINE_H) / 2));
+  const box = (color: number, at: number, n: number): TextBox =>
+    ({ y: at, color, lines: Array.from({ length: n }, () => ({ strokes: new Map<number, string>(), texts: [] })) });
+  const bright = box(BRIGHT, y, rows);
+  const mid = box(MID, y, rows);
+  const footer = box(DIM, footerY, 1);
+
+  const prices = m.items.map((d) => {
+    const last = d.last ?? d.candles.at(-1)?.close;
+    return d.error || last === undefined ? null : formatPrice(last);
+  });
+  const nameR = 4 + Math.max(...m.items.map((d) => textWidth(d.market)));
+  const priceR = nameR + 24 + Math.max(0, ...prices.map((p) => (p ? textWidth(p) : 0)));
+  m.items.forEach((d, i) => {
+    mid.lines[i]!.texts.push({ x: 4, text: d.market });
+    const price = prices[i];
+    if (!price) {
+      mid.lines[i]!.texts.push({ x: nameR + 24, text: d.error ?? 'no data' });
+      return;
+    }
+    bright.lines[i]!.texts.push({ x: priceR - textWidth(price), text: price });
+    if (d.dayVolume !== undefined) mid.lines[i]!.texts.push({ x: priceR + 16, text: formatVolume(d.dayVolume) });
+  });
+
+  const stamp = m.updated.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  footer.lines[0]!.texts.push({ x: 4, text: m.source }, { x: SCREEN_W - 4 - textWidth(stamp), text: stamp });
+  return [bright, mid, footer];
+}
+
 /** The text a container shows. */
 export function serializeBox(box: TextBox): string {
   return box.lines.map((line) => {
@@ -166,7 +215,9 @@ export function drawTextChart(ctx: CanvasRenderingContext2D, boxes: TextBox[]): 
   ctx.textBaseline = 'alphabetic';
   ctx.textAlign = 'left';
   for (const box of boxes) {
-    ctx.fillStyle = box.color === BRIGHT ? '#ffffff' : '#808080';
+    // Brightness 0–4 as the glasses show it (measured in the simulator; 3 estimated).
+    const v = [131, 179, 197, 226, 255][box.color] ?? 255;
+    ctx.fillStyle = `rgb(${v}, ${v}, ${v})`;
     box.lines.forEach((line, k) => {
       const top = box.y + k * LINE_H;
       for (const [col, glyph] of line.strokes) {
