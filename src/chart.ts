@@ -427,7 +427,7 @@ const TIME_STEPS = [
 ];
 
 /** Candle open times to label, spaced at least `minPx` apart and aligned to local clock boundaries. */
-function timeTicks(lastTime: number, count: number, intervalSec: number, pitch: number, minPx: number): number[] {
+export function timeTicks(lastTime: number, count: number, intervalSec: number, pitch: number, minPx: number): number[] {
   const step = TIME_STEPS.find((st) => st % intervalSec === 0 && (st / intervalSec) * pitch >= minPx);
   if (!step) return [];
   const first = lastTime - (count - 1) * intervalSec;
@@ -439,7 +439,7 @@ function timeTicks(lastTime: number, count: number, intervalSec: number, pitch: 
   return out;
 }
 
-function formatTime(t: number, step: number, utc: boolean): string {
+export function formatTime(t: number, step: number, utc: boolean): string {
   const d = new Date(t * 1000);
   const timeZone = utc ? 'UTC' : undefined;
   const hh = utc ? d.getUTCHours() : d.getHours();

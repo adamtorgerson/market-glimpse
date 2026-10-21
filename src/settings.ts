@@ -1,11 +1,22 @@
 import { isCalibration, type LookUpCalibration } from './lookup';
 import { DEFAULT_SOURCE, getSource, SOURCES } from './sources';
 
-export const CANDLE_WIDTHS = ['wide', 'narrow', 'thin'] as const;
+export const CANDLE_WIDTHS = ['wide', 'narrow', 'thin', 'text-wide', 'text-narrow', 'text-thin'] as const;
 export type CandleWidth = (typeof CANDLE_WIDTHS)[number];
+export type TextWidth = Extract<CandleWidth, `text${string}`>;
 
 export const MAX_CHARTS = 4;
 export const MAX_MARKETS = 8;
+
+/** Text candles are drawn in the glasses' font instead of sent as images. */
+export function isTextWidth(width: CandleWidth): width is TextWidth {
+  return width.startsWith('text');
+}
+
+/** Charts a candle width allows: text candles fill the glasses with one. */
+export function maxCharts(width: CandleWidth): number {
+  return isTextWidth(width) ? 1 : MAX_CHARTS;
+}
 
 export interface Settings {
   /** Market data source id, e.g. "kraken". */
@@ -16,7 +27,11 @@ export interface Settings {
   charts: string[];
   /** Candle size in minutes; one the source supports. */
   interval: number;
-  /** Candle body width: wide = 6px (4px in quadrants), narrow = 3px, thin = 2px. */
+  /**
+   * Candle body width: wide = 6px (4px in quadrants), narrow = 3px, thin = 2px,
+   * or text-wide / text-narrow / text-thin = drawn in the glasses' font rather
+   * than sent as images (one chart only).
+   */
   candleWidth: CandleWidth;
   /** Show CoinGecko's index price in each chart header (one extra request per update). */
   showIndex: boolean;
@@ -57,14 +72,15 @@ export function sanitize(input: Partial<Settings>): Settings {
   const markets = dedupe((input.markets ?? d.markets).map(normalizeMarket).filter(Boolean)).slice(0, MAX_MARKETS);
   if (markets.length === 0) markets.push(...d.markets);
 
-  let charts = dedupe((input.charts ?? d.charts).map(normalizeMarket)).filter((m) => markets.includes(m));
-  charts = charts.slice(0, MAX_CHARTS);
-
   const interval = nearestInterval(getSource(source).intervals, Number(input.interval) || d.interval);
 
-  const candleWidth = (CANDLE_WIDTHS as readonly string[]).includes(input.candleWidth as string)
-    ? input.candleWidth!
-    : d.candleWidth;
+  // 'text' was the only text width before there were three.
+  const width = (input.candleWidth as string) === 'text' ? 'text-wide' : input.candleWidth;
+  const candleWidth = (CANDLE_WIDTHS as readonly string[]).includes(width as string) ? width! : d.candleWidth;
+
+  const charts = dedupe((input.charts ?? d.charts).map(normalizeMarket))
+    .filter((m) => markets.includes(m))
+    .slice(0, maxCharts(candleWidth));
 
   const refreshSec = clampInt(input.refreshSec, 15, 24 * 3600, d.refreshSec);
   // The chart has to come down before the next update goes up.

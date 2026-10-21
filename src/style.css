@@ -111,3 +111,7 @@ label > input:disabled { opacity: 0.4; }
 #markets li button { padding: 6px 12px; }
 
 code { color: var(--fg); }
+
+#speed-results { width: 100%; border-collapse: collapse; }
+#speed-results td { padding: 4px 0; border-top: 1px solid var(--line); }
+#speed-results td + td { text-align: right; padding-left: 12px; white-space: nowrap; }

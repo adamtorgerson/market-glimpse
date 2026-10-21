@@ -14,9 +14,10 @@ refreshes every 2m, chart shown for 12s, narrow candles.
   them (`BTC-USDT`). Each exchange lists different markets. For example,
   Coinbase has `BTC-USD` but no `BTC-USDC`. A market the exchange doesn't
   have shows "unknown pair".
-- **Markets**: up to 8 (`BTC-USDC`, `SOL-USD`, …). Tick up to 4 to chart. Any
-  market that isn't charted is listed under the charts with its price and 24h
-  volume (unlabelled, in the base currency, e.g. `ETH-USDC 2,400.22 4.4K`).
+- **Markets**: up to 8 (`BTC-USDC`, `SOL-USD`, …). Tick up to 4 to chart (1
+  with any Text width). Any market that isn't charted is listed under the charts
+  with its price and 24h volume (unlabelled, in the base currency, e.g.
+  `ETH-USDC 2,400.22 4.4K`).
   Several markets share a line, and the list wraps onto more lines as needed.
   Tick none and the list fills the screen, one market per line.
 - **Candle size**: whatever the source offers. Kraken has 1m to 15d, OKX 1m
@@ -25,6 +26,24 @@ refreshes every 2m, chart shown for 12s, narrow candles.
 - **Candle width**: Wide (6px, or 4px in quadrants), Narrow (3px, the default)
   or Thin (2px). Narrower candles fit more history. At 2px, down candles are
   drawn solid and dimmer rather than hollow.
+  - **Text wide, Text narrow, Text thin (1 chart)**: the chart is drawn by
+    the glasses in their own font instead of sent as images, so it appears
+    all at once and the upload is a few KB of text. It's coarser: candles
+    are made of 1px strokes on a 4px grid.
+    - Text wide: about 36 candles, 16px apart. Up candles are three strokes,
+      filled; down candles are two, hollow and dimmer.
+    - Text narrow: about 48 candles, 12px apart, of two strokes: the body in
+      both and the wick in the right one. Down candles are filled and
+      dimmer, like Thin.
+    - Text thin: about 72 candles, 8px apart, of one stroke. Wicks are dim.
+      Up bodies are bright; down bodies are hollow (a gap in the dim line
+      between the wicks).
+
+    Four price keys sit at the left edge over the oldest candles, which
+    leave a gap around each label, and each key has a dotted line across
+    the chart. A few time keys sit under the candles. Only one market can be
+    charted; the other markets' prices go on the bottom line if they fit.
+    With no market ticked, the market list is drawn as usual.
 - **Show index price (CoinGecko)**: on by default. Turn it off to skip the
   CoinGecko request on each update.
 - **Manual only**: no scheduled updates. Nothing is fetched and the glasses
@@ -64,12 +83,27 @@ down. It covers the rate limit's current wait, the update's actual requests
 (including Kraken's one-time pair list), each API's recent response times,
 and recent draw and upload times. If an update is already running, it shows
 that update's remaining time.
-Either way the chart goes up as four 288×144 tiles, each drawn as soon as it
-arrives. The SDK can't hold them back and reveal them together: a page takes
-at most 4 images, text containers have no background to hide them behind,
-and a rebuild clears them. So all four are sent at once instead of waiting for
-each to be acknowledged, keeping the gap between the first and last short.
-Any tile the bridge rejects is retried on its own.
+Either way the chart (unless drawn as Text) goes up as up to four tiles of at most 288×144, each
+drawn as soon as it arrives. The SDK can't hold them back and reveal them
+together: a page takes at most 4 images, text containers have no background
+to hide them behind, and a rebuild clears them. So all tiles are sent at once
+instead of waiting for each to be acknowledged, keeping the gap between the
+first and last short. Any tile the bridge rejects is retried on its own.
+
+To keep uploads small, each tile is cropped to the part of its quarter that
+isn't black (the screen is black where nothing is drawn), and an all-black
+quarter isn't sent. When the loading screen is up, the tiles also cover its
+text. Tiles are 4-bit greyscale PNGs, sent to the Even app as base64, or as
+byte arrays if the app rejects base64.
+
+### Diagnostics (phone page)
+
+- **Last upload** lists each tile's size, byte count and time to land, also
+  logged to the console as `Glasses upload`.
+- **Test upload speed** times uploads that differ in one way at a time (PNG
+  size, compressibility, base64 vs byte array, pixel count, PNG vs raw 4-bit
+  data), three times each, to show what an upload's time depends on. The
+  results are also logged as `Upload speed test`.
 
 On the glasses, a tap while the chart is up dismisses it early. A tap while
 the display is dark fetches and shows a fresh chart.

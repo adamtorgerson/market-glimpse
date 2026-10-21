@@ -12,12 +12,12 @@
   },
   "dependencies": {
     "@evenrealities/even_hub_sdk": "^0.0.16",
-    "upng-js": "^2.1.0"
+    "pako": "^2.1.0"
   },
   "devDependencies": {
     "@evenrealities/evenhub-cli": "^0.1.14",
     "@evenrealities/evenhub-simulator": "^0.9.5",
-    "@types/upng-js": "^2.1.5",
+    "@types/pako": "^2.0.3",
     "typescript": "^5.9.3",
     "vite": "^8.3.4"
   }

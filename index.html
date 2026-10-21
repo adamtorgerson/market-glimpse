@@ -32,7 +32,7 @@
 
         <fieldset>
           <legend>Markets</legend>
-          <p class="muted small">Up to 8 markets. Tick up to 4 to chart; the rest are listed under the charts, or fill the screen if none are ticked. Changes apply immediately.</p>
+          <p class="muted small">Up to 8 markets. Tick up to 4 to chart (1 with Text candles); the rest are listed under the charts, or fill the screen if none are ticked. Changes apply immediately.</p>
           <ul id="markets"></ul>
           <button id="add-market" type="button" class="secondary">+ Add market</button>
         </fieldset>
@@ -65,6 +65,16 @@
             <input name="display" id="display" inputmode="text" placeholder="12s" />
           </label>
           <p class="muted small">Durations accept s, m or h, e.g. <code>90s</code>, <code>2m</code>, <code>1h</code>.</p>
+        </fieldset>
+
+        <fieldset>
+          <legend>Diagnostics</legend>
+          <p id="upload-stats" class="muted small">No chart sent to the glasses yet.</p>
+          <div class="row">
+            <span class="muted small">Times images that differ in size, content and encoding, to see what slows uploads.</span>
+            <button id="speed-test" type="button" class="secondary" disabled>Test upload speed</button>
+          </div>
+          <table id="speed-results" class="small"></table>
         </fieldset>
 
         <p id="form-error" class="error" role="alert"></p>

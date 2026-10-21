@@ -1,9 +1,11 @@
 import './style.css';
 import { candleCapacity, DEFAULT_AXIS_W, renderScreen, SCREEN_H, SCREEN_W } from './chart';
-import { Glasses } from './glasses';
+import { Glasses, type UploadStats } from './glasses';
 import { calibrate, LookUpDetector, type Vec } from './lookup';
 import { encodeTiles } from './png';
+import { buildTextChart, drawTextChart, serializeBox, textCandles, type TextBox } from './textchart';
 import { average, MIN_GAP_MS } from './sources/http';
+import { runSpeedTest } from './speedtest';
 import { getSource, SOURCES } from './sources';
 import { estimateIndexMs, fetchIndexPrices } from './sources/coingecko';
 import type { MarketRequest } from './sources/types';
@@ -11,8 +13,9 @@ import {
   CANDLE_WIDTHS,
   DEFAULT_SETTINGS,
   formatInterval,
-  MAX_CHARTS,
+  isTextWidth,
   MAX_MARKETS,
+  maxCharts,
   nearestInterval,
   normalizeMarket,
   sanitize,
@@ -82,8 +85,13 @@ function marketRequest(s: Settings): MarketRequest {
     markets: s.markets,
     charts: s.charts,
     interval: s.interval,
-    candles: candleCapacity(s.charts.length, s.candleWidth, lastAxisW),
+    candles: capacity(s.charts.length, s.candleWidth),
   };
+}
+
+/** Candles that fit across each chart. */
+function capacity(nCharts: number, width: CandleWidth): number {
+  return isTextWidth(width) ? textCandles(width) : candleCapacity(nCharts, width, lastAxisW);
 }
 
 interface UpdateOptions {
@@ -169,14 +177,18 @@ async function runUpdate(ctrl: AbortController, showAt: number): Promise<void> {
   const drawStart = Date.now();
   const byMarket = new Map(data.map((d) => [d.market, d]));
   const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
-  lastAxisW = renderScreen(ctx, {
-    charts: s.charts.map((m) => byMarket.get(m)!),
-    ticker: s.markets.filter((m) => !s.charts.includes(m)).map((m) => byMarket.get(m)!),
-    interval: s.interval,
-    candleWidth: s.candleWidth,
-    updated: new Date(),
-    source: getSource(s.source).label,
-  });
+  const charts = s.charts.map((m) => byMarket.get(m)!);
+  const ticker = s.markets.filter((m) => !s.charts.includes(m)).map((m) => byMarket.get(m)!);
+  const source = getSource(s.source).label;
+  // Text candles draw the one chart in the glasses' font; with no chart, the
+  // market list is drawn as usual.
+  let textBoxes: TextBox[] | null = null;
+  if (isTextWidth(s.candleWidth) && charts.length === 1) {
+    textBoxes = buildTextChart({ chart: charts[0]!, width: s.candleWidth, ticker, interval: s.interval, updated: new Date(), source });
+    drawTextChart(ctx, textBoxes);
+  } else {
+    lastAxisW = renderScreen(ctx, { charts, ticker, interval: s.interval, candleWidth: s.candleWidth, updated: new Date(), source });
+  }
   refreshWidthLabels();
 
   const failed = data.filter((d) => d.error).map((d) => `${d.market}: ${d.error}`);
@@ -188,8 +200,7 @@ async function runUpdate(ctrl: AbortController, showAt: number): Promise<void> {
   }
 
   try {
-    const tiles = encodeTiles(canvas, TILE_W, TILE_H);
-    drawMs = average(drawMs, Date.now() - drawStart);
+    const renderMs = Date.now() - drawStart;
     if (showAt > Date.now()) {
       await new Promise((r) => setTimeout(r, showAt - Date.now()));
       if (ctrl.signal.aborted) return;
@@ -197,9 +208,21 @@ async function runUpdate(ctrl: AbortController, showAt: number): Promise<void> {
     clearTimeout(hideTimer);
     const wasLoading = loading;
     loading = false;
-    const uploadStart = Date.now();
-    await glasses.show(tiles, wasLoading);
-    uploadMs = average(uploadMs, Date.now() - uploadStart);
+    if (textBoxes) {
+      drawMs = average(drawMs, renderMs);
+      const uploadStart = Date.now();
+      showUploadStats(await glasses.showText(textBoxes.map((b) => ({ y: b.y, color: b.color, content: serializeBox(b) }))));
+      uploadMs = average(uploadMs, Date.now() - uploadStart);
+    } else {
+      // Encoded only now, since a loading screen that went up while waiting
+      // must be covered by the tiles.
+      const encodeStart = Date.now();
+      const tiles = encodeTiles(canvas, TILE_W, TILE_H, wasLoading ? glasses.loadingRects() : []);
+      drawMs = average(drawMs, renderMs + Date.now() - encodeStart);
+      const uploadStart = Date.now();
+      showUploadStats(await glasses.show(tiles, wasLoading));
+      uploadMs = average(uploadMs, Date.now() - uploadStart);
+    }
     if (ctrl.signal.aborted) return;
     setShowing(true);
     setStatus(`Showing on glasses · updated ${stamp}`, failed);
@@ -247,6 +270,26 @@ function scheduleAt(at: number): void {
   }, Math.max(0, at - leadMs - Date.now()));
 }
 
+const uploadStatsEl = $('upload-stats');
+
+/** e.g. "3 tiles, 4.2 KB, base64: 812 ms · 288×120 1.6 KB 410 ms · …" */
+function showUploadStats(u: UploadStats): void {
+  console.info('Glasses upload', JSON.stringify(u));
+  const total = u.tiles.reduce((n, t) => n + t.bytes, 0);
+  if (u.encoding === 'text') {
+    // One rebuild carries every container, so only the total time means anything.
+    const each = u.tiles.map((t) => `y ${t.y} ${formatBytes(t.bytes)}`);
+    uploadStatsEl.textContent = [`Last upload: ${u.tiles.length} text boxes, ${formatBytes(total)}: ${Math.round(u.ms)} ms`, ...each].join(' · ');
+    return;
+  }
+  const each = u.tiles.map((t) => `${t.w}×${t.h} ${formatBytes(t.bytes)} ${Math.round(t.ms)} ms${t.retried ? ' (retried)' : ''}`);
+  uploadStatsEl.textContent = [`Last upload: ${u.tiles.length} tile${u.tiles.length === 1 ? '' : 's'}, ${formatBytes(total)}, ${u.encoding}: ${Math.round(u.ms)} ms`, ...each].join(' · ');
+}
+
+function formatBytes(n: number): string {
+  return n < 1024 ? `${n} B` : `${(n / 1024).toFixed(1)} KB`;
+}
+
 function setStatus(text: string, errors: string[] = []): void {
   statusEl.textContent = text;
   if (errors.length) statusEl.textContent += ` · ${errors.join('; ')}`;
@@ -292,7 +335,7 @@ const displayInput = $<HTMLInputElement>('display');
 const formError = $('form-error');
 
 for (const src of SOURCES) sourceSel.add(new Option(src.label, src.id));
-const CANDLE_WIDTH_LABELS: Record<CandleWidth, string> = { wide: 'Wide', narrow: 'Narrow', thin: 'Thin' };
+const CANDLE_WIDTH_LABELS: Record<CandleWidth, string> = { wide: 'Wide', narrow: 'Narrow', thin: 'Thin', 'text-wide': 'Text wide, 1 chart', 'text-narrow': 'Text narrow, 1 chart', 'text-thin': 'Text thin, 1 chart' };
 for (const w of CANDLE_WIDTHS) candleWidthSel.add(new Option(CANDLE_WIDTH_LABELS[w], w));
 let lastAxisW = DEFAULT_AXIS_W;
 
@@ -302,7 +345,7 @@ function refreshWidthLabels(): void {
   const minutes = Number(intervalSel.value);
   for (const opt of candleWidthSel.options) {
     const w = opt.value as CandleWidth;
-    opt.text = `${CANDLE_WIDTH_LABELS[w]} · ~${formatSpan(candleCapacity(nCharts, w, lastAxisW) * minutes)}`;
+    opt.text = `${CANDLE_WIDTH_LABELS[w]} · ~${formatSpan(capacity(nCharts, w) * minutes)}`;
   }
 }
 
@@ -347,8 +390,11 @@ function addMarketRow(market = '', charted = false): void {
 function syncMarketControls(): void {
   const rows = [...marketList.children];
   const checks = rows.map((li) => li.querySelector<HTMLInputElement>('input[type=checkbox]')!);
+  const max = maxCharts(candleWidthSel.value as CandleWidth);
+  // A width that allows fewer charts keeps the first ones ticked.
+  checks.filter((c) => c.checked).slice(max).forEach((c) => { c.checked = false; });
   const nChecked = checks.filter((c) => c.checked).length;
-  for (const c of checks) c.disabled = !c.checked && nChecked >= MAX_CHARTS;
+  for (const c of checks) c.disabled = !c.checked && nChecked >= max;
   addMarketBtn.disabled = rows.length >= MAX_MARKETS;
   refreshWidthLabels();
 }
@@ -364,7 +410,7 @@ function fillForm(s: Settings): void {
   marketList.replaceChildren();
   for (const m of s.markets) addMarketRow(m, s.charts.includes(m));
   candleWidthSel.value = s.candleWidth;
-  refreshWidthLabels();
+  syncMarketControls();
   showIndexBox.checked = s.showIndex;
   manualOnlyBox.checked = s.manualOnly;
   lookUpBox.checked = s.lookUpUpdate;
@@ -573,6 +619,36 @@ calibrateBtn.addEventListener('click', async () => {
   hideTimer = setTimeout(hide, 1500);
 });
 
+// ── Upload speed test ───────────────────────────────────────────────────
+
+const speedTestBtn = $<HTMLButtonElement>('speed-test');
+const speedResults = $<HTMLTableElement>('speed-results');
+
+speedTestBtn.addEventListener('click', async () => {
+  if (!glasses) return;
+  speedTestBtn.disabled = true;
+  clearTimeout(hideTimer);
+  setShowing(true);
+  try {
+    const results = await runSpeedTest(glasses, (done, total) => {
+      speedTestBtn.textContent = `Testing ${done + 1}/${total}…`;
+    });
+    console.info('Upload speed test', JSON.stringify(results));
+    speedResults.replaceChildren(...results.map((r) => {
+      const tr = document.createElement('tr');
+      const ms = r.ms === null ? 'rejected' : `${Math.round(r.ms)} ms${r.ok < r.tries ? ` (${r.tries - r.ok} rejected)` : ''}`;
+      for (const text of [r.label, formatBytes(r.bytes), ms]) tr.insertCell().textContent = text;
+      return tr;
+    }));
+  } catch (e) {
+    speedResults.replaceChildren();
+    speedResults.insertRow().insertCell().textContent = `Failed: ${(e as Error).message}`;
+  }
+  speedTestBtn.textContent = 'Test upload speed';
+  speedTestBtn.disabled = false;
+  void hide();
+});
+
 // ── Boot ────────────────────────────────────────────────────────────────
 
 async function boot(): Promise<void> {
@@ -581,6 +657,7 @@ async function boot(): Promise<void> {
   drawPlaceholder('Loading…');
   setStatus('Connecting to glasses…');
   glasses = await Glasses.connect();
+  speedTestBtn.disabled = !glasses;
   // Tap while the chart is up dismisses it; tap while dark pulls a fresh one.
   glasses?.onTap(toggleChart);
   glasses?.onImu(onImuReading);
