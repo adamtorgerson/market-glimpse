@@ -93,8 +93,8 @@ first and last short. Any tile the bridge rejects is retried on its own.
 To keep uploads small, each tile is cropped to the part of its quarter that
 isn't black (the screen is black where nothing is drawn), and an all-black
 quarter isn't sent. When the loading screen is up, the tiles also cover its
-text. Tiles are 4-bit greyscale PNGs, sent to the Even app as base64, or as
-byte arrays if the app rejects base64.
+text. Tiles are 4-bit greyscale PNGs, sent to the Even app as byte arrays.
+The app on the phone rejects base64, though the simulator takes it.
 
 ### Diagnostics (phone page)
 

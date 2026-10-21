@@ -52,7 +52,7 @@ export interface TileStat extends Rect {
 
 export interface UploadStats {
   /** How the image bytes cross the WebView bridge, or 'text' for a text-only page. */
-  encoding: 'base64' | 'bytes' | 'text';
+  encoding: 'bytes' | 'text';
   ms: number;
   tiles: TileStat[];
 }
@@ -75,8 +75,6 @@ export class Glasses {
   /** The screen `loading` last put up, kept behind the tiles by `show`. */
   private loadingScreen: LoadingScreen | null = null;
   private queue: Promise<unknown> = Promise.resolve();
-  /** Send image data as base64 until the host rejects it. */
-  private base64 = true;
 
   private constructor(readonly bridge: EvenAppBridge) {}
 
@@ -265,29 +263,23 @@ export class Glasses {
       return succeeded(res);
     };
     const ok = await Promise.all(tiles.map((t, i) =>
-      this.sendImage(i, t.png, this.base64).catch(() => null).then((res) => landed(i, res))));
+      this.sendImage(i, t.png).catch(() => null).then((res) => landed(i, res))));
     for (let i = 0; i < tiles.length; i++) {
       if (ok[i]) continue;
       stats[i]!.retried = true;
-      let res = await this.sendImage(i, tiles[i]!.png, this.base64).catch(() => null);
-      if (!succeeded(res) && this.base64) {
-        // The host may not decode base64; if a byte array works, stick to that.
-        res = await this.sendImage(i, tiles[i]!.png, false).catch(() => null);
-        if (succeeded(res)) {
-          this.base64 = false;
-          console.warn('Glasses rejected base64 image data; sending byte arrays from now on');
-        }
-      }
+      const res = await this.sendImage(i, tiles[i]!.png).catch(() => null);
       if (!landed(i, res)) throw new Error(`Image upload failed: ${res}`);
     }
-    return { encoding: this.base64 ? 'base64' : 'bytes', ms: performance.now() - start, tiles: stats };
+    return { encoding: 'bytes', ms: performance.now() - start, tiles: stats };
   }
 
   /**
    * Image bytes cross the WebView bridge as JSON: a byte array becomes a list
-   * of numbers (~3.6 characters per byte), base64 ~1.33.
+   * of numbers (~3.6 characters per byte), base64 ~1.33. The Even app on the
+   * phone rejects base64 (the simulator takes it), so it's only for the
+   * speed test, to see if that changes.
    */
-  private sendImage(i: number, data: Uint8Array, base64: boolean): Promise<ImageRawDataUpdateResult> {
+  private sendImage(i: number, data: Uint8Array, base64 = false): Promise<ImageRawDataUpdateResult> {
     return this.bridge.updateImageRawData(new ImageRawDataUpdate({
       containerID: TILE_ID_BASE + i,
       containerName: `tile-${i}`,

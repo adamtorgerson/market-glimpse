@@ -272,7 +272,7 @@ function scheduleAt(at: number): void {
 
 const uploadStatsEl = $('upload-stats');
 
-/** e.g. "3 tiles, 4.2 KB, base64: 812 ms · 288×120 1.6 KB 410 ms · …" */
+/** e.g. "3 tiles, 4.2 KB, bytes: 812 ms · 288×120 1.6 KB 410 ms · …" */
 function showUploadStats(u: UploadStats): void {
   console.info('Glasses upload', JSON.stringify(u));
   const total = u.tiles.reduce((n, t) => n + t.bytes, 0);

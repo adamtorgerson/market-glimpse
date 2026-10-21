@@ -21,21 +21,22 @@ const REPS = 3;
  *    image the phone sends on is the same)
  *  - uncompressed black vs noise PNG: about the same PNG size, but noise
  *    can't be compressed for Bluetooth (the phone LZ4s the image)
- *  - noise vs noise as a byte array: base64 vs a list of numbers on the bridge
+ *  - noise as a byte array vs base64: base64 is shorter on the bridge, but
+ *    the Even app rejected it when last tried
  *  - noise vs quarter-size noise: pixel count
  *  - noise PNG vs raw packed 4-bit noise: decoding the PNG on the phone
- *    (raw data may be rejected by older hosts)
+ *    (raw data may be rejected)
  */
 export async function runSpeedTest(glasses: Glasses, progress: (done: number, total: number) => void): Promise<SpeedResult[]> {
   const black = new Uint8Array(W * H);
   const noise = noiseLevels(W, H);
   const cases: { label: string; container: 0 | 1; data: Uint8Array; base64: boolean }[] = [
-    { label: 'Black PNG', container: 0, data: encodePng4(black, W, H), base64: true },
-    { label: 'Black PNG, uncompressed', container: 0, data: encodePng4(black, W, H, 0), base64: true },
-    { label: 'Noise PNG', container: 0, data: encodePng4(noise, W, H), base64: true },
-    { label: 'Noise PNG, byte array', container: 0, data: encodePng4(noise, W, H), base64: false },
-    { label: 'Noise PNG, ¼ size', container: 1, data: encodePng4(noiseLevels(W / 2, H / 2), W / 2, H / 2), base64: true },
-    { label: 'Noise, raw 4-bit', container: 0, data: packGray4(noise), base64: true },
+    { label: 'Black PNG', container: 0, data: encodePng4(black, W, H), base64: false },
+    { label: 'Black PNG, uncompressed', container: 0, data: encodePng4(black, W, H, 0), base64: false },
+    { label: 'Noise PNG', container: 0, data: encodePng4(noise, W, H), base64: false },
+    { label: 'Noise PNG, base64', container: 0, data: encodePng4(noise, W, H), base64: true },
+    { label: 'Noise PNG, ¼ size', container: 1, data: encodePng4(noiseLevels(W / 2, H / 2), W / 2, H / 2), base64: false },
+    { label: 'Noise, raw 4-bit', container: 0, data: packGray4(noise), base64: false },
   ];
   return glasses.exclusive(async () => {
     await glasses.imagePage([{ x: 0, y: 0, w: W, h: H }, { x: W, y: 0, w: W / 2, h: H / 2 }]);
