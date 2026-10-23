@@ -5,6 +5,10 @@ export const CANDLE_WIDTHS = ['wide', 'narrow', 'thin', 'text-wide', 'text-narro
 export type CandleWidth = (typeof CANDLE_WIDTHS)[number];
 export type TextWidth = Extract<CandleWidth, `text${string}`>;
 
+/** Fonts for the text in chart images; never the phone's own, which varies by phone. */
+export const CHART_FONTS = ['atkinson', 'b612', 'dejavu-mono', 'hack', 'terminus'] as const;
+export type ChartFont = (typeof CHART_FONTS)[number];
+
 export const MAX_CHARTS = 4;
 export const MAX_MARKETS = 8;
 
@@ -33,6 +37,8 @@ export interface Settings {
    * than sent as images (one chart only).
    */
   candleWidth: CandleWidth;
+  /** Font for the text in chart images (not text candles, which use the glasses' font). */
+  font: ChartFont;
   /**
    * With no market charted, send the market list as text instead of an image.
    * The image list has a line graph per market (one candle request each).
@@ -58,6 +64,7 @@ export const DEFAULT_SETTINGS: Settings = {
   charts: ['BTC-USDC'],
   interval: 5,
   candleWidth: 'narrow',
+  font: 'atkinson',
   textList: false,
   showIndex: true,
   manualOnly: false,
@@ -84,6 +91,8 @@ export function sanitize(input: Partial<Settings>): Settings {
   const width = (input.candleWidth as string) === 'text' ? 'text-wide' : input.candleWidth;
   const candleWidth = (CANDLE_WIDTHS as readonly string[]).includes(width as string) ? width! : d.candleWidth;
 
+  const font = (CHART_FONTS as readonly string[]).includes(input.font as string) ? input.font! : d.font;
+
   const charts = dedupe((input.charts ?? d.charts).map(normalizeMarket))
     .filter((m) => markets.includes(m))
     .slice(0, maxCharts(candleWidth));
@@ -98,7 +107,7 @@ export function sanitize(input: Partial<Settings>): Settings {
   const lookUpUpdate = typeof input.lookUpUpdate === 'boolean' ? input.lookUpUpdate : d.lookUpUpdate;
   const lookUpCal = isCalibration(input.lookUpCal) ? input.lookUpCal : null;
 
-  return { source, markets, charts, interval, candleWidth, textList, showIndex, manualOnly, lookUpUpdate, lookUpCal, refreshSec, displaySec };
+  return { source, markets, charts, interval, candleWidth, font, textList, showIndex, manualOnly, lookUpUpdate, lookUpCal, refreshSec, displaySec };
 }
 
 /** `minutes` if supported, else the supported size closest to it (by ratio). */

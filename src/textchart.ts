@@ -119,7 +119,7 @@ export function buildTextChart(m: TextChartModel): TextBox[] {
   const header = [`${chart.market} ${formatInterval(m.interval)}`, last === undefined ? '' : formatPrice(last)].filter(Boolean).join('   ');
   boxes[0]!.lines[0]!.texts.push({ x: 0, text: header });
 
-  const footer = [m.source, chart.index === undefined ? '' : `Index ${formatPrice(chart.index)}`];
+  const footer = [m.source, chart.index === undefined ? '' : `Index ${chart.index === null ? '--' : formatPrice(chart.index)}`];
   for (const t of m.ticker) {
     const price = t.last ?? t.candles.at(-1)?.close;
     if (price !== undefined) footer.push(`${t.market} ${formatPrice(price)}`);
@@ -299,10 +299,10 @@ function drawCandles(boxes: TextBox[], data: MarketData, interval: number, style
       if (yl > bottom) draw(group, col + 1, bottom + 1, yl);
     }
   }
-  // Dots in every other gap between candles, from each price key.
+  // Dots in two of every nine gaps between candles (4 and 5 apart), from each price key.
   KEYS.forEach((key, i) => {
     const dots = dimLine(boxes, key.dot);
-    for (let k = 0; k < count; k += 2) {
+    for (let k = 0, n = 0; k < count; k += n++ % 2 ? 5 : 4) {
       const col = firstCol - k * pitch + span;
       if (col > blocks[i]!.right) dots.strokes.set(col, "'");
     }

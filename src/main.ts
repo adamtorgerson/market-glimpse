@@ -1,5 +1,6 @@
 import './style.css';
 import { candleCapacity, DEFAULT_AXIS_W, renderScreen, SCREEN_H, SCREEN_W } from './chart';
+import { FONTS, loadFont } from './fonts';
 import { Glasses, type UploadStats } from './glasses';
 import { calibrate, LookUpDetector, type Vec } from './lookup';
 import { encodeTiles } from './png';
@@ -8,9 +9,10 @@ import { average, MIN_GAP_MS } from './sources/http';
 import { runSpeedTest } from './speedtest';
 import { getSource, SOURCES } from './sources';
 import { estimateIndexMs, fetchIndexPrices } from './sources/coingecko';
-import type { MarketRequest } from './sources/types';
+import type { MarketData, MarketRequest } from './sources/types';
 import {
   CANDLE_WIDTHS,
+  CHART_FONTS,
   DEFAULT_SETTINGS,
   formatInterval,
   isTextWidth,
@@ -20,6 +22,7 @@ import {
   normalizeMarket,
   sanitize,
   type CandleWidth,
+  type ChartFont,
   type Settings,
 } from './settings';
 
@@ -104,13 +107,18 @@ interface UpdateOptions {
   manual?: boolean;
   /** Don't put the chart up before this time (ms), so scheduled charts appear on time. */
   showAt?: number;
+  /** Redraw the last data if it was fetched for the same request (e.g. only the font changed). */
+  reuse?: boolean;
 }
+
+/** The last update's data, and the request and time it was fetched with. */
+let lastFetch: { key: string; data: MarketData[]; updated: Date } | null = null;
 
 /** When the update in progress should have its chart up (ms), for the loading estimate. */
 let inFlightEta = 0;
 
 /** Fetch, draw, show on the glasses, then blank them after `displaySec`. */
-async function update({ cancel = false, manual = false, showAt = 0 }: UpdateOptions = {}): Promise<void> {
+async function update({ cancel = false, manual = false, showAt = 0, reuse = false }: UpdateOptions = {}): Promise<void> {
   // An update in progress is left to finish unless cancelled; its chart will replace the loading screen.
   const joining = inFlight !== null && !cancel;
   if (!joining) {
@@ -121,7 +129,7 @@ async function update({ cancel = false, manual = false, showAt = 0 }: UpdateOpti
   if (joining) return;
   const ctrl = (inFlight = new AbortController());
   try {
-    await runUpdate(ctrl, showAt);
+    await runUpdate(ctrl, showAt, reuse);
   } finally {
     if (inFlight === ctrl) inFlight = null;
   }
@@ -160,21 +168,31 @@ function showLoading(etaSec: number): void {
   }).catch((e) => setStatus(`Glasses error: ${(e as Error).message}`));
 }
 
-async function runUpdate(ctrl: AbortController, showAt: number): Promise<void> {
+async function runUpdate(ctrl: AbortController, showAt: number, reuse: boolean): Promise<void> {
   const s = settings;
-  setStatus('Fetching…');
-
-  let data;
-  try {
-    // Different APIs, so these run side by side; each keeps its own rate limit.
-    const [markets, index] = await Promise.all([
-      getSource(s.source).fetch(marketRequest(s), ctrl.signal),
-      fetchIndexPrices(indexMarkets(s), ctrl.signal),
-    ]);
-    data = markets.map((d) => ({ ...d, index: index.get(d.market) }));
-  } catch {
-    return; // superseded by a newer update
+  const key = JSON.stringify([s.source, marketRequest(s), indexMarkets(s)]);
+  let data: MarketData[], updated: Date;
+  if (reuse && lastFetch?.key === key) {
+    ({ data, updated } = lastFetch);
+  } else {
+    setStatus('Fetching…');
+    try {
+      // Different APIs, so these run side by side; each keeps its own rate limit.
+      const [markets, index] = await Promise.all([
+        getSource(s.source).fetch(marketRequest(s), ctrl.signal),
+        fetchIndexPrices(indexMarkets(s), ctrl.signal),
+      ]);
+      const wanted = indexMarkets(s);
+      data = markets.map((d) => ({ ...d, index: wanted.includes(d.market) ? index.get(d.market) ?? null : undefined }));
+    } catch {
+      return; // superseded by a newer update
+    }
+    if (ctrl.signal.aborted) return;
+    updated = new Date();
+    lastFetch = { key, data, updated };
   }
+  // Already loaded unless the font was just changed; without it, text falls back to monospace.
+  await loadFont(s.font).catch(() => {});
   if (ctrl.signal.aborted) return;
 
   const drawStart = Date.now();
@@ -187,19 +205,19 @@ async function runUpdate(ctrl: AbortController, showAt: number): Promise<void> {
   // the market list; otherwise the screen goes as image tiles.
   let textBoxes: TextBox[] | null = null;
   if (isTextWidth(s.candleWidth) && charts.length === 1) {
-    textBoxes = buildTextChart({ chart: charts[0]!, width: s.candleWidth, ticker, interval: s.interval, updated: new Date(), source });
+    textBoxes = buildTextChart({ chart: charts[0]!, width: s.candleWidth, ticker, interval: s.interval, updated, source });
   } else if (charts.length === 0 && s.textList) {
-    textBoxes = buildTextList({ items: ticker, updated: new Date(), source });
+    textBoxes = buildTextList({ items: ticker, updated, source });
   }
   if (textBoxes) {
     drawTextChart(ctx, textBoxes);
   } else {
-    lastAxisW = renderScreen(ctx, { charts, ticker, interval: s.interval, candleWidth: s.candleWidth, updated: new Date(), source });
+    lastAxisW = renderScreen(ctx, { charts, ticker, interval: s.interval, candleWidth: s.candleWidth, updated, source, font: s.font });
   }
   refreshWidthLabels();
 
   const failed = data.filter((d) => d.error).map((d) => `${d.market}: ${d.error}`);
-  const stamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const stamp = updated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
   if (!glasses) {
     setStatus(`Browser preview (glasses not connected) · updated ${stamp}`, failed);
@@ -332,6 +350,7 @@ const marketList = $<HTMLUListElement>('markets');
 const addMarketBtn = $<HTMLButtonElement>('add-market');
 const intervalSel = $<HTMLSelectElement>('interval');
 const candleWidthSel = $<HTMLSelectElement>('candle-width');
+const fontSel = $<HTMLSelectElement>('font');
 const showIndexBox = $<HTMLInputElement>('show-index');
 const textListBox = $<HTMLInputElement>('text-list');
 const manualOnlyBox = $<HTMLInputElement>('manual-only');
@@ -345,6 +364,7 @@ const formError = $('form-error');
 for (const src of SOURCES) sourceSel.add(new Option(src.label, src.id));
 const CANDLE_WIDTH_LABELS: Record<CandleWidth, string> = { wide: 'Wide', narrow: 'Narrow', thin: 'Thin', 'text-wide': 'Text wide, 1 chart', 'text-narrow': 'Text narrow, 1 chart', 'text-thin': 'Text thin, 1 chart' };
 for (const w of CANDLE_WIDTHS) candleWidthSel.add(new Option(CANDLE_WIDTH_LABELS[w], w));
+for (const f of CHART_FONTS) fontSel.add(new Option(FONTS[f].label, f));
 let lastAxisW = DEFAULT_AXIS_W;
 
 /** Label each width with the time span it covers, e.g. "Thin · ~14h", for the form's current candle size and chart count. */
@@ -418,6 +438,7 @@ function fillForm(s: Settings): void {
   marketList.replaceChildren();
   for (const m of s.markets) addMarketRow(m, s.charts.includes(m));
   candleWidthSel.value = s.candleWidth;
+  fontSel.value = s.font;
   syncMarketControls();
   textListBox.checked = s.textList;
   showIndexBox.checked = s.showIndex;
@@ -448,6 +469,7 @@ function readForm(): Settings {
     charts: rows.filter((r) => r.charted).map((r) => r.market),
     interval: Number(intervalSel.value),
     candleWidth: candleWidthSel.value as CandleWidth,
+    font: fontSel.value as ChartFont,
     textList: textListBox.checked,
     showIndex: showIndexBox.checked,
     manualOnly,
@@ -501,6 +523,9 @@ async function applyForm(): Promise<void> {
     || next.candleWidth !== prev.candleWidth || next.charts.join() !== prev.charts.join()
     || next.showIndex !== prev.showIndex || (next.textList !== prev.textList && next.charts.length === 0);
   if (chartChanged) restartSchedule({ cancel: true, manual: true });
+  // A new font needs no new data: redraw the last, sparing the APIs (CoinGecko
+  // drops the index when asked too often). Without data to reuse, this fetches.
+  else if (next.font !== prev.font) void update({ cancel: true, reuse: true });
   // Leaving manual-only: fetch in the background now and start the schedule.
   else if (prev.manualOnly && !next.manualOnly) restartSchedule();
   else scheduleAt(nextAt - prev.refreshSec * 1000 + next.refreshSec * 1000);
@@ -673,6 +698,7 @@ async function boot(): Promise<void> {
   glasses?.onTap(toggleChart);
   glasses?.onImu(onImuReading);
   settings = await loadSettings();
+  void loadFont(settings.font).catch(() => {});
   fillForm(settings);
   syncLookUp();
   if (settings.manualOnly) {

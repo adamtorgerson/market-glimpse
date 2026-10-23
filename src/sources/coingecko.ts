@@ -1,6 +1,7 @@
 import { PublicApi, isAbort } from './http';
 
-const api = new PublicApi('https://api.coingecko.com/api/v3');
+// The keyless API allows only a few calls a minute per IP, so space them well beyond MIN_GAP_MS.
+const api = new PublicApi('https://api.coingecko.com/api/v3', 12_000);
 
 // Kraken-style codes and stablecoins mapped to CoinGecko symbols / currencies.
 const BASE_ALIASES: Record<string, string> = { XBT: 'BTC', XDG: 'DOGE' };

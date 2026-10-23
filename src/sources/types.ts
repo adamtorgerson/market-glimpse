@@ -13,8 +13,8 @@ export interface MarketData {
   candles: Candle[];
   /** Latest trade price. */
   last?: number;
-  /** Aggregated index price from CoinGecko; charted markets only. */
-  index?: number;
+  /** Aggregated index price from CoinGecko; charted markets only. Null when asked for but unavailable. */
+  index?: number | null;
   /** Rolling 24h volume in the base currency. */
   dayVolume?: number;
   error?: string;

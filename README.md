@@ -47,9 +47,21 @@ refreshes every 2m, chart shown for 12s, narrow candles.
 
     Four price keys sit at the left edge over the oldest candles, which
     leave a gap around each label, and each key has a dotted line across
-    the chart. A few time keys sit under the candles. Only one market can be
+    the chart, a dot in two of every nine candle gaps. A few time keys sit under
+    the candles. Only one market can be
     charted; the other markets' prices go on the bottom line if they fit.
     With no market ticked, the market list is drawn as usual.
+- **Font**: for the text in chart images. Atkinson Hyperlegible (the
+  default), B612, DejaVu Sans Mono, Hack or Terminus. The phone's own font is
+  never used, since it differs from phone to phone. Each size is matched to
+  Atkinson's in pixels: the phone measures how tall each font's digits draw
+  at nearby whole-pixel sizes and picks the one that matches, or misses by
+  the least. Changing the font redraws the last data without fetching
+  again. Text candles and the text list use the
+  glasses' font instead. The fonts and their licenses are in `public/fonts/`:
+  Atkinson Hyperlegible, B612 and Terminus under the SIL Open Font License,
+  DejaVu Sans Mono under the Bitstream Vera license, and Hack under MIT.
+  Terminus is shipped unmodified, as its license requires to keep the name.
 - **Show index price (CoinGecko)**: on by default. Turn it off to skip the
   CoinGecko request on each update.
 - **Manual only**: no scheduled updates. Nothing is fetched and the glasses
@@ -157,14 +169,16 @@ sends no CORS headers, so the WebView blocks every response. That was
 checked in Chrome and the Even simulator.
 
 Each chart's header also shows CoinGecko's index price (its price aggregated
-across exchanges), centred between the market name and the exchange's price. One
+across exchanges), centred between the exchange's price and the market name,
+with its top level with theirs. It's always shown: in a crowded header it
+drops its "Index" label, then the fetch time and source make way. One
 `simple/price` request covers every chart, looked up by symbol (`XBT` and
 `XDG` are mapped to `btc` and `doge`). Stablecoin quotes such as USDC and USDT
-are priced in USD. It runs alongside the exchange's requests, with its own
-1.5s limit. If CoinGecko doesn't know a coin, or the request fails, the index
-is left out. CoinGecko's keyless API is rate-limited per IP. A rejected
-request shows up as a network error in the console, and the chart is drawn
-without the index.
+are priced in USD. It runs alongside the exchange's requests, at most once
+every 12s. If CoinGecko doesn't know a coin, or the request fails, the
+header shows "Index —" (in text candles, "Index --"). CoinGecko's keyless API
+is rate-limited per IP. A rejected request shows up as a network error in the
+console.
 
 ## Layout
 
@@ -178,9 +192,17 @@ is scaled to the largest bar on screen, and that bar's value is labelled beside
 it. The highest high and lowest low on screen are labelled at their wicks.
 Horizontal price gridlines run to the right edge, with their prices drawn over
 them. A single time axis runs along the bottom, in phone-local time (UTC for
-daily and longer candles). The time the data was fetched is stamped in the
-bottom-right corner, and the data source's name in the bottom-left. All panels share one time frame, so their vertical
+daily and longer candles). All panels share one time frame, so their vertical
 gridlines line up with that axis.
+
+Each chart's header has the price on the left and the market and candle size
+on the right, with the index price between them. The time the data was
+fetched follows the price in the top-left chart, and the data source's name
+comes before the market in the top-right chart (both in the same chart when
+it spans the screen). The MarketGlimpse logo sits in the bottom-right corner,
+under the last price axis and beside the volume strip, its lowest point level
+with the bottom of the time labels. With no chart, the
+market list has the source and time in the bottom corners.
 
 "Display off" means switching to a page with one empty text container. With no
 pixels lit, the display is dark, but the app keeps running so the timer
