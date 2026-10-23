@@ -4,7 +4,7 @@ import { FONTS, loadFont } from './fonts';
 import { Glasses, type UploadStats } from './glasses';
 import { calibrate, LookUpDetector, type Vec } from './lookup';
 import { encodeTiles } from './png';
-import { buildTextChart, buildTextList, drawTextChart, serializeBox, textCandles, type TextBox } from './textchart';
+import { buildLoadingList, buildTextChart, buildTextList, drawTextChart, serializeBox, textCandles, type TextBox } from './textchart';
 import { average, MIN_GAP_MS } from './sources/http';
 import { runSpeedTest } from './speedtest';
 import { getSource, SOURCES } from './sources';
@@ -114,6 +114,16 @@ interface UpdateOptions {
 /** The last update's data, and the request and time it was fetched with. */
 let lastFetch: { key: string; data: MarketData[]; updated: Date } | null = null;
 
+/** What an update fetches with `s`; data fetched for the same key can be redrawn as is. */
+function fetchKey(s: Settings): string {
+  return JSON.stringify([s.source, marketRequest(s), indexMarkets(s)]);
+}
+
+/** The last update's data, if it was fetched for what `s` would fetch. */
+function reusable(s: Settings): MarketData[] | null {
+  return lastFetch?.key === fetchKey(s) ? lastFetch.data : null;
+}
+
 /** When the update in progress should have its chart up (ms), for the loading estimate. */
 let inFlightEta = 0;
 
@@ -123,7 +133,10 @@ async function update({ cancel = false, manual = false, showAt = 0, reuse = fals
   const joining = inFlight !== null && !cancel;
   if (!joining) {
     inFlight?.abort();
-    inFlightEta = Math.max(Date.now() + estimateUpdateMs(), showAt);
+    // Redrawing the last data skips the fetch, and its list is complete from the start.
+    const cached = reuse ? reusable(settings) : null;
+    inFlightEta = Math.max(Date.now() + (cached ? drawMs + (glasses ? uploadMs : 0) : estimateUpdateMs()), showAt);
+    progress = cached ?? [];
   }
   if (manual) showLoading(Math.max(1, Math.round((inFlightEta - Date.now()) / 1000)));
   if (joining) return;
@@ -154,6 +167,13 @@ function estimateUpdateMs(): number {
 
 /** True while "Loading…" is on the glasses. */
 let loading = false;
+/** The update in progress's results so far, for the loading screen's market list. */
+let progress: MarketData[] = [];
+
+/** Every monitored market, with what's been fetched of it so far. */
+function loadingItems(): MarketData[] {
+  return settings.markets.map((m) => progress.find((d) => d.market === m) ?? { market: m, candles: [] });
+}
 
 function showLoading(etaSec: number): void {
   if (!glasses) return;
@@ -162,15 +182,25 @@ function showLoading(etaSec: number): void {
   loading = true;
   glasses.loading({
     message: `Loading… ~${etaSec}s`,
-    topLeft: APP_NAME,
-    bottomLeft: getSource(settings.source).label,
-    bottomRight: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+    topLeft: '',
+    // The data source, then the time, as in the chart header.
+    topRight: `${getSource(settings.source).label}   ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`,
+    bottomLeft: '',
+    bottomRight: APP_NAME,
+    list: buildLoadingList(loadingItems()),
   }).catch((e) => setStatus(`Glasses error: ${(e as Error).message}`));
+}
+
+/** A source's partial results: fill in the loading screen's list as they come. */
+function onProgress(ctrl: AbortController, partial: MarketData[]): void {
+  if (inFlight !== ctrl) return;
+  progress = partial;
+  if (loading) glasses?.updateLoadingList(buildLoadingList(loadingItems())).catch(() => {});
 }
 
 async function runUpdate(ctrl: AbortController, showAt: number, reuse: boolean): Promise<void> {
   const s = settings;
-  const key = JSON.stringify([s.source, marketRequest(s), indexMarkets(s)]);
+  const key = fetchKey(s);
   let data: MarketData[], updated: Date;
   if (reuse && lastFetch?.key === key) {
     ({ data, updated } = lastFetch);
@@ -179,7 +209,7 @@ async function runUpdate(ctrl: AbortController, showAt: number, reuse: boolean):
     try {
       // Different APIs, so these run side by side; each keeps its own rate limit.
       const [markets, index] = await Promise.all([
-        getSource(s.source).fetch(marketRequest(s), ctrl.signal),
+        getSource(s.source).fetch(marketRequest(s), ctrl.signal, (partial) => onProgress(ctrl, partial)),
         fetchIndexPrices(indexMarkets(s), ctrl.signal),
       ]);
       const wanted = indexMarkets(s);
@@ -525,7 +555,7 @@ async function applyForm(): Promise<void> {
   if (chartChanged) restartSchedule({ cancel: true, manual: true });
   // A new font needs no new data: redraw the last, sparing the APIs (CoinGecko
   // drops the index when asked too often). Without data to reuse, this fetches.
-  else if (next.font !== prev.font) void update({ cancel: true, reuse: true });
+  else if (next.font !== prev.font) void update({ cancel: true, manual: true, reuse: true });
   // Leaving manual-only: fetch in the background now and start the schedule.
   else if (prev.manualOnly && !next.manualOnly) restartSchedule();
   else scheduleAt(nextAt - prev.refreshSec * 1000 + next.refreshSec * 1000);
@@ -705,7 +735,9 @@ async function boot(): Promise<void> {
     drawPlaceholder('Press Show now');
     setStatus(glasses ? 'Glasses connected' : 'Browser preview (glasses not connected)');
   }
-  restartSchedule();
+  // The first chart is fetched now, with the loading screen up, as if asked
+  // for; in manual-only mode nothing is fetched until it is.
+  restartSchedule({ manual: !settings.manualOnly });
 }
 
 /** Message on the phone preview before there's a chart to show. */

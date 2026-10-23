@@ -145,6 +145,10 @@ export interface TextListModel {
   items: MarketData[];
   updated: Date;
   source: string;
+  /** Still fetching: a market with no price yet shows '...' rather than 'no data'. */
+  pending?: boolean;
+  /** Set the rows against the right edge instead of the left. */
+  right?: boolean;
 }
 
 /** Brightness of the market list's names, volumes and errors. */
@@ -176,16 +180,32 @@ export function buildTextList(m: TextListModel): TextBox[] {
     mid.lines[i]!.texts.push({ x: 4, text: d.market });
     const price = prices[i];
     if (!price) {
-      mid.lines[i]!.texts.push({ x: nameR + 24, text: d.error ?? 'no data' });
+      mid.lines[i]!.texts.push({ x: nameR + 24, text: d.error ?? (m.pending ? '...' : 'no data') });
       return;
     }
     bright.lines[i]!.texts.push({ x: priceR - textWidth(price), text: price });
     if (d.dayVolume !== undefined) mid.lines[i]!.texts.push({ x: priceR + 16, text: formatVolume(d.dayVolume) });
   });
+  if (m.right) {
+    // Shift the whole block so its widest row ends 4px from the right edge.
+    const end = Math.max(...[bright, mid].flatMap((b) => b.lines.flatMap((l) => l.texts.map((t) => t.x + textWidth(t.text)))));
+    const dx = Math.max(0, SCREEN_W - 4 - end);
+    for (const b of [bright, mid]) for (const l of b.lines) for (const t of l.texts) t.x += dx;
+  }
 
   const stamp = m.updated.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   footer.lines[0]!.texts.push({ x: 4, text: m.source }, { x: SCREEN_W - 4 - textWidth(stamp), text: stamp });
   return [bright, mid, footer];
+}
+
+/**
+ * The loading screen's market list: names and prices so far, laid out like
+ * the text list against the right edge, without its footer (the loading
+ * screen has corners).
+ */
+export function buildLoadingList(items: MarketData[]): { y: number; h: number; color: number; content: string }[] {
+  const [bright, mid] = buildTextList({ items, updated: new Date(), source: '', pending: true, right: true });
+  return [bright!, mid!].map((b) => ({ y: b.y, h: b.lines.length * LINE_H, color: b.color, content: serializeBox(b) }));
 }
 
 /** The text a container shows. */
@@ -387,7 +407,8 @@ function stroke(group: TextBox[], col: number, a: number, b: number, blocks: Blo
 }
 
 /** Width in px of `s` in the firmware font, to within a px or two. */
-function textWidth(s: string): number {
+/** Estimated width of `s` in the glasses' font, in px. */
+export function textWidth(s: string): number {
   let w = 0;
   for (const ch of s) w += WIDTHS[ch] ?? (/[\dA-Z]/.test(ch) ? 12 : 11);
   return w;

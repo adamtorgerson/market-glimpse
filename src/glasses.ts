@@ -9,10 +9,12 @@ import {
   RebuildPageContainer,
   StartUpPageCreateResult,
   TextContainerProperty,
+  TextContainerUpgrade,
   waitForEvenAppBridge,
 } from '@evenrealities/even_hub_sdk';
 import type { Vec } from './lookup';
 import { toBase64, type Rect, type Tile } from './png';
+import { textWidth } from './textchart';
 
 const CAPTURE_ID = 1;
 const CAPTURE_NAME = 'capture';
@@ -21,8 +23,10 @@ const LABEL_NAME = 'label';
 const TILE_ID_BASE = 3;
 // Text-only pages (the text chart) use their own IDs from 1.
 const TEXT_ID_BASE = 1;
-// Corner text on the loading screen: app name, data source, time.
+// Corner text on the loading screen, in the order top-left, top-right, bottom-left, bottom-right.
 const CORNER_ID_BASE = 7;
+// The loading screen's market list, after the corners.
+const LIST_ID_BASE = 11;
 // Text renders from the container's top-left, so the box is placed to centre
 // the message, using the glasses font's rough width per character
 // ("Loading… ~4s" is ~118px in the simulator).
@@ -34,12 +38,19 @@ const LABEL_H = 30;
 const CORNER_PAD = 4;
 const CORNER_H = 30;
 
-/** What the loading screen shows: a centred message plus three corners. */
+/** What the loading screen shows: a message, any of four corners, and optionally a market list. */
 export interface LoadingScreen {
   message: string;
   topLeft: string;
+  topRight: string;
   bottomLeft: string;
   bottomRight: string;
+  /**
+   * Full-width text containers (at most 2), e.g. names and prices at two
+   * brightnesses. With a list, the message moves to the top-left corner,
+   * which `topLeft` should then leave empty.
+   */
+  list?: { y: number; h: number; color: number; content: string }[];
 }
 
 /** How long one image took to land, counted from when the batch was sent. */
@@ -74,6 +85,8 @@ export class Glasses {
   private pageCreated = false;
   /** The screen `loading` last put up, kept behind the tiles by `show`. */
   private loadingScreen: LoadingScreen | null = null;
+  /** True while the page is the loading screen alone, so its list can be updated in place. */
+  private loadingUp = false;
   private queue: Promise<unknown> = Promise.resolve();
 
   private constructor(readonly bridge: EvenAppBridge) {}
@@ -115,12 +128,36 @@ export class Glasses {
 
   loading(screen: LoadingScreen): Promise<void> {
     this.loadingScreen = screen;
-    return this.serial(() => this.setPage([], screen));
+    return this.serial(async () => {
+      await this.setPage([], screen);
+      this.loadingUp = true;
+    });
+  }
+
+  /**
+   * Rewrite the loading screen's list in place, without a page rebuild, if
+   * the loading screen is still up and the list keeps its layout. A chart
+   * that goes up afterwards keeps the new list behind its tiles.
+   */
+  updateLoadingList(list: NonNullable<LoadingScreen['list']>): Promise<void> {
+    const prev = this.loadingScreen;
+    if (!prev?.list || list.length !== prev.list.length || list.some((b, i) => b.y !== prev.list![i]!.y || b.h !== prev.list![i]!.h)) {
+      return Promise.resolve();
+    }
+    this.loadingScreen = { ...prev, list };
+    return this.serial(async () => {
+      if (!this.loadingUp) return;
+      await Promise.all(list.map((b, i) => b.content === prev.list![i]!.content ? true : this.bridge.textContainerUpgrade(new TextContainerUpgrade({
+        containerID: LIST_ID_BASE + i,
+        containerName: `list-${i}`,
+        content: b.content || ' ',
+      }))));
+    });
   }
 
   /** Just a centred message, e.g. calibration prompts. */
   message(text: string): Promise<void> {
-    return this.serial(() => this.setPage([], { message: text, topLeft: '', bottomLeft: '', bottomRight: '' }));
+    return this.serial(() => this.setPage([], { message: text, topLeft: '', topRight: '', bottomLeft: '', bottomRight: '' }));
   }
 
   /** Start or stop the glasses' motion-sensor (IMU) readings. */
@@ -197,6 +234,7 @@ export class Glasses {
   }
 
   private async setPage(images: Rect[], screen?: LoadingScreen): Promise<void> {
+    this.loadingUp = false;
     const capture = new TextContainerProperty({
       xPosition: 0,
       yPosition: 0,
@@ -216,6 +254,7 @@ export class Glasses {
       containerID: t.id,
       containerName: t.name,
       content: t.text,
+      ...(t.color !== undefined ? { textColor: t.color } : {}),
       isEventCapture: 0,
       zOrderIndex: t.z,
     }))];
@@ -226,8 +265,8 @@ export class Glasses {
       height: r.h,
       containerID: TILE_ID_BASE + i,
       containerName: `tile-${i}`,
-      // In front of the loading screen's text (z 0–4).
-      zOrderIndex: 5 + i,
+      // In front of the loading screen's text (z 0–7).
+      zOrderIndex: 8 + i,
     }));
     await this.applyPage({
       containerTotalNum: texts.length + imageObject.length,
@@ -300,36 +339,42 @@ function succeeded(res: ImageRawDataUpdateResult | null): boolean {
 }
 
 /**
- * The loading screen's text containers: three corners and the centred
- * message. Text renders from each container's top-left, so containers are
- * placed by the text's estimated width to centre or right-align it.
+ * The loading screen's text containers: three corners, the message (centred,
+ * or top-right above a list) and the list. Text renders from each container's
+ * top-left, so containers are placed by the text's estimated width to centre
+ * or right-align it.
  */
-function loadingTexts(screen: LoadingScreen): (Rect & { text: string; id: number; name: string; z: number })[] {
+function loadingTexts(screen: LoadingScreen): (Rect & { text: string; id: number; name: string; z: number; color?: number })[] {
   const widthOf = (t: string) => Math.ceil(t.length * LABEL_CHAR_W);
+  // Right-aligned by the font's measured widths, with slack so the text can't wrap.
+  const rightX = (t: string) => 576 - CORNER_PAD - textWidth(t) - 6;
   const corners: [string, number, number][] = [
     [screen.topLeft, CORNER_PAD, 0],
+    [screen.topRight, rightX(screen.topRight), 0],
     [screen.bottomLeft, CORNER_PAD, 288 - CORNER_H],
-    [screen.bottomRight, 576 - CORNER_PAD - widthOf(screen.bottomRight), 288 - CORNER_H],
+    [screen.bottomRight, rightX(screen.bottomRight), 288 - CORNER_H],
   ];
-  const texts = corners.flatMap(([text, x, y], i) => text ? [{
+  const texts: ReturnType<typeof loadingTexts> = corners.flatMap(([text, x, y], i) => text ? [{
     x: Math.max(0, x),
     y,
-    w: Math.min(576 - Math.max(0, x), widthOf(text) + 20),
+    w: Math.min(576 - Math.max(0, x), textWidth(text) + 20),
     h: CORNER_H,
     text,
     id: CORNER_ID_BASE + i,
     name: `corner-${i}`,
     z: 1 + i,
   }] : []);
+  const list = screen.list ?? [];
   texts.push({
-    x: Math.round(288 - widthOf(screen.message) / 2),
-    y: LABEL_Y,
-    w: LABEL_W,
-    h: LABEL_H,
+    x: list.length ? CORNER_PAD : Math.round(288 - widthOf(screen.message) / 2),
+    y: list.length ? 0 : LABEL_Y,
+    w: list.length ? textWidth(screen.message) + 20 : LABEL_W,
+    h: list.length ? CORNER_H : LABEL_H,
     text: screen.message,
     id: LABEL_ID,
     name: LABEL_NAME,
-    z: 4,
+    z: 5,
   });
+  list.forEach((b, i) => texts.push({ x: 0, y: b.y, w: 576, h: b.h, text: b.content || ' ', id: LIST_ID_BASE + i, name: `list-${i}`, z: 6 + i, color: b.color }));
   return texts;
 }

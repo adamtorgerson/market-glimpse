@@ -50,6 +50,9 @@ export interface MarketSource {
   requestsPerUpdate(req: MarketRequest): number;
   /** Rough ms a `fetch` would take if started now (rate limit, request count, recent response times). */
   estimateMs(req: MarketRequest): number;
-  /** One result per `req.markets` entry, in order. Rejects only with an AbortError. */
-  fetch(req: MarketRequest, signal: AbortSignal): Promise<MarketData[]>;
+  /**
+   * One result per `req.markets` entry, in order. Rejects only with an
+   * AbortError. `onProgress` gets the results so far after each request.
+   */
+  fetch(req: MarketRequest, signal: AbortSignal, onProgress?: (partial: MarketData[]) => void): Promise<MarketData[]>;
 }

@@ -360,9 +360,16 @@ function drawPanel(
     const left = slotLeft(g, k);
     const up = c.close >= c.open;
 
+    // Volume shaped like its candle, but dim: up filled, down hollow (or
+    // filled where it's too small for a hollow).
     const vh = Math.max(1, Math.round(c.volume / (maxVol || 1) * vol.h));
-    ctx.fillStyle = up ? VOL_UP : VOL_DOWN;
-    ctx.fillRect(left, vol.y + vol.h - vh, body, vh);
+    if (up || body < 3 || vh < 3) {
+      ctx.fillStyle = up ? VOL_UP : VOL_DOWN;
+      ctx.fillRect(left, vol.y + vol.h - vh, body, vh);
+    } else {
+      ctx.strokeStyle = VOL_DOWN;
+      ctx.strokeRect(left + 0.5, vol.y + vol.h - vh + 0.5, body - 1, vh - 1);
+    }
 
     const mid = slotCenter(g, k);
     const yo = y(c.open), yc = y(c.close);

@@ -94,10 +94,13 @@ plain browser.
 
 Scheduled updates fetch in the background while the display stays dark. They
 start early, by the same estimate plus a second, so the
-finished chart goes up on schedule with no loading screen. **Show now**, or a
-tap while the display is dark, shows "Loading… ~3s" until the chart is ready,
-with the app name top-left, the data source bottom-left and the time
-bottom-right.
+finished chart goes up on schedule with no loading screen. Launching the app
+(unless it's manual-only), **Show now**, or a tap while the display is dark,
+shows "Loading… ~3s" top-left until the chart
+is ready, with the data source and time top-right and the app name
+bottom-right. Every monitored market is listed as text against the right
+edge, like the text market list: "..." until its price arrives, filled in as
+each request comes back. The list is rewritten in place, without a page rebuild.
 The number is estimated once when "Loading…" goes up, and doesn't count
 down. It covers the rate limit's current wait, the update's actual requests
 (including Kraken's one-time pair list), each API's recent response times,
@@ -189,7 +192,9 @@ full-width rows, and 4 are quadrants.
 
 Each chart has a volume strip (~10% of its height) under the candles. The strip
 is scaled to the largest bar on screen, and that bar's value is labelled beside
-it. The highest high and lowest low on screen are labelled at their wicks.
+it. The bars are dim, so they stay in the background, and shaped like their
+candles: filled when the price rose, hollow and dimmer when it fell (filled
+where a bar is too thin or short for a hollow). The highest high and lowest low on screen are labelled at their wicks.
 Horizontal price gridlines run to the right edge, with their prices drawn over
 them. A single time axis runs along the bottom, in phone-local time (UTC for
 daily and longer candles). All panels share one time frame, so their vertical

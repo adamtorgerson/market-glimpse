@@ -62,8 +62,9 @@ export function exchangeSource(spec: ExchangeSpec): MarketSource {
       return spec.api.estimateMs(this.requestsPerUpdate(req));
     },
 
-    async fetch(req: MarketRequest, signal: AbortSignal): Promise<MarketData[]> {
+    async fetch(req: MarketRequest, signal: AbortSignal, onProgress?: (partial: MarketData[]) => void): Promise<MarketData[]> {
       const out = new Map<string, MarketData>(req.markets.map((m) => [m, { market: m, candles: [] }]));
+      const result = () => req.markets.map((m) => out.get(m)!);
       const listed = req.markets.filter((m) => !req.charts.includes(m));
       const fail = (d: MarketData, e: unknown) => {
         if (isAbort(e)) throw e;
@@ -92,6 +93,7 @@ export function exchangeSource(spec: ExchangeSpec): MarketSource {
           for (const m of listed) fail(out.get(m)!, e);
         }
       }
+      if (listed.length) onProgress?.(result());
 
       const bar = spec.intervals[req.interval];
       const intervalSec = req.interval * 60;
@@ -111,8 +113,9 @@ export function exchangeSource(spec: ExchangeSpec): MarketSource {
         } catch (e) {
           fail(d, e);
         }
+        onProgress?.(result());
       }
-      return req.markets.map((m) => out.get(m)!);
+      return result();
     },
   };
 }

@@ -68,7 +68,7 @@ export const kraken: MarketSource = {
     return api.estimateMs(this.requestsPerUpdate(req));
   },
 
-  async fetch(req: MarketRequest, signal: AbortSignal): Promise<MarketData[]> {
+  async fetch(req: MarketRequest, signal: AbortSignal, onProgress?: (partial: MarketData[]) => void): Promise<MarketData[]> {
     const out = new Map<string, MarketData>(req.markets.map((m) => [m, { market: m, candles: [] }]));
     const result = () => req.markets.map((m) => out.get(m)!);
 
@@ -103,6 +103,7 @@ export const kraken: MarketSource = {
       if (isAbort(e)) throw e;
       for (const m of known.keys()) out.get(m)!.error = describe(e);
     }
+    onProgress?.(result());
 
     // Rule 3: OHLC from just far enough back to fill the chart or line graph.
     const intervalSec = req.interval * 60;
@@ -127,6 +128,7 @@ export const kraken: MarketSource = {
         if (isAbort(e)) throw e;
         out.get(m)!.error = describe(e);
       }
+      onProgress?.(result());
     }
     return result();
   },
