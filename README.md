@@ -100,8 +100,14 @@ Settings persist through the Even app's storage, or through `localStorage` in a
 plain browser.
 
 Scheduled updates fetch in the background while the display stays dark. They
-start early, by the same estimate plus a second, so the
-finished chart goes up on schedule with no loading screen. Launching the app
+start early, by the same estimate plus a second, so the data is in by the
+scheduled time. Then the loading screen goes up, with every price, while the
+chart's image tiles are sent, which can take several seconds. (Text screens are
+sent about as fast as the loading screen, so they go straight up.) If the data
+isn't in by then (a slow API), the loading screen goes up anyway, filling in as
+prices arrive, with the estimate redone from the markets still to come. A chart
+still showing stays up until its show-for time ends, then the loading screen
+replaces it rather than a dark display. Launching the app
 (unless it's manual-only), **Show now**, or a tap while the display is dark,
 shows "Loading… ~3s" and the time top-left until
 the chart is ready, with the data source top-right and the app name

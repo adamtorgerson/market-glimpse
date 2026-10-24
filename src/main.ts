@@ -147,6 +147,10 @@ async function update({ cancel = false, manual = false, showAt = 0, reuse = fals
     const cached = reuse ? reusable(settings) : null;
     inFlightEta = Math.max(Date.now() + (cached ? drawMs + (glasses ? uploadMs : 0) : estimateUpdateMs()), showAt);
     progress = cached ?? [];
+    clearTimeout(dueTimer);
+    dueAt = showAt;
+    // Not drawn by its time: the loading screen goes up, unless a chart is still showing.
+    if (showAt) dueTimer = setTimeout(() => { if (!showing) showRemaining(); }, Math.max(0, showAt - Date.now()));
   }
   if (manual) showLoading(Math.max(1, Math.round((inFlightEta - Date.now()) / 1000)));
   if (joining) return;
@@ -154,8 +158,33 @@ async function update({ cancel = false, manual = false, showAt = 0, reuse = fals
   try {
     await runUpdate(ctrl, showAt, reuse);
   } finally {
-    if (inFlight === ctrl) inFlight = null;
+    if (inFlight === ctrl) {
+      inFlight = null;
+      notDue();
+    }
   }
+}
+
+/** When the scheduled update in progress should have its chart up (ms); 0 once it's drawn, or if none. */
+let dueAt = 0;
+let dueTimer: ReturnType<typeof setTimeout> | undefined;
+
+function notDue(): void {
+  dueAt = 0;
+  clearTimeout(dueTimer);
+}
+
+/** True once a scheduled update has missed its time without drawing its chart. */
+function late(): boolean {
+  return dueAt > 0 && Date.now() >= dueAt;
+}
+
+/** Put the loading screen up for a scheduled update, re-estimating what's left from the markets fetched so far. */
+function showRemaining(): void {
+  const after = drawMs + (glasses ? uploadMs : 0);
+  const left = 1 - progress.length / Math.max(1, settings.markets.length);
+  inFlightEta = Date.now() + (estimateUpdateMs() - after) * left + after;
+  showLoading(Math.max(1, Math.round((inFlightEta - Date.now()) / 1000)));
 }
 
 // Running averages of the steps after fetching, for the loading estimate.
@@ -256,6 +285,8 @@ async function runUpdate(ctrl: AbortController, showAt: number, reuse: boolean):
     lastAxisW = renderScreen(ctx, { charts, ticker, interval: s.interval, candleWidth: s.candleWidth, updated, source, font: s.font });
   }
   refreshWidthLabels();
+  // Drawn, so it goes up as soon as it's due (or now, if late) without a loading screen.
+  notDue();
 
   const failed = data.filter((d) => d.error).map((d) => `${d.market}: ${d.error}`);
   // Plain spaces: some WebView fonts lack the narrow no-break space before
@@ -273,6 +304,9 @@ async function runUpdate(ctrl: AbortController, showAt: number, reuse: boolean):
       await new Promise((r) => setTimeout(r, showAt - Date.now()));
       if (ctrl.signal.aborted) return;
     }
+    // Image tiles take seconds to send: a scheduled chart puts the loading
+    // screen, with its prices, up first. Text screens go up about as fast.
+    if (showAt && !textBoxes && !showing) showRemaining();
     clearTimeout(hideTimer);
     const wasLoading = loading;
     loading = false;
@@ -302,9 +336,14 @@ async function runUpdate(ctrl: AbortController, showAt: number, reuse: boolean):
   }
 }
 
-/** The show-for timer's end: blank the display, unless it has since been set to stay on. */
+/**
+ * The show-for timer's end: blank the display, unless it has since been set
+ * to stay on, or the next chart is late (then the loading screen replaces it).
+ */
 function hideUnlessAlwaysOn(): void {
-  if (!settings.alwaysOn) void hide();
+  if (settings.alwaysOn) return;
+  if (late()) showRemaining();
+  else void hide();
 }
 
 async function hide(): Promise<void> {
@@ -324,7 +363,8 @@ async function hide(): Promise<void> {
 /**
  * Run an update now and re-anchor the refresh schedule to it. Scheduled
  * updates start fetching early, by their estimated duration plus a second of
- * slack, so the finished chart goes up on time with no loading screen.
+ * slack, so the prices are in by the scheduled time and the chart follows
+ * soon after.
  */
 function restartSchedule(opts: UpdateOptions = {}): void {
   // Manual-only: nothing is fetched until the user asks.

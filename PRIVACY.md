@@ -2,7 +2,7 @@
 
 Effective 24 October 2026.
 
-MarketGlimpse shows public cryptocurrency market data on Even G2 glasses. It
+MarketGlimpse shows public market data on Even G2 glasses. It
 has no accounts, no analytics, no advertising and no server of its own. This
 policy covers what the app sends, what it stores, and the one permission it
 requests.
@@ -18,7 +18,7 @@ credentials or account details, to:
   (`api.gateio.ws`). The requests name the markets you've added (for example
   `BTC-USDC`) and the candle size.
 - **CoinGecko** (`api.coingecko.com`), for the index price shown on charts,
-  unless you turn **Show index price** off. The requests name the coins of
+  unless you turn **Show index price** off. The requests name the assets of
   the charted markets.
 
 These are the only hosts the app can reach (the network permission's
