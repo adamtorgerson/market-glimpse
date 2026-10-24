@@ -1,6 +1,7 @@
 import type { Candle, MarketData } from './sources/types';
 import { cssFont, digitBottom, digitMid, digitTop } from './fonts';
 import { formatInterval, type CandleWidth, type ChartFont } from './settings';
+import LOGO_SVG from '../assets/icon.svg?raw';
 
 export const SCREEN_W = 576;
 export const SCREEN_H = 288;
@@ -124,29 +125,42 @@ export function renderScreen(ctx: CanvasRenderingContext2D, model: ScreenModel):
     ticks: timeTicks(lastTime, g0.count, intervalSec, g0.pitch, rects[0]!.w < 400 ? 48 : 60),
   };
 
-  // The fetch time goes in the top-left panel's header and the source in the top-right's.
-  const stamp = formatStamp(model.updated);
-  model.charts.forEach((m, i) => {
-    const r = rects[i]!;
-    const top = r.y === chartArea.y;
-    const corners = { time: top && r.x === 0 ? stamp : undefined, source: top && r.x + r.w === SCREEN_W ? model.source : undefined };
-    drawPanel(ctx, m, model.interval, r, style, geoms[i]!, frame, corners);
-  });
-
   // Label only the bottom row; panels above line up with it.
   const bottom = Math.max(...rects.map((r) => r.y + r.h));
   const columns = geoms.filter((_, i) => rects[i]!.y + rects[i]!.h === bottom);
   // Time labels' digits start 4px down the axis row, clear of the tick marks.
   const labelBaseline = timeAxis.y + 4 + Math.round(digitTop(style.axisFont));
   // The logo fills the corner under the last price axis, beside the volume
-  // strip, its lowest point level with the bottom of the time labels.
+  // strip, its lowest point level with the bottom of the time labels. Where
+  // the corner is too short, it rises past the strip, and that panel skips
+  // any price label it would cover.
   const corner = columns.at(-1)!;
   const logoBottom = labelBaseline + digitBottom(style.axisFont) + 1;
-  const logoTop = corner.vol.y + 2;
-  const logoSize = Math.min(24, SCREEN_W - style.pad - (corner.plot.x + corner.plot.w + 4), Math.floor((logoBottom - logoTop) / LOGO_DEPTH * 24));
-  const logoLeft = SCREEN_W - style.pad - logoSize;
-  drawLogo(ctx, logoLeft, logoBottom - LOGO_DEPTH * logoSize / 24, logoSize);
-  drawTimeAxis(ctx, timeAxis, columns, frame, style, logoLeft - 6, labelBaseline);
+  const logoRight = SCREEN_W - style.pad;
+  const logo: Rect = {
+    x: logoRight - (LOGO_INK.right - LOGO_INK.left),
+    y: logoBottom - (LOGO_INK.bottom - LOGO_INK.top),
+    w: LOGO_INK.right - LOGO_INK.left,
+    h: LOGO_INK.bottom - LOGO_INK.top,
+  };
+  const showLogo = logo.x >= corner.plot.x + corner.plot.w + 4 && logo.y >= corner.plot.y + 4;
+
+  // The fetch time goes in the top-left panel's header and the source in the top-right's.
+  const stamp = formatStamp(model.updated);
+  model.charts.forEach((m, i) => {
+    const r = rects[i]!;
+    const top = r.y === chartArea.y;
+    const corners = { time: top && r.x === 0 ? stamp : undefined, source: top && r.x + r.w === SCREEN_W ? model.source : undefined };
+    drawPanel(ctx, m, model.interval, r, style, geoms[i]!, frame, corners, showLogo && geoms[i] === corner ? logo : undefined);
+  });
+
+  if (showLogo) {
+    // Over a black box, so gridlines don't show between its pixels.
+    ctx.fillStyle = '#000';
+    ctx.fillRect(logo.x - 1, logo.y - 1, logo.w + 2, logo.h + 2);
+    drawLogo(ctx, logoRight, logoBottom);
+  }
+  drawTimeAxis(ctx, timeAxis, columns, frame, style, (showLogo ? logo.x : logoRight) - 6, labelBaseline);
   ctx.restore();
   return axisW;
 }
@@ -219,6 +233,8 @@ function drawPanel(
   g: Geometry,
   frame: TimeFrame,
   corners: { time?: string; source?: string },
+  /** Where the logo goes, if it reaches into this panel: no price label covers it. */
+  logo?: Rect,
 ): void {
   ctx.save();
   ctx.beginPath();
@@ -389,10 +405,13 @@ function drawPanel(
   }
 
   // Price labels sit on their gridlines at the right edge. Skip any that would
-  // poke up into the header.
+  // poke up into the header, or cover the logo (tag's box, plus a row).
+  ctx.font = axisFont;
+  const half = ctx.measureText('0').actualBoundingBoxAscent / 2 + 3;
   for (const p of gridPrices) {
     const py = y(p);
     if (py < plot.y + 4) continue;
+    if (logo && py + half > logo.y && py - half < logo.y + logo.h) continue;
     tag(ctx, formatPrice(p), right, py, 'right', DIM);
   }
 
@@ -534,29 +553,44 @@ function drawTimeAxis(
   ctx.restore();
 }
 
-/** The app icon (assets/icon.svg): an eye over a rising line, on a 24-unit grid. */
-/** The icon's lowest point, on its 24-unit grid: the rising line's start (y 21.5) plus its round cap. */
-const LOGO_DEPTH = 22.5;
-const LOGO_STROKES = [
-  'M2.5 7s3.2-5 9.5-5 9.5 5 9.5 5-3.2 5-9.5 5-9.5-5-9.5-5Z',
-  'M3 21.5l5-4 4 2.5 8.5-6',
-  'M16.5 14h4v4',
-];
+/**
+ * The app icon (assets/icon.svg), drawn 24px square. It's whole-pixel rects
+ * on a 24px grid, so every pixel is fully on or off; a larger master would be
+ * scaled, each pixel's opacity the share of it the master covers.
+ */
+const LOGO_SIZE = 24;
+const LOGO_PIXELS = (() => {
+  const master = +LOGO_SVG.match(/viewBox="0 0 (\d+) \d+"/)![1]!;
+  const rects = [...LOGO_SVG.matchAll(/<rect x="(\d+)" y="(\d+)" width="(\d+)" height="(\d+)"/g)]
+    .map(([, x, y, w, h]) => ({ x: +x!, y: +y!, w: +w!, h: +h! }));
+  const k = master / LOGO_SIZE;
+  const overlap = (a: number, b: number, lo: number, hi: number) => Math.max(0, Math.min(b, hi) - Math.max(a, lo));
+  const pixels: { x: number; y: number; a: number }[] = [];
+  for (let y = 0; y < LOGO_SIZE; y++) {
+    for (let x = 0; x < LOGO_SIZE; x++) {
+      const area = rects.reduce((sum, r) => sum + overlap(x * k, (x + 1) * k, r.x, r.x + r.w) * overlap(y * k, (y + 1) * k, r.y, r.y + r.h), 0);
+      if (area > 0) pixels.push({ x, y, a: Math.min(1, area / (k * k)) });
+    }
+  }
+  return pixels;
+})();
+/** The icon's lit pixels' bounds, inside its padding. */
+const LOGO_INK = {
+  left: Math.min(...LOGO_PIXELS.map((p) => p.x)),
+  top: Math.min(...LOGO_PIXELS.map((p) => p.y)),
+  right: Math.max(...LOGO_PIXELS.map((p) => p.x)) + 1,
+  bottom: Math.max(...LOGO_PIXELS.map((p) => p.y)) + 1,
+};
 
-function drawLogo(ctx: CanvasRenderingContext2D, x: number, y: number, size: number): void {
-  if (size < 12) return;
+/** Draws the icon with its lit pixels' bottom-right corner at (`right`, `bottom`). */
+function drawLogo(ctx: CanvasRenderingContext2D, right: number, bottom: number): void {
+  const x = right - LOGO_INK.right, y = bottom - LOGO_INK.bottom;
   ctx.save();
-  ctx.translate(x, y);
-  ctx.scale(size / 24, size / 24);
-  ctx.strokeStyle = MID;
   ctx.fillStyle = MID;
-  ctx.lineWidth = 2;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  for (const d of LOGO_STROKES) ctx.stroke(new Path2D(d));
-  ctx.beginPath();
-  ctx.arc(12, 7, 2.25, 0, Math.PI * 2);
-  ctx.fill();
+  for (const p of LOGO_PIXELS) {
+    ctx.globalAlpha = p.a;
+    ctx.fillRect(x + p.x, y + p.y, 1, 1);
+  }
   ctx.restore();
 }
 

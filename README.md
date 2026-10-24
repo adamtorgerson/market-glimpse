@@ -211,7 +211,11 @@ fetched follows the price in the top-left chart, and the data source's name
 comes before the market in the top-right chart (both in the same chart when
 it spans the screen). The MarketGlimpse logo sits in the bottom-right corner,
 under the last price axis and beside the volume strip, its lowest point level
-with the bottom of the time labels. With no chart, the
+with the bottom of the time labels. It's drawn from `assets/icon.svg`, the
+app icon: three candles over volume bars in 24×24, every stroke at least
+2px and every lit pixel part of a 2×2 block, as the Even Hub store
+requires, so its edges are hard. Where the corner is too short (three charts), it rises past the
+volume strip, and a price label that would cover it is skipped. With no chart, the
 market list has the source and time in the bottom corners.
 
 "Display off" means switching to a page with one empty text container. With no
@@ -226,7 +230,14 @@ npm run dev                                   # Vite on :5173
 npx evenhub-simulator http://localhost:5173/  # desktop simulator
 npm run qr                                    # QR code to load the dev server in the Even app
 npm run pack                                  # build + market-glimpse.ehpk
+npm run icon                                  # assets/icon-24.png (store icon) from assets/icon.svg
 ```
+
+The store icon is `assets/icon-24.png`. The upload validates it: 24×24,
+every pixel `#F4F4F4` at full opacity or fully transparent, and every lit
+pixel part of a 2×2 block of lit pixels (so no stroke thinner than 2px).
+`npm run icon` checks the 2×2 rule and fails before writing a PNG that breaks
+it.
 
 The package ID is `com.bcsw.marketglimpse` (in `app.json`). Network access is
 whitelisted to the four exchanges' API hosts and `https://api.coingecko.com`.

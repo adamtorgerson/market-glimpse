@@ -8,7 +8,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host",
     "qr": "evenhub qr --port 5173",
-    "pack": "npm run build && evenhub pack app.json dist -o market-glimpse.ehpk"
+    "pack": "npm run build && evenhub pack app.json dist -o market-glimpse.ehpk",
+    "icon": "node scripts/icon-png.mjs"
   },
   "dependencies": {
     "@evenrealities/even_hub_sdk": "^0.0.16",
