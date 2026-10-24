@@ -9,6 +9,11 @@ refreshes every 2m, chart shown for 12s, narrow candles.
 
 ## Settings (phone page)
 
+- **Display always on** (above **Show now**): the chart stays up instead of
+  blanking after the show-for time, and each update replaces it. **Show now**
+  becomes **Refresh now**, and it and a tap fetch a fresh chart. Turning it on puts a chart up if the display
+  is dark; turning it off lets the current one come down after the show-for
+  time. Off by default: a lit display costs battery.
 - **Data source**: the exchange whose public API supplies prices and candles:
   Kraken, OKX, Coinbase or Gate. Market names use `BASE-QUOTE` on all of
   them (`BTC-USDT`). Each exchange lists different markets. For example,
@@ -23,9 +28,11 @@ refreshes every 2m, chart shown for 12s, narrow candles.
   an unlabelled line graph of its closing prices over the period one chart
   would show (the candle size times the candles that fit). Each graph costs
   a candle request, so 8 markets take about 13s to fetch.
-- **Market list as text**: with no market ticked, the glasses draw the list
-  in their own font instead (name, price and 24h volume, no line graphs).
-  It goes up in one step, and only the ticker is fetched.
+- **Market list as text**: the glasses draw the full-screen market list in
+  their own font (name, price and 24h volume, no line graphs) instead of any
+  charts. It takes precedence: chart ticks are greyed out but kept, so
+  turning it off brings the charts back. It goes up in one step, and only
+  the ticker is fetched.
 - **Candle size**: whatever the source offers. Kraken has 1m to 15d, OKX 1m
   to 1w, Coinbase 1m to 1d, and Gate 1m to 1w. Switching source keeps the size
   if the new source has it, or else picks the nearest.
@@ -96,8 +103,8 @@ Scheduled updates fetch in the background while the display stays dark. They
 start early, by the same estimate plus a second, so the
 finished chart goes up on schedule with no loading screen. Launching the app
 (unless it's manual-only), **Show now**, or a tap while the display is dark,
-shows "Loading… ~3s" top-left until the chart
-is ready, with the data source and time top-right and the app name
+shows "Loading… ~3s" and the time top-left until
+the chart is ready, with the data source top-right and the app name
 bottom-right. Every monitored market is listed as text against the right
 edge, like the text market list: "..." until its price arrives, filled in as
 each request comes back. The list is rewritten in place, without a page rebuild.
@@ -119,7 +126,11 @@ quarter isn't sent. When the loading screen is up, the tiles also cover its
 text. Tiles are 4-bit greyscale PNGs, sent to the Even app as byte arrays.
 The app on the phone rejects base64, though the simulator takes it.
 
-### Diagnostics (phone page)
+### Diagnostics (phone page, development only)
+
+Shown only when running from the dev server (`npm run dev`). A packaged build
+(`npm run pack`) removes the section, and leaves the speed test's code out of
+the bundle. Upload stats are still logged to the console.
 
 - **Last upload** lists each tile's size, byte count and time to land, also
   logged to the console as `Glasses upload`.
@@ -128,8 +139,11 @@ The app on the phone rejects base64, though the simulator takes it.
   data), three times each, to show what an upload's time depends on. The
   results are also logged as `Upload speed test`.
 
-On the glasses, a tap while the chart is up dismisses it early. A tap while
-the display is dark fetches and shows a fresh chart.
+On the glasses, a tap while the chart is up dismisses it early (with
+**Display always on**, it refreshes it instead). A tap while the display is
+dark fetches and shows a fresh chart. A double tap exits the app: the glasses
+ask to confirm (`shutDownPageContainer(1)`, as Even Hub review requires), and
+the Even app then closes the phone page.
 
 ## Public API rules
 
@@ -215,8 +229,12 @@ with the bottom of the time labels. It's drawn from `assets/icon.svg`, the
 app icon: three candles over volume bars in 24×24, every stroke at least
 2px and every lit pixel part of a 2×2 block, as the Even Hub store
 requires, so its edges are hard. Where the corner is too short (three charts), it rises past the
-volume strip, and a price label that would cover it is skipped. With no chart, the
-market list has the source and time in the bottom corners.
+volume strip, and a price label that would cover it is skipped. Every screen
+shares these corners: the time top-left, the source top-right and the logo
+bottom-right (MarketGlimpse in text on the text screens, which can't draw
+it). The full-screen market lists sit between them. Text candles lay their
+top line out like the image header (price and time, Index, source, market
+and candle size), with the other markets' prices on the bottom line.
 
 "Display off" means switching to a page with one empty text container. With no
 pixels lit, the display is dark, but the app keeps running so the timer

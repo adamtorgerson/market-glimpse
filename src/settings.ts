@@ -40,8 +40,9 @@ export interface Settings {
   /** Font for the text in chart images (not text candles, which use the glasses' font). */
   font: ChartFont;
   /**
-   * With no market charted, send the market list as text instead of an image.
-   * The image list has a line graph per market (one candle request each).
+   * Send the full-screen market list as text. Takes precedence over charts:
+   * any ticked are kept but not drawn. (With none ticked and this off, the
+   * list is an image with a line graph per market, one candle request each.)
    */
   textList: boolean;
   /** Show CoinGecko's index price in each chart header (one extra request per update). */
@@ -56,6 +57,8 @@ export interface Settings {
   refreshSec: number;
   /** Seconds the chart stays on the glasses after each update. */
   displaySec: number;
+  /** Keep the chart up instead of blanking after `displaySec`; each update replaces it. */
+  alwaysOn: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -72,6 +75,7 @@ export const DEFAULT_SETTINGS: Settings = {
   lookUpCal: null,
   refreshSec: 120,
   displaySec: 12,
+  alwaysOn: false,
 };
 
 export function normalizeMarket(raw: string): string {
@@ -106,8 +110,9 @@ export function sanitize(input: Partial<Settings>): Settings {
   const manualOnly = typeof input.manualOnly === 'boolean' ? input.manualOnly : d.manualOnly;
   const lookUpUpdate = typeof input.lookUpUpdate === 'boolean' ? input.lookUpUpdate : d.lookUpUpdate;
   const lookUpCal = isCalibration(input.lookUpCal) ? input.lookUpCal : null;
+  const alwaysOn = typeof input.alwaysOn === 'boolean' ? input.alwaysOn : d.alwaysOn;
 
-  return { source, markets, charts, interval, candleWidth, font, textList, showIndex, manualOnly, lookUpUpdate, lookUpCal, refreshSec, displaySec };
+  return { source, markets, charts, interval, candleWidth, font, textList, showIndex, manualOnly, lookUpUpdate, lookUpCal, refreshSec, displaySec, alwaysOn };
 }
 
 /** `minutes` if supported, else the supported size closest to it (by ratio). */

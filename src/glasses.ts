@@ -48,7 +48,7 @@ export interface LoadingScreen {
   /**
    * Full-width text containers (at most 2), e.g. names and prices at two
    * brightnesses. With a list, the message moves to the top-left corner,
-   * which `topLeft` should then leave empty.
+   * and `topLeft` (e.g. the time) goes dim right after it.
    */
   list?: { y: number; h: number; color: number; content: string }[];
 }
@@ -120,6 +120,23 @@ export class Glasses {
         this.pageCreated = false;
       }
     });
+  }
+
+  /** Touchpad double tap. */
+  onDoubleTap(cb: () => void): () => void {
+    return this.bridge.onEvenHubEvent((e) => {
+      const ev = e.textEvent ?? e.sysEvent ?? e.listEvent;
+      if (ev?.eventType === OsEventTypeList.DOUBLE_CLICK_EVENT) cb();
+    });
+  }
+
+  /**
+   * Leave the app. Mode 1 asks the wearer to confirm on the glasses, as Even
+   * Hub review requires for a double tap on the root page; the host then
+   * closes the phone-side WebView.
+   */
+  exit(): Promise<boolean> {
+    return this.bridge.shutDownPageContainer(1);
   }
 
   blank(): Promise<void> {
@@ -348,8 +365,10 @@ function loadingTexts(screen: LoadingScreen): (Rect & { text: string; id: number
   const widthOf = (t: string) => Math.ceil(t.length * LABEL_CHAR_W);
   // Right-aligned by the font's measured widths, with slack so the text can't wrap.
   const rightX = (t: string) => 576 - CORNER_PAD - textWidth(t) - 6;
+  const list = screen.list ?? [];
   const corners: [string, number, number][] = [
-    [screen.topLeft, CORNER_PAD, 0],
+    // Beside the message when that's top-left.
+    [screen.topLeft, list.length ? CORNER_PAD + textWidth(screen.message) + 15 : CORNER_PAD, 0],
     [screen.topRight, rightX(screen.topRight), 0],
     [screen.bottomLeft, CORNER_PAD, 288 - CORNER_H],
     [screen.bottomRight, rightX(screen.bottomRight), 288 - CORNER_H],
@@ -363,8 +382,9 @@ function loadingTexts(screen: LoadingScreen): (Rect & { text: string; id: number
     id: CORNER_ID_BASE + i,
     name: `corner-${i}`,
     z: 1 + i,
+    // Dim, as on the other screens: the time beside the message, and the app name.
+    ...((i === 0 && list.length) || i === 3 ? { color: 0 } : {}),
   }] : []);
-  const list = screen.list ?? [];
   texts.push({
     x: list.length ? CORNER_PAD : Math.round(288 - widthOf(screen.message) / 2),
     y: list.length ? 0 : LABEL_Y,

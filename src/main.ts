@@ -1,4 +1,5 @@
 import './style.css';
+import LOGO_SVG from '../assets/icon.svg?raw';
 import { candleCapacity, DEFAULT_AXIS_W, renderScreen, SCREEN_H, SCREEN_W } from './chart';
 import { FONTS, loadFont } from './fonts';
 import { Glasses, type UploadStats } from './glasses';
@@ -6,7 +7,6 @@ import { calibrate, LookUpDetector, type Vec } from './lookup';
 import { encodeTiles } from './png';
 import { buildLoadingList, buildTextChart, buildTextList, drawTextChart, serializeBox, textCandles, type TextBox } from './textchart';
 import { average, MIN_GAP_MS } from './sources/http';
-import { runSpeedTest } from './speedtest';
 import { getSource, SOURCES } from './sources';
 import { estimateIndexMs, fetchIndexPrices } from './sources/coingecko';
 import type { MarketData, MarketRequest } from './sources/types';
@@ -35,8 +35,11 @@ const TILE_H = 144;
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const canvas = $<HTMLCanvasElement>('screen');
 const statusEl = $('status');
+const updatedEl = $('updated');
+$('logo').innerHTML = LOGO_SVG;
 const scheduleEl = $('schedule');
 const showNowBtn = $<HTMLButtonElement>('show-now');
+const alwaysOnBox = $<HTMLInputElement>('always-on');
 
 let glasses: Glasses | null = null;
 let settings: Settings = DEFAULT_SETTINGS;
@@ -74,24 +77,31 @@ let showing = false;
 
 function setShowing(v: boolean): void {
   showing = v;
-  showNowBtn.textContent = v ? 'Hide now' : 'Show now';
+  // Always on, the button (like a tap) refreshes the chart rather than hiding it.
+  showNowBtn.textContent = settings.alwaysOn ? 'Refresh now' : v ? 'Hide now' : 'Show now';
 }
 let inFlight: AbortController | null = null;
 
+/** Markets drawn as charts: none when the market list is shown as text, which takes precedence (the ticks are kept). */
+function shownCharts(s: Settings): string[] {
+  return s.textList ? [] : s.charts;
+}
+
 /** Charted markets to look up on CoinGecko; none if the index is turned off. */
 function indexMarkets(s: Settings): string[] {
-  return s.showIndex ? s.charts : [];
+  return s.showIndex ? shownCharts(s) : [];
 }
 
 function marketRequest(s: Settings): MarketRequest {
+  const charts = shownCharts(s);
   return {
     markets: s.markets,
-    charts: s.charts,
+    charts,
     // With nothing charted, the image market list has a line graph per market,
     // over the period one chart would show.
-    lines: s.charts.length === 0 && !s.textList ? s.markets : [],
+    lines: charts.length === 0 && !s.textList ? s.markets : [],
     interval: s.interval,
-    candles: capacity(s.charts.length, s.candleWidth),
+    candles: capacity(charts.length, s.candleWidth),
   };
 }
 
@@ -181,10 +191,10 @@ function showLoading(etaSec: number): void {
   setShowing(true);
   loading = true;
   glasses.loading({
+    // The time (dim, beside the message) top-left and the source top-right, as on the other screens.
     message: `Loading… ~${etaSec}s`,
-    topLeft: '',
-    // The data source, then the time, as in the chart header.
-    topRight: `${getSource(settings.source).label}   ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`,
+    topLeft: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+    topRight: getSource(settings.source).label,
     bottomLeft: '',
     bottomRight: APP_NAME,
     list: buildLoadingList(loadingItems()),
@@ -205,7 +215,7 @@ async function runUpdate(ctrl: AbortController, showAt: number, reuse: boolean):
   if (reuse && lastFetch?.key === key) {
     ({ data, updated } = lastFetch);
   } else {
-    setStatus('Fetching…');
+    showFetching();
     try {
       // Different APIs, so these run side by side; each keeps its own rate limit.
       const [markets, index] = await Promise.all([
@@ -228,16 +238,17 @@ async function runUpdate(ctrl: AbortController, showAt: number, reuse: boolean):
   const drawStart = Date.now();
   const byMarket = new Map(data.map((d) => [d.market, d]));
   const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
-  const charts = s.charts.map((m) => byMarket.get(m)!);
-  const ticker = s.markets.filter((m) => !s.charts.includes(m)).map((m) => byMarket.get(m)!);
+  const shown = shownCharts(s);
+  const charts = shown.map((m) => byMarket.get(m)!);
+  const ticker = s.markets.filter((m) => !shown.includes(m)).map((m) => byMarket.get(m)!);
   const source = getSource(s.source).label;
   // Text candles draw the one chart in the glasses' font, and the text list
   // the market list; otherwise the screen goes as image tiles.
   let textBoxes: TextBox[] | null = null;
   if (isTextWidth(s.candleWidth) && charts.length === 1) {
-    textBoxes = buildTextChart({ chart: charts[0]!, width: s.candleWidth, ticker, interval: s.interval, updated, source });
-  } else if (charts.length === 0 && s.textList) {
-    textBoxes = buildTextList({ items: ticker, updated, source });
+    textBoxes = buildTextChart({ chart: charts[0]!, width: s.candleWidth, ticker, interval: s.interval, updated, source, name: APP_NAME });
+  } else if (s.textList) {
+    textBoxes = buildTextList({ items: ticker, updated, source, name: APP_NAME });
   }
   if (textBoxes) {
     drawTextChart(ctx, textBoxes);
@@ -247,10 +258,12 @@ async function runUpdate(ctrl: AbortController, showAt: number, reuse: boolean):
   refreshWidthLabels();
 
   const failed = data.filter((d) => d.error).map((d) => `${d.market}: ${d.error}`);
-  const stamp = updated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  // Plain spaces: some WebView fonts lack the narrow no-break space before
+  // "PM", and the fallback font would shift the line.
+  const stamp = updated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }).replace(/\s/g, ' ');
 
   if (!glasses) {
-    setStatus(`Browser preview (glasses not connected) · updated ${stamp}`, failed);
+    setStatus('Browser preview (glasses not connected)', failed, stamp);
     return;
   }
 
@@ -280,12 +293,18 @@ async function runUpdate(ctrl: AbortController, showAt: number, reuse: boolean):
     }
     if (ctrl.signal.aborted) return;
     setShowing(true);
-    setStatus(`Showing on glasses · updated ${stamp}`, failed);
-    hideTimer = setTimeout(hide, s.displaySec * 1000);
+    setStatus('Display on', failed, stamp);
+    // Read now, not from `s`: the option may have changed while this update ran.
+    if (!settings.alwaysOn) hideTimer = setTimeout(hideUnlessAlwaysOn, settings.displaySec * 1000);
   } catch (e) {
     setStatus(`Glasses error: ${(e as Error).message}`, failed);
     hide();
   }
+}
+
+/** The show-for timer's end: blank the display, unless it has since been set to stay on. */
+function hideUnlessAlwaysOn(): void {
+  if (!settings.alwaysOn) void hide();
 }
 
 async function hide(): Promise<void> {
@@ -295,7 +314,8 @@ async function hide(): Promise<void> {
   if (!glasses) return;
   try {
     await glasses.blank();
-    setStatus(statusEl.textContent!.replace('Showing on glasses', 'Display off'));
+    // Errors after the text stay; "Updated" on the right is kept.
+    if (statusEl.textContent!.startsWith('Display on')) statusEl.textContent = statusEl.textContent!.replace('Display on', 'Display off');
   } catch (e) {
     setStatus(`Glasses error: ${(e as Error).message}`);
   }
@@ -330,6 +350,8 @@ const uploadStatsEl = $('upload-stats');
 /** e.g. "3 tiles, 4.2 KB, bytes: 812 ms · 288×120 1.6 KB 410 ms · …" */
 function showUploadStats(u: UploadStats): void {
   console.info('Glasses upload', JSON.stringify(u));
+  // Diagnostics are on the phone page in development only.
+  if (!import.meta.env.DEV) return;
   const total = u.tiles.reduce((n, t) => n + t.bytes, 0);
   if (u.encoding === 'text') {
     // One rebuild carries every container, so only the total time means anything.
@@ -345,9 +367,26 @@ function formatBytes(n: number): string {
   return n < 1024 ? `${n} B` : `${(n / 1024).toFixed(1)} KB`;
 }
 
-function setStatus(text: string, errors: string[] = []): void {
+/** The status line: `text` (and any errors) on the left, the data's fetch time on the right (kept if `updated` is omitted). */
+function setStatus(text: string, errors: string[] = [], updated?: string): void {
+  clearInterval(fetchTimer);
   statusEl.textContent = text;
   if (errors.length) statusEl.textContent += ` · ${errors.join('; ')}`;
+  if (updated !== undefined) updatedEl.textContent = updated && `Updated ${updated}`;
+}
+
+/**
+ * "Fetching… ~3s", counting down to when the chart should be up (the loading
+ * screen's estimate), until the next status replaces it.
+ */
+let fetchTimer: ReturnType<typeof setInterval> | undefined;
+function showFetching(): void {
+  const text = () => {
+    const secs = Math.round((inFlightEta - Date.now()) / 1000);
+    return secs > 0 ? `Fetching… ~${secs}s` : 'Fetching…';
+  };
+  setStatus(text());
+  fetchTimer = setInterval(() => { statusEl.textContent = text(); }, 1000);
 }
 
 function renderSchedule(): void {
@@ -357,7 +396,7 @@ function renderSchedule(): void {
     return;
   }
   const secs = Math.max(0, Math.round((nextAt - Date.now()) / 1000));
-  scheduleEl.textContent = nextAt ? `Next update in ${formatDuration(secs)} · every ${formatDuration(settings.refreshSec)}, ${shown}` : '';
+  scheduleEl.textContent = nextAt ? `Next update in ${formatDuration(secs)}` : '';
 }
 
 // The countdown only ticks while the page is visible (and there is one), so
@@ -452,7 +491,8 @@ function syncMarketControls(): void {
   // A width that allows fewer charts keeps the first ones ticked.
   checks.filter((c) => c.checked).slice(max).forEach((c) => { c.checked = false; });
   const nChecked = checks.filter((c) => c.checked).length;
-  for (const c of checks) c.disabled = !c.checked && nChecked >= max;
+  // The text list takes precedence over charts: their ticks are kept but greyed out.
+  for (const c of checks) c.disabled = textListBox.checked || (!c.checked && nChecked >= max);
   addMarketBtn.disabled = rows.length >= MAX_MARKETS;
   refreshWidthLabels();
 }
@@ -469,14 +509,16 @@ function fillForm(s: Settings): void {
   for (const m of s.markets) addMarketRow(m, s.charts.includes(m));
   candleWidthSel.value = s.candleWidth;
   fontSel.value = s.font;
-  syncMarketControls();
   textListBox.checked = s.textList;
+  syncMarketControls();
   showIndexBox.checked = s.showIndex;
   manualOnlyBox.checked = s.manualOnly;
   lookUpBox.checked = s.lookUpUpdate;
   syncLookUpControls(s);
   refreshInput.disabled = s.manualOnly;
   refreshInput.value = formatDuration(s.refreshSec);
+  alwaysOnBox.checked = s.alwaysOn;
+  displayInput.disabled = s.alwaysOn;
   displayInput.value = formatDuration(s.displaySec);
   formError.textContent = '';
 }
@@ -491,7 +533,8 @@ function readForm(): Settings {
   const manualOnly = manualOnlyBox.checked;
   const refreshSec = parseDuration(refreshInput.value, 'Refresh');
   const displaySec = parseDuration(displayInput.value, 'Show-for');
-  if (!manualOnly && displaySec >= refreshSec) throw new Error('Show-for must be shorter than the refresh interval.');
+  const alwaysOn = alwaysOnBox.checked;
+  if (!manualOnly && !alwaysOn && displaySec >= refreshSec) throw new Error('Show-for must be shorter than the refresh interval.');
 
   const next = sanitize({
     source: sourceSel.value,
@@ -507,6 +550,7 @@ function readForm(): Settings {
     lookUpCal: settings.lookUpCal,
     refreshSec,
     displaySec,
+    alwaysOn,
   });
   // Keep within the one-request-per-MIN_GAP_MS budget: an update has to finish its
   // requests before the next one is due.
@@ -521,6 +565,7 @@ function readForm(): Settings {
 
 /** Apply the form as soon as anything changes; no-op if the result is unchanged. */
 async function applyForm(): Promise<void> {
+  syncManualOnlyRows();
   syncIntervalOptions();
   syncMarketControls();
   let next: Settings;
@@ -538,6 +583,7 @@ async function applyForm(): Promise<void> {
   }
   refreshInput.value = formatDuration(next.refreshSec);
   refreshInput.disabled = next.manualOnly;
+  displayInput.disabled = next.alwaysOn;
   displayInput.value = formatDuration(next.displaySec);
   syncLookUpControls(next);
 
@@ -550,8 +596,8 @@ async function applyForm(): Promise<void> {
   // Show now. Anything else (markets in the list, timings) waits for the
   // schedule, re-timed if the refresh rate changed.
   const chartChanged = next.source !== prev.source || next.interval !== prev.interval
-    || next.candleWidth !== prev.candleWidth || next.charts.join() !== prev.charts.join()
-    || next.showIndex !== prev.showIndex || (next.textList !== prev.textList && next.charts.length === 0);
+    || next.candleWidth !== prev.candleWidth || shownCharts(next).join() !== shownCharts(prev).join()
+    || next.showIndex !== prev.showIndex || next.textList !== prev.textList;
   if (chartChanged) restartSchedule({ cancel: true, manual: true });
   // A new font needs no new data: redraw the last, sparing the APIs (CoinGecko
   // drops the index when asked too often). Without data to reuse, this fetches.
@@ -559,10 +605,24 @@ async function applyForm(): Promise<void> {
   // Leaving manual-only: fetch in the background now and start the schedule.
   else if (prev.manualOnly && !next.manualOnly) restartSchedule();
   else scheduleAt(nextAt - prev.refreshSec * 1000 + next.refreshSec * 1000);
+
+  // Turning always-on on puts a chart up if the display is dark; turning it
+  // off lets the one showing come down after the usual show-for time.
+  if (next.alwaysOn !== prev.alwaysOn) {
+    setShowing(showing);
+    if (next.alwaysOn) {
+      clearTimeout(hideTimer);
+      if (!showing && !chartChanged) void update({ manual: true });
+    } else if (showing && !loading) {
+      hideTimer = setTimeout(hideUnlessAlwaysOn, next.displaySec * 1000);
+    }
+  }
 }
 
 // `change` fires immediately for checkboxes and selects, and on blur/Enter for text.
 form.addEventListener('change', () => void applyForm());
+// Above Show now, outside the form.
+alwaysOnBox.addEventListener('change', () => void applyForm());
 form.addEventListener('submit', (e) => {
   e.preventDefault();
   void applyForm();
@@ -577,7 +637,7 @@ showNowBtn.addEventListener('click', toggleChart);
 
 /** Show now / Hide now, from the button or a tap on the glasses. */
 function toggleChart(): void {
-  if (showing) {
+  if (showing && !settings.alwaysOn) {
     if (loading) inFlight?.abort(); // Dismissed before the chart arrived.
     void hide();
   } else {
@@ -635,7 +695,13 @@ function syncLookUp(): void {
   });
 }
 
+/** The look-up settings only apply to manual-only, so they show only while it's ticked. */
+function syncManualOnlyRows(): void {
+  for (const el of document.querySelectorAll<HTMLElement>('[data-manual-only]')) el.hidden = !manualOnlyBox.checked;
+}
+
 function syncLookUpControls(s: Settings): void {
+  syncManualOnlyRows();
   lookUpBox.disabled = !s.manualOnly;
   calibrateBtn.disabled = !glasses || calibrationSamples !== null;
   if (calibrationSamples) return; // Calibration is writing its own status.
@@ -687,15 +753,20 @@ calibrateBtn.addEventListener('click', async () => {
 
 // ── Upload speed test ───────────────────────────────────────────────────
 
+// Development only: a packaged build drops the Diagnostics section, and this
+// code (with src/speedtest.ts) is left out of the bundle.
 const speedTestBtn = $<HTMLButtonElement>('speed-test');
 const speedResults = $<HTMLTableElement>('speed-results');
 
-speedTestBtn.addEventListener('click', async () => {
+if (!import.meta.env.DEV) document.querySelectorAll('[data-dev-only]').forEach((el) => el.remove());
+
+if (import.meta.env.DEV) speedTestBtn.addEventListener('click', async () => {
   if (!glasses) return;
   speedTestBtn.disabled = true;
   clearTimeout(hideTimer);
   setShowing(true);
   try {
+    const { runSpeedTest } = await import('./speedtest');
     const results = await runSpeedTest(glasses, (done, total) => {
       speedTestBtn.textContent = `Testing ${done + 1}/${total}…`;
     });
@@ -723,13 +794,16 @@ async function boot(): Promise<void> {
   drawPlaceholder('Loading…');
   setStatus('Connecting to glasses…');
   glasses = await Glasses.connect();
-  speedTestBtn.disabled = !glasses;
-  // Tap while the chart is up dismisses it; tap while dark pulls a fresh one.
+  if (import.meta.env.DEV) speedTestBtn.disabled = !glasses;
+  // Tap while the chart is up dismisses it (always on: refreshes it); tap while dark pulls a fresh one.
   glasses?.onTap(toggleChart);
+  // Even Hub's exit gesture on the root page: the glasses ask to confirm.
+  glasses?.onDoubleTap(() => void glasses!.exit().catch(() => {}));
   glasses?.onImu(onImuReading);
   settings = await loadSettings();
   void loadFont(settings.font).catch(() => {});
   fillForm(settings);
+  setShowing(showing); // Label the button for the saved settings.
   syncLookUp();
   if (settings.manualOnly) {
     drawPlaceholder('Press Show now');

@@ -88,11 +88,15 @@ export function renderScreen(ctx: CanvasRenderingContext2D, model: ScreenModel):
 
   const chartArea: Rect = { x: 0, y: 0, w: SCREEN_W, h: SCREEN_H };
   if (model.charts.length === 0) {
-    // No charts: the market list gets the whole screen, above the timestamp.
-    const stampRow: Rect = { x: 0, y: SCREEN_H - TIME_AXIS_H, w: SCREEN_W, h: TIME_AXIS_H };
-    drawMarketList(ctx, model.ticker, { ...chartArea, h: stampRow.y }, true);
-    drawCorner(ctx, stampRow, font(12), 4, formatStamp(model.updated), 'right');
-    drawCorner(ctx, stampRow, font(12), 4, model.source, 'left');
+    // No charts: the market list gets the whole screen, between the corners
+    // the other screens use: the time top-left, the source top-right and the
+    // logo bottom-right.
+    const top: Rect = { x: 0, y: 0, w: SCREEN_W, h: TIME_AXIS_H };
+    const listBottom = SCREEN_H - (LOGO_INK.bottom - LOGO_INK.top) - 6;
+    drawMarketList(ctx, model.ticker, { x: 0, y: top.h, w: SCREEN_W, h: listBottom - top.h }, true);
+    drawCorner(ctx, top, font(12), 4, formatStamp(model.updated), 'left');
+    drawCorner(ctx, top, font(12), 4, model.source, 'right');
+    drawLogo(ctx, SCREEN_W - 4, SCREEN_H - 2);
     ctx.restore();
     return DEFAULT_AXIS_W;
   }
@@ -583,10 +587,13 @@ const LOGO_INK = {
 };
 
 /** Draws the icon with its lit pixels' bottom-right corner at (`right`, `bottom`). */
+/** A little dimmer than labels, so the logo stays in the background. */
+const LOGO_COLOR = '#787878';
+
 function drawLogo(ctx: CanvasRenderingContext2D, right: number, bottom: number): void {
   const x = right - LOGO_INK.right, y = bottom - LOGO_INK.bottom;
   ctx.save();
-  ctx.fillStyle = MID;
+  ctx.fillStyle = LOGO_COLOR;
   for (const p of LOGO_PIXELS) {
     ctx.globalAlpha = p.a;
     ctx.fillRect(x + p.x, y + p.y, 1, 1);
@@ -649,7 +656,7 @@ function drawCorner(ctx: CanvasRenderingContext2D, r: Rect, font: string, pad: n
   ctx.font = font;
   ctx.textAlign = side;
   ctx.textBaseline = 'top';
-  ctx.fillStyle = FG;
+  ctx.fillStyle = MID;
   ctx.fillText(text, x, r.y + 2);
   const w = ctx.measureText(text).width;
   return side === 'left' ? x + w : x - w;

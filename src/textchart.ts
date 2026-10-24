@@ -99,6 +99,8 @@ export interface TextChartModel {
   interval: number;
   updated: Date;
   source: string;
+  /** Shown in the bottom-right corner, e.g. the app's name. */
+  name?: string;
 }
 
 /** Candles that fit across the screen, for how much history to fetch. */
@@ -116,16 +118,19 @@ export function buildTextChart(m: TextChartModel): TextBox[] {
   })));
   const { chart } = m;
   const last = chart.last ?? chart.candles.at(-1)?.close;
-  const header = [`${chart.market} ${formatInterval(m.interval)}`, last === undefined ? '' : formatPrice(last)].filter(Boolean).join('   ');
-  boxes[0]!.lines[0]!.texts.push({ x: 0, text: header });
+  addHeader(boxes[0]!.lines[0]!, dimLine(boxes, { phase: 0, line: 0 }), m, last === undefined ? '' : formatPrice(last));
 
-  const footer = [m.source, chart.index === undefined ? '' : `Index ${chart.index === null ? '--' : formatPrice(chart.index)}`];
-  for (const t of m.ticker) {
+  // Bottom line: the other markets' prices on the left, as many as fit, and the name on the right.
+  const name = m.name ?? '';
+  const others = m.ticker.flatMap((t) => {
     const price = t.last ?? t.candles.at(-1)?.close;
-    if (price !== undefined) footer.push(`${t.market} ${formatPrice(price)}`);
-  }
-  const stamp = m.updated.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  dimLine(boxes, FOOTER_PLACE).texts.push({ x: 0, text: fit(footer.filter(Boolean), stamp) });
+    return price === undefined ? [] : [`${t.market} ${formatPrice(price)}`];
+  });
+  const sep = '  ·  ';
+  while (others.length && textWidth(others.join(sep)) + (name ? HEADER_GAP + textWidth(name) : 0) > SCREEN_W - 8) others.pop();
+  const footer = dimLine(boxes, FOOTER_PLACE).texts;
+  if (others.length) footer.push({ x: 4, text: others.join(sep) });
+  if (name) footer.push({ x: SCREEN_W - 4 - textWidth(name), text: name });
 
   if (chart.error || chart.candles.length === 0) {
     boxes[0]!.lines[4]!.texts.push({ x: 0, text: chart.error ?? 'no data' });
@@ -145,6 +150,8 @@ export interface TextListModel {
   items: MarketData[];
   updated: Date;
   source: string;
+  /** Shown in the bottom-right corner, e.g. the app's name. */
+  name?: string;
   /** Still fetching: a market with no price yet shows '...' rather than 'no data'. */
   pending?: boolean;
   /** Set the rows against the right edge instead of the left. */
@@ -156,18 +163,21 @@ const MID = 2;
 
 /**
  * The market list (nothing charted) as text: one market per line, with the
- * name and 24h volume mid-bright and the price bright and right-aligned, plus
- * the source and time on the bottom line. Columns are lined up by the font's
- * measured widths, so they may be off by a px or two.
+ * name and 24h volume mid-bright and the price bright and right-aligned.
+ * Corners as on the other screens: the time top-left, the source top-right,
+ * and `name` bottom-right. Columns are lined up by the font's measured widths,
+ * so they may be off by a px or two.
  */
 export function buildTextList(m: TextListModel): TextBox[] {
   const rows = m.items.length;
   const footerY = SCREEN_H - LINE_H;
-  const y = Math.max(0, Math.round((footerY - rows * LINE_H) / 2));
+  // Centred between the top and bottom lines.
+  const y = LINE_H + Math.max(0, Math.round((footerY - LINE_H - rows * LINE_H) / 2));
   const box = (color: number, at: number, n: number): TextBox =>
     ({ y: at, color, lines: Array.from({ length: n }, () => ({ strokes: new Map<number, string>(), texts: [] })) });
   const bright = box(BRIGHT, y, rows);
   const mid = box(MID, y, rows);
+  const header = box(DIM, 0, 1);
   const footer = box(DIM, footerY, 1);
 
   const prices = m.items.map((d) => {
@@ -194,8 +204,9 @@ export function buildTextList(m: TextListModel): TextBox[] {
   }
 
   const stamp = m.updated.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  footer.lines[0]!.texts.push({ x: 4, text: m.source }, { x: SCREEN_W - 4 - textWidth(stamp), text: stamp });
-  return [bright, mid, footer];
+  header.lines[0]!.texts.push({ x: 4, text: stamp }, { x: SCREEN_W - 4 - textWidth(m.source), text: m.source });
+  if (m.name) footer.lines[0]!.texts.push({ x: SCREEN_W - 4 - textWidth(m.name), text: m.name });
+  return [bright, mid, header, footer];
 }
 
 /**
@@ -419,11 +430,46 @@ function rightmostCol(style: Style): number {
   return Math.floor((SCREEN_W - 4) / CELL) - style.span;
 }
 
-/** Footer parts joined with the timestamp last, dropping parts from the end until it fits on one line. */
-function fit(parts: string[], stamp: string): string {
-  const sep = '  ·  ';
-  while (parts.length > 1 && textWidth([...parts, stamp].join(sep)) > SCREEN_W - 8) parts.pop();
-  return [...parts, stamp].join(sep);
+/** Least space between header items, in px. */
+const HEADER_GAP = 16;
+
+/**
+ * The top line, laid out like the image charts' header: the price (bright)
+ * then the time on the left, the source then the market and candle size
+ * (bright) on the right, and the index price centred between. When crowded,
+ * the index drops its label, then goes, then the source, then the time.
+ */
+function addHeader(bright: TextLine, dim: TextLine, m: TextChartModel, price: string): void {
+  let left = 4;
+  if (price) {
+    bright.texts.push({ x: left, text: price });
+    left += textWidth(price) + HEADER_GAP;
+  }
+  const market = `${m.chart.market} ${formatInterval(m.interval)}`;
+  let right = SCREEN_W - 4 - textWidth(market);
+  bright.texts.push({ x: right, text: market });
+  right -= HEADER_GAP;
+
+  const stamp = m.updated.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const showTime = left + textWidth(stamp) <= right;
+  const showSource = showTime && left + textWidth(stamp) + HEADER_GAP + textWidth(m.source) <= right;
+  if (showTime) {
+    dim.texts.push({ x: left, text: stamp });
+    left += textWidth(stamp) + HEADER_GAP;
+  }
+  if (showSource) {
+    right -= textWidth(m.source);
+    dim.texts.push({ x: right, text: m.source });
+    right -= HEADER_GAP;
+  }
+
+  const { index } = m.chart;
+  if (index === undefined) return;
+  const value = index === null ? '--' : formatPrice(index);
+  const text = [`Index ${value}`, value].find((t) => textWidth(t) <= right - left);
+  if (!text) return;
+  const w = textWidth(text);
+  dim.texts.push({ x: Math.max(left, Math.min(right - w, Math.round(SCREEN_W / 2 - w / 2))), text });
 }
 
 function skip(cells: number): string {
