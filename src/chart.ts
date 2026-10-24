@@ -402,24 +402,81 @@ function drawPanel(
 
   // Highest volume, beside its bar, on whichever side has more room.
   ctx.font = axisFont;
+  let volLabel: Rect | null = null;
   if (maxVol > 0) {
     const vx = slotLeft(g, maxVolK);
     const onLeft = vx > vol.x + vol.w / 2;
-    tag(ctx, formatVolume(maxVol), onLeft ? vx - 3 : vx + body + 3, vol.y + vol.h / 2, onLeft ? 'right' : 'left', MID);
+    volLabel = tag(ctx, formatVolume(maxVol), onLeft ? vx - 3 : vx + body + 3, vol.y + vol.h / 2, onLeft ? 'right' : 'left', MID);
   }
 
-  // Session high and low, with a short leader from the wick tip.
+  // Session high and low, level with their wick tips, each in the nearest
+  // stretch of its rows that nothing reaches (candles, volume bars, the
+  // volume label), so it covers none: right beside the tip with a short
+  // leader, or further out joined to it by a dotted line (which runs above
+  // every candle for the high, below for the low). A label may stick out of
+  // the plot to stay level, up to just under the header text or down into
+  // the volume strip. With no clear stretch, it goes beside the tip on the
+  // chart's inner side, kept inside the plot.
   if (hi > lo && hiK >= 0 && loK >= 0) {
     ctx.font = axisFont;
-    const half = Math.ceil((ctx.measureText('0').actualBoundingBoxAscent + 2) / 2);
+    const ascent = ctx.measureText('0').actualBoundingBoxAscent;
+    const half = Math.ceil((ascent + 2) / 2);
+    // Rows each pixel column's candle and volume bar cover.
+    const colTop = new Array<number>(plot.w).fill(Infinity), colBottom = new Array<number>(plot.w).fill(-Infinity);
+    const volTop = new Array<number>(plot.w).fill(Infinity);
+    for (const { c, k } of visible) {
+      const left = slotLeft(g, k) - plot.x;
+      const vh = Math.max(1, Math.round(c.volume / (maxVol || 1) * vol.h));
+      for (let x = Math.max(0, left); x < Math.min(plot.w, left + body); x++) {
+        colTop[x] = Math.min(colTop[x]!, y(c.high));
+        colBottom[x] = Math.max(colBottom[x]!, y(c.low));
+        volTop[x] = Math.min(volTop[x]!, vol.y + vol.h - vh);
+      }
+    }
+    // How far a label's centre may go: its box stays under the header text and above the volume strip's base.
+    const minCy = titleY + 6 + ascent / 2, maxCy = vol.y + vol.h - 3 - ascent / 2;
     const extreme = (price: number, k: number) => {
       const wx = slotCenter(g, k), wy = y(price);
-      const onLeft = wx > plot.x + plot.w / 2;
-      const dir = onLeft ? -1 : 1;
+      const text = formatPrice(price);
+      ctx.font = axisFont;
+      // The label's box, as `tag` draws it, plus a pixel's clearance.
+      const w = Math.ceil(ctx.measureText(text).width) + 4;
+      const place = (cy: number) => {
+        const top = Math.floor(cy - ascent / 2) - 3, bottom = top + Math.ceil(ascent) + 5;
+        const clear = (x: number) => (colTop[x - plot.x]! > bottom || colBottom[x - plot.x]! < top) && volTop[x - plot.x]! > bottom;
+        const fits = (left: number) => {
+          if (left < plot.x || left + w > plot.x + plot.w) return false;
+          if (volLabel && left < volLabel.x + volLabel.w && left + w > volLabel.x && top < volLabel.y + volLabel.h && bottom > volLabel.y) return false;
+          for (let x = left - 1; x <= left + w; x++) if (x >= plot.x && x < plot.x + plot.w && !clear(x)) return false;
+          return true;
+        };
+        // Nearest clear box on either side, starting just past the leader.
+        for (let d = 0; d < plot.w; d++) {
+          for (const side of [-1, 1] as const) {
+            const left = side < 0 ? wx - 6 - d - w : wx + 6 + d;
+            if (fits(left)) return { left, side, gap: d };
+          }
+        }
+        return null;
+      };
+      const cy = Math.min(Math.max(wy, minCy), maxCy);
+      const best = place(cy);
       ctx.fillStyle = MID;
+      if (best) {
+        const { left, side, gap } = best;
+        if (gap === 0) {
+          ctx.fillRect(side < 0 ? wx - 4 : wx + 2, wy, 3, 1);
+        } else {
+          const from = side < 0 ? left + w + 1 : wx + 2, to = side < 0 ? wx - 2 : left - 2;
+          for (let x = side < 0 ? to : from; side < 0 ? x >= from : x <= to; x += side < 0 ? -3 : 3) ctx.fillRect(x, wy, 1, 1);
+        }
+        tag(ctx, text, left + 2, cy, 'left', MID);
+        return;
+      }
+      const inside = Math.min(Math.max(wy, plot.y + half), plot.y + plot.h - half);
+      const onLeft = wx > plot.x + plot.w / 2;
       ctx.fillRect(onLeft ? wx - 4 : wx + 2, wy, 3, 1);
-      const cy = Math.min(Math.max(wy, plot.y + half), plot.y + plot.h - half);
-      tag(ctx, formatPrice(price), wx + dir * 6, cy, onLeft ? 'right' : 'left', MID);
+      tag(ctx, text, wx + (onLeft ? -6 : 6), inside, onLeft ? 'right' : 'left', MID);
     };
     extreme(hi, hiK);
     extreme(lo, loK);
@@ -503,8 +560,8 @@ function drawLogo(ctx: CanvasRenderingContext2D, x: number, y: number, size: num
   ctx.restore();
 }
 
-/** Text centred vertically on `cy`, over a black box so lines and bars behind it don't show through. */
-function tag(ctx: CanvasRenderingContext2D, text: string, x: number, cy: number, align: 'left' | 'right', color: string): void {
+/** Text centred vertically on `cy`, over a black box so lines and bars behind it don't show through. Returns the box. */
+function tag(ctx: CanvasRenderingContext2D, text: string, x: number, cy: number, align: 'left' | 'right', color: string): Rect {
   const m = ctx.measureText(text);
   const w = Math.ceil(m.width);
   const top = Math.floor(cy - m.actualBoundingBoxAscent / 2) - 2;
@@ -516,6 +573,7 @@ function tag(ctx: CanvasRenderingContext2D, text: string, x: number, cy: number,
   ctx.textAlign = align;
   ctx.textBaseline = 'middle';
   ctx.fillText(text, x, cy);
+  return { x: left - 2, y: top, w: w + 4, h };
 }
 
 const TIME_STEPS = [

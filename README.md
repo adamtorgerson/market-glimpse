@@ -194,7 +194,12 @@ Each chart has a volume strip (~10% of its height) under the candles. The strip
 is scaled to the largest bar on screen, and that bar's value is labelled beside
 it. The bars are dim, so they stay in the background, and shaped like their
 candles: filled when the price rose, hollow and dimmer when it fell (filled
-where a bar is too thin or short for a hollow). The highest high and lowest low on screen are labelled at their wicks.
+where a bar is too thin or short for a hollow). The highest high and lowest
+low on screen are labelled level with their wick tips, in the nearest stretch
+beside the tip that no candle, volume bar or label reaches: right next to the
+tip, or further out with a dotted line to it. To stay level, a label may stick
+up under the header or down into the volume strip, so the candles keep the
+full height.
 Horizontal price gridlines run to the right edge, with their prices drawn over
 them. A single time axis runs along the bottom, in phone-local time (UTC for
 daily and longer candles). All panels share one time frame, so their vertical
