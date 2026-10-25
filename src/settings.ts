@@ -1,7 +1,7 @@
 import { isCalibration, type LookUpCalibration } from './lookup';
 import { DEFAULT_SOURCE, getSource, SOURCES } from './sources';
 
-export const CANDLE_WIDTHS = ['wide', 'narrow', 'thin', 'text-wide', 'text-narrow', 'text-thin'] as const;
+export const CANDLE_WIDTHS = ['wide', 'narrow', 'thin', 'text-blocks', 'text-wide', 'text-narrow', 'text-thin'] as const;
 export type CandleWidth = (typeof CANDLE_WIDTHS)[number];
 export type TextWidth = Extract<CandleWidth, `text${string}`>;
 

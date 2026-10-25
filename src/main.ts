@@ -1,6 +1,6 @@
 import './style.css';
 import LOGO_SVG from '../assets/icon.svg?raw';
-import { candleCapacity, DEFAULT_AXIS_W, renderScreen, SCREEN_H, SCREEN_W } from './chart';
+import { candleCapacity, DEFAULT_AXIS_W, renderScreen, SCREEN_H, SCREEN_W, type ScreenModel } from './chart';
 import { FONTS, loadFont } from './fonts';
 import { Glasses, type UploadStats } from './glasses';
 import { calibrate, LookUpDetector, type Vec } from './lookup';
@@ -282,7 +282,8 @@ async function runUpdate(ctrl: AbortController, showAt: number, reuse: boolean):
   if (textBoxes) {
     drawTextChart(ctx, textBoxes);
   } else {
-    lastAxisW = renderScreen(ctx, { charts, ticker, interval: s.interval, candleWidth: s.candleWidth, updated, source, font: s.font });
+    const model = { charts, ticker, interval: s.interval, candleWidth: s.candleWidth, updated, source, font: s.font };
+    lastAxisW = import.meta.env.DEV && supersample ? renderSupersampled(ctx, model) : renderScreen(ctx, model);
   }
   refreshWidthLabels();
   // Drawn, so it goes up as soon as it's due (or now, if late) without a loading screen.
@@ -471,7 +472,7 @@ const displayInput = $<HTMLInputElement>('display');
 const formError = $('form-error');
 
 for (const src of SOURCES) sourceSel.add(new Option(src.label, src.id));
-const CANDLE_WIDTH_LABELS: Record<CandleWidth, string> = { wide: 'Wide', narrow: 'Narrow', thin: 'Thin', 'text-wide': 'Text wide, 1 chart', 'text-narrow': 'Text narrow, 1 chart', 'text-thin': 'Text thin, 1 chart' };
+const CANDLE_WIDTH_LABELS: Record<CandleWidth, string> = { wide: 'Wide', narrow: 'Narrow', thin: 'Thin', 'text-blocks': 'Text blocks, 1 chart', 'text-wide': 'Text wide, 1 chart', 'text-narrow': 'Text narrow, 1 chart', 'text-thin': 'Text thin, 1 chart' };
 for (const w of CANDLE_WIDTHS) candleWidthSel.add(new Option(CANDLE_WIDTH_LABELS[w], w));
 for (const f of CHART_FONTS) fontSel.add(new Option(FONTS[f].label, f));
 let lastAxisW = DEFAULT_AXIS_W;
@@ -800,6 +801,53 @@ const speedResults = $<HTMLTableElement>('speed-results');
 
 if (!import.meta.env.DEV) document.querySelectorAll('[data-dev-only]').forEach((el) => el.remove());
 
+/** Draw image screens at 2× and scale them down, to judge on the glasses whether that reads better. */
+let supersample = false;
+const supersampleBox = $<HTMLInputElement>('supersample');
+
+function renderSupersampled(ctx: CanvasRenderingContext2D, model: ScreenModel): number {
+  const big = document.createElement('canvas');
+  big.width = SCREEN_W * 2;
+  big.height = SCREEN_H * 2;
+  const bctx = big.getContext('2d')!;
+  bctx.scale(2, 2);
+  const axisW = renderScreen(bctx, model);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, SCREEN_W, SCREEN_H);
+  ctx.drawImage(big, 0, 0, SCREEN_W, SCREEN_H);
+  return axisW;
+}
+
+/** Each press shows the next page of glyphs on the glasses; after the last, the display goes dark. */
+const glyphTestBtn = $<HTMLButtonElement>('glyph-test');
+let glyphPage = 0;
+
+if (import.meta.env.DEV) glyphTestBtn.addEventListener('click', async () => {
+  if (!glasses) return;
+  const { GLYPH_PAGES } = await import('./glyphtest');
+  if (glyphPage === GLYPH_PAGES.length) {
+    glyphPage = 0;
+    glyphTestBtn.textContent = 'Glyph test';
+    void hide();
+    return;
+  }
+  clearTimeout(hideTimer);
+  setShowing(true);
+  await glasses.showText([{ y: 0, color: 4, content: GLYPH_PAGES[glyphPage]! }]).catch((e) => setStatus(`Glasses error: ${(e as Error).message}`));
+  glyphPage++;
+  glyphTestBtn.textContent = glyphPage === GLYPH_PAGES.length ? 'End glyph test' : `Glyph test ${glyphPage + 1}/${GLYPH_PAGES.length}`;
+});
+
+if (import.meta.env.DEV) supersampleBox.addEventListener('change', (e) => {
+  // Not a setting: keep it from the form's change handler.
+  e.stopPropagation();
+  supersample = supersampleBox.checked;
+  // Same data, redrawn, like a font change.
+  void update({ cancel: true, manual: true, reuse: true });
+});
+
 if (import.meta.env.DEV) speedTestBtn.addEventListener('click', async () => {
   if (!glasses) return;
   speedTestBtn.disabled = true;
@@ -834,7 +882,10 @@ async function boot(): Promise<void> {
   drawPlaceholder('Loading…');
   setStatus('Connecting to glasses…');
   glasses = await Glasses.connect();
-  if (import.meta.env.DEV) speedTestBtn.disabled = !glasses;
+  if (import.meta.env.DEV) {
+    speedTestBtn.disabled = !glasses;
+    glyphTestBtn.disabled = !glasses;
+  }
   // Tap while the chart is up dismisses it (always on: refreshes it); tap while dark pulls a fresh one.
   glasses?.onTap(toggleChart);
   // Even Hub's exit gesture on the root page: the glasses ask to confirm.

@@ -14,6 +14,10 @@ import type { MarketData } from './sources/types';
  * candles dim (brightness is per container), which uses all 8 text containers
  * a page allows.
  *
+ * The blocks style fills 20px-wide bodies with the font's block elements
+ * instead: █ and the lower eighths ▁–▇ all end at the same row, so a body's
+ * top can be set to within 2–3px, and ▔ does the same for its bottom.
+ *
  * Glyph metrics were measured in the simulator (v0.9.5), which uses the
  * firmware's font handling. A container whose text runs past its bottom edge
  * shows a scrollbar, so each one only gets the lines that fit.
@@ -28,6 +32,27 @@ const STROKES = [
   { glyph: "'", top: 6, bottom: 9 },
 ];
 /**
+ * 20px-wide blocks (5 columns, the advance too); ink rows from the top of
+ * their line. Each also lights row 24 at half brightness, left out here so the
+ * next block down covers it rather than leaving a dim seam.
+ */
+const BLOCK_CELLS = 5;
+const BLOCKS = [
+  { glyph: '█', top: 4, bottom: 23 },
+  { glyph: '▇', top: 7, bottom: 23 },
+  { glyph: '▆', top: 9, bottom: 23 },
+  { glyph: '▅', top: 12, bottom: 23 },
+  { glyph: '▄', top: 14, bottom: 23 },
+  { glyph: '▃', top: 17, bottom: 23 },
+  { glyph: '▂', top: 19, bottom: 23 },
+  { glyph: '▁', top: 22, bottom: 23 },
+  { glyph: '▔', top: 4, bottom: 6 },
+];
+/** Columns a glyph advances. */
+function cells(glyph: string): number {
+  return BLOCKS.some((b) => b.glyph === glyph) ? BLOCK_CELLS : 1;
+}
+/**
  * Blank 4px: Armenian Ա (2 UTF-8 bytes) isn't in the font, so it's drawn as
  * an empty 4px box. Thin space does the same in 3 bytes.
  */
@@ -41,18 +66,24 @@ const DIM = 0;
 /** Each container's text is cut off beyond this many UTF-8 bytes. */
 const MAX_BYTES = 999;
 /**
- * Candle shapes, in 4px columns: `span` columns of strokes plus a gap. Wide
+ * Candle shapes, in 4px columns: `span` columns of strokes plus a gap. Blocks
+ * are one block wide, wick in the third column. Wide
  * candles are 3 columns, wick in the middle; narrow ones are 2, wick on the
  * right; thin ones are 1.
  */
 const STYLES: Record<TextWidth, Style> = {
+  'text-blocks': { pitch: 6, span: BLOCK_CELLS },
   'text-wide': { pitch: 4, span: 3 },
   'text-narrow': { pitch: 3, span: 2 },
-  'text-thin': { pitch: 2, span: 1 },
+  // Thin candles are packed close, so the grid keeps further from them.
+  'text-thin': { pitch: 2, span: 1, clear: 20, clearCols: 4 },
 };
 interface Style {
   pitch: number;
   span: number;
+  /** Rows the grid's dots keep clear above and below a candle, and columns beside it, if not the usual. */
+  clear?: number;
+  clearCols?: number;
 }
 /** Rows the candles may use: below the header line, above the footer line. */
 const PLOT_TOP = 30;
@@ -86,7 +117,7 @@ export interface TextBox {
 }
 
 interface TextLine {
-  /** Stroke glyph by 4px column. */
+  /** Stroke or block glyph by 4px column. */
   strokes: Map<number, string>;
   /** Text after the strokes, at `x` px (to the nearest 4px, as spacers are 4px). */
   texts: { x: number; text: string }[];
@@ -225,8 +256,9 @@ export function serializeBox(box: TextBox): string {
     let out = '';
     let at = 0;
     for (const col of [...line.strokes.keys()].sort((a, b) => a - b)) {
-      out += skip(col - at / CELL) + line.strokes.get(col);
-      at = (col + 1) * CELL;
+      const glyph = line.strokes.get(col)!;
+      out += skip(col - at / CELL) + glyph;
+      at = (col + cells(glyph)) * CELL;
     }
     for (const t of [...line.texts].sort((a, b) => a.x - b.x)) {
       const cells = Math.max(0, Math.round((t.x - at) / CELL));
@@ -252,8 +284,8 @@ export function drawTextChart(ctx: CanvasRenderingContext2D, boxes: TextBox[]): 
     box.lines.forEach((line, k) => {
       const top = box.y + k * LINE_H;
       for (const [col, glyph] of line.strokes) {
-        const s = STROKES.find((st) => st.glyph === glyph)!;
-        ctx.fillRect(col * CELL, top + s.top, 1, s.bottom - s.top + 1);
+        const s = STROKES.find((st) => st.glyph === glyph) ?? BLOCKS.find((b) => b.glyph === glyph)!;
+        ctx.fillRect(col * CELL, top + s.top, cells(glyph) * CELL, s.bottom - s.top + 1);
       }
       for (const t of line.texts) ctx.fillText(t.text, t.x, top + 21);
     });
@@ -297,6 +329,12 @@ function drawCandles(boxes: TextBox[], data: MarketData, interval: number, style
     for (const [s, e] of segments) stroke(group, col, s, e, blocks);
   };
 
+  // Where each candle is drawn, columns and rows, to keep the tick dots clear of them.
+  const drawn: (Block & { left: number })[] = [];
+  const clear = style.clear ?? TICK_CLEAR, clearCols = style.clearCols ?? TICK_CLEAR_COLS;
+  const nearCandle = (col: number, top: number, bottom: number) => drawn.some((d) =>
+    col >= d.left - clearCols && col <= d.right + clearCols && top <= d.bottom + clear && bottom >= d.top - clear);
+
   for (const c of data.candles) {
     const k = Math.round((lastTime - c.time) / intervalSec);
     if (k < 0 || k >= count) continue;
@@ -304,7 +342,15 @@ function drawCandles(boxes: TextBox[], data: MarketData, interval: number, style
     const up = c.close >= c.open;
     const group = up ? boxes.slice(0, 4) : boxes.slice(4);
     const yo = y(c.open), yc = y(c.close), yh = y(c.high), yl = y(c.low);
+    drawn.push({ left: col, right: col + span - 1, top: yh, bottom: yl });
     const top = Math.min(yo, yc), bottom = Math.max(yo, yc);
+    if (span === BLOCK_CELLS) {
+      // Blocks: filled bodies, bright up and dim down, with the wick in the third column.
+      fill(group, col, top, bottom, blocks);
+      if (yh < top) draw(group, col + 2, yh, top - 1);
+      if (yl > bottom) draw(group, col + 2, bottom + 1, yl);
+      continue;
+    }
     if (span === 1) {
       // Thin: dim wicks; up bodies bright, down bodies hollow (a gap in the
       // line, like the hollow bodies of normal candles).
@@ -330,14 +376,6 @@ function drawCandles(boxes: TextBox[], data: MarketData, interval: number, style
       if (yl > bottom) draw(group, col + 1, bottom + 1, yl);
     }
   }
-  // Dots in two of every nine gaps between candles (4 and 5 apart), from each price key.
-  KEYS.forEach((key, i) => {
-    const dots = dimLine(boxes, key.dot);
-    for (let k = 0, n = 0; k < count; k += n++ % 2 ? 5 : 4) {
-      const col = firstCol - k * pitch + span;
-      if (col > blocks[i]!.right) dots.strokes.set(col, "'");
-    }
-  });
   // Time keys: centred under their candles, dropping any that would overlap.
   const ticks = timeTicks(lastTime, count, intervalSec, pitch * CELL, TIME_KEY_GAP);
   const step = ticks.length > 1 ? ticks[1]! - ticks[0]! : intervalSec;
@@ -351,6 +389,15 @@ function drawCandles(boxes: TextBox[], data: MarketData, interval: number, style
     if (x < end + 8) continue;
     times.push({ x, text });
     end = x + w;
+    // The grid: a dot where each price key's row crosses the time key's
+    // column (its candle's middle one), unless that's by a candle or a label.
+    const col = firstCol - Math.round((lastTime - t) / intervalSec) * pitch + Math.floor(span / 2);
+    KEYS.forEach((key, i) => {
+      const dots = dimLine(boxes, key.dot);
+      const top = PHASES[key.dot.phase]! + key.dot.line * LINE_H + DOT.top;
+      // A block's 20px advance can run over the column.
+      if (col > blocks[i]!.right && free(dots, col, 1) && !nearCandle(col, top, top + DOT.bottom - DOT.top)) dots.strokes.set(col, "'");
+    });
   }
   return count;
 }
@@ -384,6 +431,12 @@ function priceAt(row: number, lo: number, hi: number): number {
   return hi - (row - PLOT_TOP) / (PLOT_BOTTOM - PLOT_TOP) * (hi - lo);
 }
 
+/** The `'` stroke, the grid's dots. */
+const DOT = STROKES[2]!;
+/** Rows tick dots keep clear above and below a candle, and columns beside it. */
+const TICK_CLEAR = 12;
+const TICK_CLEAR_COLS = 2;
+
 /** Every stroke a column can use: [container offset index, line, glyph, ink rows]. */
 const PLACES = PHASES.flatMap((dy, phase) =>
   Array.from({ length: Math.ceil((SCREEN_H - dy) / LINE_H) }, (_, line) =>
@@ -404,7 +457,50 @@ function stroke(group: TextBox[], col: number, a: number, b: number, blocks: Blo
     let bestScore = -Infinity;
     for (const p of PLACES) {
       const line = group[p.phase]!.lines[p.line]!;
-      if (p.top > cur + 2 || p.bottom < cur - 2 || line.strokes.has(col) || line.texts.length) continue;
+      if (p.top > cur + 2 || p.bottom < cur - 2 || !free(line, col, 1)) continue;
+      if (blocks.some((k) => col <= k.right && p.top <= k.bottom && p.bottom >= k.top)) continue;
+      const covered = Math.min(p.bottom, b) - Math.max(p.top, cur) + 1;
+      const overshoot = Math.max(0, a - p.top) + Math.max(0, p.bottom - b);
+      const score = covered - 2 * overshoot - Math.max(0, p.top - cur);
+      if (score > bestScore) { best = p; bestScore = score; }
+    }
+    if (!best || (!first && (bestScore <= 0 || best.bottom < cur))) return;
+    group[best.phase]!.lines[best.line]!.strokes.set(col, best.glyph);
+    cur = best.bottom + 1;
+  }
+}
+
+/** Every block a body can use, as `PLACES` for strokes. */
+const BLOCK_PLACES = PHASES.flatMap((dy, phase) =>
+  Array.from({ length: Math.ceil((SCREEN_H - dy) / LINE_H) }, (_, line) =>
+    BLOCKS.map((b) => ({ phase, line, glyph: b.glyph, top: dy + line * LINE_H + b.top, bottom: dy + line * LINE_H + b.bottom }))).flat())
+  .filter((p) => p.top >= PLOT_TOP && p.bottom <= PLOT_BOTTOM);
+
+/** True if `n` columns from `col` are clear on `line`: no text, and no glyph there or running into them. */
+function free(line: TextLine, col: number, n: number): boolean {
+  if (line.texts.length) return false;
+  for (const [c, glyph] of line.strokes) if (c < col + n && c + cells(glyph) > col) return false;
+  return true;
+}
+
+/**
+ * Fill rows a–b (inclusive) of the block at column `col` from the four
+ * containers of `group`, like `stroke`: working down, each step takes the
+ * block that covers the most of what's left while overshooting the ends least.
+ * Unlike strokes, blocks overlap rather than leave gaps, which would show as
+ * seams in the body.
+ * A body too short for any block gets the nearest one.
+ */
+function fill(group: TextBox[], col: number, a: number, b: number, blocks: Block[]): void {
+  let cur = a;
+  for (let first = true; cur <= b; first = false) {
+    let best: (typeof BLOCK_PLACES)[number] | null = null;
+    let bestScore = -Infinity;
+    for (const p of BLOCK_PLACES) {
+      // After the first, overlap the last block by a row: a block's top row is dim too.
+      if (p.top > (first ? cur + 2 : cur - 1) || p.bottom < cur) continue;
+      const line = group[p.phase]!.lines[p.line]!;
+      if (!free(line, col, BLOCK_CELLS)) continue;
       if (blocks.some((k) => col <= k.right && p.top <= k.bottom && p.bottom >= k.top)) continue;
       const covered = Math.min(p.bottom, b) - Math.max(p.top, cur) + 1;
       const overshoot = Math.max(0, a - p.top) + Math.max(0, p.bottom - b);

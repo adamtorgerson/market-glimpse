@@ -39,10 +39,14 @@ refreshes every 2m, chart shown for 12s, narrow candles.
 - **Candle width**: Wide (6px, or 4px in quadrants), Narrow (3px, the default)
   or Thin (2px). Narrower candles fit more history. At 2px, down candles are
   drawn solid and dimmer rather than hollow.
-  - **Text wide, Text narrow, Text thin (1 chart)**: the chart is drawn by
-    the glasses in their own font instead of sent as images, so it appears
-    all at once and the upload is a few KB of text. It's coarser: candles
-    are made of 1px strokes on a 4px grid.
+  - **Text blocks, Text wide, Text narrow, Text thin (1 chart)**: the chart
+    is drawn by the glasses in their own font instead of sent as images, so
+    it appears all at once and the upload is a few KB of text. It's coarser:
+    candles are made of 1px strokes on a 4px grid, or font blocks.
+    - Text blocks: about 24 candles, 24px apart, with solid 20px bodies built
+      from the font's block glyphs (█ and the lower eighths ▁–▇, with ▔ for
+      the bottom end), bright up and dim down. Wicks are 1px strokes, 1.5px
+      left of centre (the 4px grid's nearest).
     - Text wide: about 36 candles, 16px apart. Up candles are three strokes,
       filled; down candles are two, hollow and dimmer.
     - Text narrow: about 48 candles, 12px apart, of two strokes: the body in
@@ -53,9 +57,12 @@ refreshes every 2m, chart shown for 12s, narrow candles.
       between the wicks).
 
     Four price keys sit at the left edge over the oldest candles, which
-    leave a gap around each label, and each key has a dotted line across
-    the chart, a dot in two of every nine candle gaps. A few time keys sit under
-    the candles. Only one market can be
+    leave a gap around each label. A few time keys sit under the candles.
+    The keys share one grid of dots: a dot wherever a price key's row
+    crosses a time key's column (the middle column of the candle it's centred
+    under). Dots keep 12px above and below any candle and two columns (8px)
+    to either side, so they stay well clear of them; with Text thin's
+    closely packed candles, 20px and four columns (16px). Only one market can be
     charted; the other markets' prices go on the bottom line if they fit.
     With no market ticked, the market list is drawn as usual.
 - **Font**: for the text in chart images. Atkinson Hyperlegible (the
