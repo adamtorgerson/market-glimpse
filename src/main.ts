@@ -840,10 +840,18 @@ async function boot(): Promise<void> {
   // Even Hub's exit gesture on the root page: the glasses ask to confirm.
   glasses?.onDoubleTap(() => void glasses!.exit().catch(() => {}));
   glasses?.onImu(onImuReading);
+  // The motion sensor must not be left running on the glasses once the app is gone.
+  glasses?.onExit(() => {
+    imuOn = false;
+    glasses!.setImu(false).catch(() => {});
+  });
   settings = await loadSettings();
   void loadFont(settings.font).catch(() => {});
   fillForm(settings);
   setShowing(showing); // Label the button for the saved settings.
+  // The motion sensor only starts once the glasses have a page, and in
+  // manual-only mode nothing else puts one up until the first chart.
+  await glasses?.blank().catch((e) => setStatus(`Glasses error: ${(e as Error).message}`));
   syncLookUp();
   if (settings.manualOnly) {
     drawPlaceholder('Press Show now');

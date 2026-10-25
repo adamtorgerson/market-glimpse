@@ -115,10 +115,17 @@ export class Glasses {
       // CLICK_EVENT is 0, which protobuf omits on the wire, so it can arrive as undefined.
       const type = ev.eventType ?? OsEventTypeList.CLICK_EVENT;
       if (type === OsEventTypeList.CLICK_EVENT) cb();
-      if (type === OsEventTypeList.SYSTEM_EXIT_EVENT || type === OsEventTypeList.ABNORMAL_EXIT_EVENT) {
-        // Our page is gone; recreate it on the next draw.
-        this.pageCreated = false;
-      }
+    });
+  }
+
+  /** The app was closed on the glasses (confirmed exit) or lost them (abnormal exit). */
+  onExit(cb: () => void): () => void {
+    return this.bridge.onEvenHubEvent((e) => {
+      const type = e.sysEvent?.eventType;
+      if (type !== OsEventTypeList.SYSTEM_EXIT_EVENT && type !== OsEventTypeList.ABNORMAL_EXIT_EVENT) return;
+      // Our page is gone; recreate it on the next draw.
+      this.pageCreated = false;
+      cb();
     });
   }
 
