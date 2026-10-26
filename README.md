@@ -262,6 +262,7 @@ npx evenhub-simulator http://localhost:5173/  # desktop simulator
 npm run qr                                    # QR code to load the dev server in the Even app
 npm run pack                                  # build + market-glimpse.ehpk
 npm run icon                                  # assets/icon-24.png (store icon) from assets/icon.svg
+npm run screenshots                           # screenshots/*.png from the simulator, live data
 ```
 
 The store icon is `assets/icon-24.png`. The upload validates it: 24×24,
