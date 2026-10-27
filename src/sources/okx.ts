@@ -42,4 +42,13 @@ export const okx = exchangeSource({
       time: +r[0]! / 1000, open: +r[1]!, high: +r[2]!, low: +r[3]!, close: +r[4]!, volume: +r[5]!,
     }));
   },
+
+  async stocks(signal) {
+    // Category 3 is tokenized stocks, named "X" + ticker ("XTSLA-USDT").
+    const rows = await get<{ instId: string; baseCcy: string; quoteCcy: string; instCategory: string }[]>(
+      '/public/instruments?instType=SPOT', signal);
+    return new Map(rows
+      .filter((r) => r.instCategory === '3' && r.baseCcy.startsWith('X'))
+      .map((r) => [`${r.baseCcy.slice(1)}-${r.quoteCcy}`, r.instId]));
+  },
 });

@@ -509,7 +509,7 @@ function formatSpan(minutes: number): string {
 function addMarketRow(market = '', charted = false): void {
   const li = document.createElement('li');
   li.innerHTML = `
-    <input type="text" placeholder="e.g. SOL-USDC" spellcheck="false" autocapitalize="characters" />
+    <input type="text" placeholder="e.g. SOL-USDC, or TSLA" spellcheck="false" autocapitalize="characters" />
     <label><input type="checkbox" /> Chart</label>
     <button type="button" class="secondary" aria-label="Remove">✕</button>`;
   const [text, check] = li.querySelectorAll('input');

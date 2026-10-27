@@ -19,6 +19,13 @@ refreshes every 2m, chart shown for 12s, narrow candles.
   them (`BTC-USDT`). Each exchange lists different markets. For example,
   Coinbase has `BTC-USD` but no `BTC-USDC`. A market the exchange doesn't
   have shows "unknown pair".
+- **Stocks**: a name with no quote (`TSLA`) is a tokenized stock in dollars.
+  Each exchange's own spelling works on all of them (`TSLAX`, `XTSLA-USDT`,
+  `TSLA-USD`), as does any dollar quote (USD, USDT, USDC). Kraken, OKX and
+  Gate have stocks; Coinbase doesn't. Kraken lists them separately, so its
+  pair list takes two requests, and crypto and stocks need a price request
+  each. OKX and Gate load their stock list (one large request) the first time
+  a market isn't found.
 - **Markets**: up to 8 (`BTC-USDC`, `SOL-USD`, …). Tick up to 4 to chart (1
   with any Text width). Any market that isn't charted is listed under the charts
   with its price and 24h volume (unlabelled, in the base currency, e.g.
@@ -204,7 +211,8 @@ with its top level with theirs. It's always shown: in a crowded header it
 drops its "Index" label, then the fetch time and source make way. One
 `simple/price` request covers every chart, looked up by symbol (`XBT` and
 `XDG` are mapped to `btc` and `doge`). Stablecoin quotes such as USDC and USDT
-are priced in USD. It runs alongside the exchange's requests, at most once
+are priced in USD. A stock with no quote is priced as its xStock (`TSLA` as
+`tslax`, the token the exchanges trade), else by its ticker. It runs alongside the exchange's requests, at most once
 every 12s. If CoinGecko doesn't know a coin, or the request fails, the
 header shows "Index —" (in text candles, "Index --"). CoinGecko's keyless API
 is rate-limited per IP. A rejected request shows up as a network error in the

@@ -46,4 +46,12 @@ export const gate = exchangeSource({
       time: +r[0]!, close: +r[2]!, high: +r[3]!, low: +r[4]!, open: +r[5]!, volume: +r[6]!,
     }));
   },
+
+  async stocks(signal) {
+    // xStocks are named ticker + "X" ("TSLAX_USDT"); only their names say what they are.
+    const rows = await get<{ id: string; base: string; quote: string; base_name?: string }[]>('/spot/currency_pairs', signal);
+    return new Map(rows
+      .filter((r) => r.base_name?.endsWith('xStock') && r.base.endsWith('X'))
+      .map((r) => [`${r.base.slice(0, -1)}-${r.quote}`, r.id.replace('_', '-')]));
+  },
 });
