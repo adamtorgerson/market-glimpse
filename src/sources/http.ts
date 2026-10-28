@@ -9,6 +9,8 @@
  * when their signal aborts are dropped without being sent. Rules 2 and 3 are
  * up to each source.
  */
+import { byteSize, countNetwork } from '../traffic';
+
 export const MIN_GAP_MS = 1500;
 
 export class PublicApi {
@@ -26,9 +28,15 @@ export class PublicApi {
       await sleep(this.nextAt - Date.now(), signal);
       const sent = Date.now();
       this.nextAt = sent + this.minGapMs;
-      const res = await fetch(this.base + path, { signal, cache: 'no-store' });
-      if (!res.ok) throw new HttpError(res.status, await res.text().catch(() => ''));
-      const body = (await res.json()) as T;
+      const url = this.base + path;
+      const res = await fetch(url, { signal, cache: 'no-store' });
+      // Read as bytes to count them; headers aren't visible to the page, so
+      // only the URL and the (decompressed) body are counted.
+      const bytes = new Uint8Array(await (res.ok ? res.arrayBuffer() : res.arrayBuffer().catch(() => new ArrayBuffer(0))));
+      countNetwork(byteSize(url), bytes.length);
+      const text = new TextDecoder().decode(bytes);
+      if (!res.ok) throw new HttpError(res.status, text);
+      const body = JSON.parse(text) as T;
       this.responseMs = average(this.responseMs, Date.now() - sent);
       return body;
     });

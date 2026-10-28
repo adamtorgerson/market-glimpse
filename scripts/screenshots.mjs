@@ -21,12 +21,16 @@ const STORAGE_KEY = 'kraken-candles.settings'; // src/main.ts
 const TIMEOUT_MS = 60_000;
 
 const M8 = ['BTC-USDC', 'ETH-USDC', 'SOL-USD', 'XRP-USD', 'DOGE-USD', 'ADA-USD', 'LTC-USD', 'DOT-USD'];
-const M3 = M8.slice(0, 3);
+// Tokenized stocks, entered by ticker as a user would.
+const STOCKS = ['TSLA', 'NVDA', 'AAPL'];
+const M3 = [...M8.slice(0, 2), STOCKS[0]];
+const M6 = [...M8.slice(0, 4), ...STOCKS.slice(0, 2)];
+const ALL = [...M8.slice(0, 5), ...STOCKS];
 const SHOTS = {
-  'one-chart': { markets: M3, charts: ['BTC-USDC'] },
-  'four-charts': { markets: M8.slice(0, 4), charts: M8.slice(0, 4) },
-  'market-list': { markets: M8.slice(0, 6), charts: [] },
-  'text-list': { markets: M8.slice(0, 6), charts: [], textList: true },
+  'one-chart': { markets: ALL, charts: ['BTC-USDC'] },
+  'four-charts': { markets: ALL, charts: [...M8.slice(0, 3), STOCKS[0]] },
+  'market-list': { markets: ALL, charts: [] },
+  'text-list': { markets: M6, charts: [], textList: true },
   'text-chart': { markets: M3, charts: ['BTC-USDC'], candleWidth: 'text-narrow' },
   'text-blocks-chart': { markets: M3, charts: ['BTC-USDC'], candleWidth: 'text-blocks' },
 };

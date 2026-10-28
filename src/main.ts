@@ -3,6 +3,7 @@ import LOGO_SVG from '../assets/icon.svg?raw';
 import { candleCapacity, DEFAULT_AXIS_W, renderScreen, SCREEN_H, SCREEN_W, type ScreenModel } from './chart';
 import { FONTS, loadFont } from './fonts';
 import { Glasses, type UploadStats } from './glasses';
+import { onTraffic, tapBridge, traffic, type Counter } from './traffic';
 import { calibrate, LookUpDetector, type Vec } from './lookup';
 import { encodeTiles } from './png';
 import { buildLoadingList, buildTextChart, buildTextList, drawTextChart, serializeBox, textCandles, type TextBox } from './textchart';
@@ -26,6 +27,12 @@ import {
   type ChartFont,
   type Settings,
 } from './settings';
+
+/**
+ * The Diagnostics section on the phone page. TEMP: on in the package build
+ * too; set back to `import.meta.env.DEV` to drop it (and src/speedtest.ts).
+ */
+const DIAGNOSTICS: boolean = true;
 
 const STORAGE_KEY = 'kraken-candles.settings';
 const APP_NAME = 'MarketGlimpse';
@@ -75,6 +82,8 @@ let nextTimer: ReturnType<typeof setTimeout> | undefined;
 let hideTimer: ReturnType<typeof setTimeout> | undefined;
 let nextAt = 0;
 let showing = false;
+/** Set once the app is closed on the glasses: nothing is fetched or shown after that. */
+let exited = false;
 
 function setShowing(v: boolean): void {
   showing = v;
@@ -141,6 +150,7 @@ let inFlightEta = 0;
 
 /** Fetch, draw, show on the glasses, then blank them after `displaySec`. */
 async function update({ cancel = false, manual = false, showAt = 0, reuse = false }: UpdateOptions = {}): Promise<void> {
+  if (exited) return;
   // An update in progress is left to finish unless cancelled; its chart will replace the loading screen.
   const joining = inFlight !== null && !cancel;
   if (!joining) {
@@ -295,7 +305,7 @@ async function runUpdate(ctrl: AbortController, showAt: number, reuse: boolean):
     drawTextChart(ctx, textBoxes);
   } else {
     const model = { charts, ticker, interval: s.interval, candleWidth: s.candleWidth, updated, source, font: s.font };
-    lastAxisW = import.meta.env.DEV && supersample ? renderSupersampled(ctx, model) : renderScreen(ctx, model);
+    lastAxisW = DIAGNOSTICS && supersample ? renderSupersampled(ctx, model) : renderScreen(ctx, model);
   }
   refreshWidthLabels();
   // Drawn, so it goes up as soon as it's due (or now, if late) without a loading screen.
@@ -344,6 +354,7 @@ async function runUpdate(ctrl: AbortController, showAt: number, reuse: boolean):
     // Read now, not from `s`: the option may have changed while this update ran.
     if (!settings.alwaysOn) hideTimer = setTimeout(hideUnlessAlwaysOn, settings.displaySec * 1000);
   } catch (e) {
+    if (ctrl.signal.aborted) return;
     setStatus(`Glasses error: ${(e as Error).message}`, failed);
     hide();
   }
@@ -363,7 +374,7 @@ async function hide(): Promise<void> {
   clearTimeout(hideTimer);
   setShowing(false);
   loading = false;
-  if (!glasses) return;
+  if (!glasses || exited) return;
   try {
     await glasses.blank();
     // Errors after the text stay; "Updated" on the right is kept.
@@ -388,9 +399,9 @@ function restartSchedule(opts: UpdateOptions = {}): void {
 /** Schedule the next chart for `at` (ms), and the ones after it every `refreshSec`. None in manual-only mode. */
 function scheduleAt(at: number): void {
   clearTimeout(nextTimer);
-  nextAt = settings.manualOnly ? 0 : at;
+  nextAt = settings.manualOnly || exited ? 0 : at;
   syncCountdown();
-  if (settings.manualOnly) return;
+  if (!nextAt) return;
   const leadMs = estimateUpdateMs() + 1000;
   nextTimer = setTimeout(() => {
     void update({ showAt: at });
@@ -404,7 +415,7 @@ const uploadStatsEl = $('upload-stats');
 function showUploadStats(u: UploadStats): void {
   console.info('Glasses upload', JSON.stringify(u));
   // Diagnostics are on the phone page in development only.
-  if (!import.meta.env.DEV) return;
+  if (!DIAGNOSTICS) return;
   const total = u.tiles.reduce((n, t) => n + t.bytes, 0);
   if (u.encoding === 'text') {
     // One rebuild carries every container, so only the total time means anything.
@@ -417,8 +428,28 @@ function showUploadStats(u: UploadStats): void {
 }
 
 function formatBytes(n: number): string {
-  return n < 1024 ? `${n} B` : `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024) return `${n} B`;
+  return n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 / 1024).toFixed(2)} MB`;
 }
+
+const trafficEl = $('traffic');
+
+/** e.g. "Network: 12 requests, sent 1.4 KB, received 310.2 KB · Glasses: …" */
+function showTraffic(): void {
+  const line = (name: string, c: Counter, unit: string) =>
+    `${name}: ${c.count} ${unit}${c.count === 1 ? '' : 's'}, sent ${formatBytes(c.sent)}, received ${formatBytes(c.received)}`;
+  trafficEl.textContent = [line('Network', traffic.network, 'request'), line('Glasses', traffic.glasses, 'call')].join(' · ');
+}
+
+// Counts can change many times a second (the motion sensor reports every
+// 500 ms), so the line is redrawn at most once a frame.
+let trafficFrame = 0;
+if (DIAGNOSTICS) onTraffic(() => {
+  trafficFrame ||= requestAnimationFrame(() => {
+    trafficFrame = 0;
+    showTraffic();
+  });
+});
 
 /** The status line: `text` (and any errors) on the left, the data's fetch time on the right (kept if `updated` is omitted). */
 function setStatus(text: string, errors: string[] = [], updated?: string): void {
@@ -743,7 +774,7 @@ function syncLookUp(): void {
       if (!showing) restartSchedule({ manual: true });
     })
     : null;
-  const want = glasses !== null && (lookUpDetector !== null || calibrationSamples !== null);
+  const want = glasses !== null && !exited && (lookUpDetector !== null || calibrationSamples !== null);
   if (want === imuOn) return;
   imuOn = want;
   glasses?.setImu(want).catch((e) => {
@@ -815,7 +846,7 @@ calibrateBtn.addEventListener('click', async () => {
 const speedTestBtn = $<HTMLButtonElement>('speed-test');
 const speedResults = $<HTMLTableElement>('speed-results');
 
-if (!import.meta.env.DEV) document.querySelectorAll('[data-dev-only]').forEach((el) => el.remove());
+if (!DIAGNOSTICS) document.querySelectorAll('[data-dev-only]').forEach((el) => el.remove());
 
 /** Draw image screens at SUPERSAMPLE× and scale them down, to judge on the glasses whether that reads better. */
 const SUPERSAMPLE = 8;
@@ -849,7 +880,7 @@ function renderSupersampled(ctx: CanvasRenderingContext2D, model: ScreenModel): 
   return axisW;
 }
 
-if (import.meta.env.DEV) supersampleBox.addEventListener('change', (e) => {
+if (DIAGNOSTICS) supersampleBox.addEventListener('change', (e) => {
   // Not a setting: keep it from the form's change handler.
   e.stopPropagation();
   supersample = supersampleBox.checked;
@@ -858,13 +889,13 @@ if (import.meta.env.DEV) supersampleBox.addEventListener('change', (e) => {
   void update({ cancel: true, manual: true, reuse: true });
 });
 
-if (import.meta.env.DEV) halvingBox.addEventListener('change', (e) => {
+if (DIAGNOSTICS) halvingBox.addEventListener('change', (e) => {
   e.stopPropagation();
   halving = halvingBox.checked;
   if (supersample) void update({ cancel: true, manual: true, reuse: true });
 });
 
-if (import.meta.env.DEV) speedTestBtn.addEventListener('click', async () => {
+if (DIAGNOSTICS) speedTestBtn.addEventListener('click', async () => {
   if (!glasses) return;
   speedTestBtn.disabled = true;
   clearTimeout(hideTimer);
@@ -898,17 +929,14 @@ async function boot(): Promise<void> {
   drawPlaceholder('Loading…');
   setStatus('Connecting to glasses…');
   glasses = await Glasses.connect();
-  if (import.meta.env.DEV) speedTestBtn.disabled = !glasses;
+  if (DIAGNOSTICS && glasses) tapBridge();
+  if (DIAGNOSTICS) speedTestBtn.disabled = !glasses;
   // Tap while the chart is up dismisses it (always on: refreshes it); tap while dark pulls a fresh one.
   glasses?.onTap(toggleChart);
   // Even Hub's exit gesture on the root page: the glasses ask to confirm.
   glasses?.onDoubleTap(() => void glasses!.exit().catch(() => {}));
   glasses?.onImu(onImuReading);
-  // The motion sensor must not be left running on the glasses once the app is gone.
-  glasses?.onExit(() => {
-    imuOn = false;
-    glasses!.setImu(false).catch(() => {});
-  });
+  glasses?.onExit(stop);
   settings = await loadSettings();
   void loadFont(settings.font).catch(() => {});
   fillForm(settings);
@@ -924,6 +952,30 @@ async function boot(): Promise<void> {
   // The first chart is fetched now, with the loading screen up, as if asked
   // for; in manual-only mode nothing is fetched until it is.
   restartSchedule({ manual: !settings.manualOnly });
+}
+
+/**
+ * The app was closed on the glasses. The host may keep this WebView running
+ * for a while, so stop everything: a timer that fired later would create a
+ * page on glasses that have moved on, leaving them blank and the Even app
+ * stuck. A relaunch loads the app afresh.
+ */
+function stop(): void {
+  exited = true;
+  inFlight?.abort();
+  inFlight = null;
+  clearTimeout(nextTimer);
+  clearTimeout(hideTimer);
+  notDue();
+  setShowing(false);
+  loading = false;
+  nextAt = 0;
+  syncCountdown();
+  setStatus('Closed on the glasses');
+  // The motion sensor must not be left running once the app is gone.
+  if (imuOn) glasses!.setImu(false).catch(() => {});
+  imuOn = false;
+  lookUpDetector = null;
 }
 
 /** Message on the phone preview before there's a chart to show. */

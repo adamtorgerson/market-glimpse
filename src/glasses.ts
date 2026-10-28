@@ -83,6 +83,8 @@ export interface UploadStats {
  */
 export class Glasses {
   private pageCreated = false;
+  /** Set once the app is closed on the glasses: nothing may be put on them after that. */
+  private closed = false;
   /** The screen `loading` last put up, kept behind the tiles by `show`. */
   private loadingScreen: LoadingScreen | null = null;
   /** True while the page is the loading screen alone, so its list can be updated in place. */
@@ -123,8 +125,9 @@ export class Glasses {
     return this.bridge.onEvenHubEvent((e) => {
       const type = e.sysEvent?.eventType;
       if (type !== OsEventTypeList.SYSTEM_EXIT_EVENT && type !== OsEventTypeList.ABNORMAL_EXIT_EVENT) return;
-      // Our page is gone; recreate it on the next draw.
-      this.pageCreated = false;
+      // Our page is gone, and the host won't show another: creating one now
+      // would put a blank page on the glasses that nothing can close.
+      this.closed = true;
       cb();
     });
   }
@@ -350,9 +353,10 @@ export class Glasses {
     }));
   }
 
-  /** Bridge page operations must not interleave. */
+  /** Bridge page operations must not interleave, and none run once the app is closed. */
   private serial<T>(fn: () => Promise<T>): Promise<T> {
-    const run = this.queue.then(fn, fn);
+    const guarded = () => this.closed ? Promise.reject(new Error('App closed on the glasses')) : fn();
+    const run = this.queue.then(guarded, guarded);
     this.queue = run.catch(() => {});
     return run;
   }
