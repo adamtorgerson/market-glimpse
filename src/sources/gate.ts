@@ -17,6 +17,12 @@ async function get<T>(path: string, signal: AbortSignal): Promise<T> {
 
 interface GateTicker { currency_pair: string; last: string; base_volume: string }
 const toTicker = (t: GateTicker): Ticker => ({ last: +t.last, dayVolume: +t.base_volume });
+function stock(base: string, name: string): { stock?: string; ondo?: boolean } {
+  if (name.endsWith('xStock') && base.endsWith('X')) return { stock: base.slice(0, -1) };
+  if (name.includes('Ondo Tokenized') && base.endsWith('ON')) return { stock: base.slice(0, -2), ondo: true };
+  return {};
+}
+
 // Gate names markets "BTC_USDT".
 const toGate = (market: string) => market.replace('-', '_');
 
@@ -47,11 +53,18 @@ export const gate = exchangeSource({
     }));
   },
 
-  async stocks(signal) {
-    // xStocks are named ticker + "X" ("TSLAX_USDT"); only their names say what they are.
-    const rows = await get<{ id: string; base: string; quote: string; base_name?: string }[]>('/spot/currency_pairs', signal);
-    return new Map(rows
-      .filter((r) => r.base_name?.endsWith('xStock') && r.base.endsWith('X'))
-      .map((r) => [`${r.base.slice(0, -1)}-${r.quote}`, r.id.replace('_', '-')]));
+  async instruments(signal) {
+    // Stocks are xStocks, named ticker + "X" ("TSLAX_USDT"), and Ondo tokens,
+    // ticker + "ON" ("MSFTON_USDT"); only their names say what they are.
+    // (Gate's own stock tokens, ticker + "G", can't be told from coins ending in G
+    // without its 2MB currency list, so they're left out.)
+    const rows = await get<{ id: string; base: string; quote: string; base_name?: string; trade_status: string }[]>(
+      '/spot/currency_pairs', signal);
+    return rows.filter((r) => r.trade_status !== 'untradable').map((r) => ({
+      id: r.id.replace('_', '-'),
+      base: r.base,
+      quote: r.quote,
+      ...stock(r.base, r.base_name ?? ''),
+    }));
   },
 });

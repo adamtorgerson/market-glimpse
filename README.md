@@ -19,13 +19,19 @@ refreshes every 2m, chart shown for 12s, narrow candles.
   them (`BTC-USDT`). Each exchange lists different markets. For example,
   Coinbase has `BTC-USD` but no `BTC-USDC`. A market the exchange doesn't
   have shows "unknown pair".
-- **Stocks**: a name with no quote (`TSLA`) is a tokenized stock in dollars.
-  Each exchange's own spelling works on all of them (`TSLAX`, `XTSLA-USDT`,
-  `TSLA-USD`), as does any dollar quote (USD, USDT, USDC). Kraken, OKX and
-  Gate have stocks; Coinbase doesn't. Kraken lists them separately, so its
-  pair list takes two requests, and crypto and stocks need a price request
-  each. OKX and Gate load their stock list (one large request) the first time
-  a market isn't found.
+- **Currency type**: USD (default), EUR or AUD, the fiat currencies most of
+  the sources quote in. It's the quote for markets entered without one.
+- **Stocks and bare names**: a name with no quote (`TSLA`, `BTC`) is first a
+  tokenized stock, then a coin quoted in the currency type. Stocks are
+  xStocks, and on Gate, Ondo tokens where it has no xStock (`MSFT` is
+  `MSFTON`). Stocks
+  only trade in dollars, so with EUR or AUD a bare name is always a coin. A
+  dollar quote, typed or chosen, takes another dollar where the exchange has
+  no market in it (USD, then USDT, then USDC): OKX and Gate quote almost
+  nothing in USD itself, so `BTC-USD` there is `BTC-USDT`. Each exchange's own stock spelling
+  works on all of them (`TSLAX`, `XTSLA-USDT`, `TSLA-USD`). Kraken, OKX and
+  Gate have stocks; Coinbase doesn't, so there a bare name is always a coin
+  (`META` is the META coin).
 - **Markets**: up to 8 (`BTC-USDC`, `SOL-USD`, …). Tick up to 4 to chart (1
   with any Text width). Any market that isn't charted is listed under the charts
   with its price and 24h volume (unlabelled, in the base currency, e.g.
@@ -179,7 +185,8 @@ gets its own candle request, sized to the candles that fit across it. So does
 each line graph in the full-screen market list, sized like one full-screen
 chart. A chart's price is its latest candle's close. Only the markets listed
 under the charts (or in the full-screen list) need a ticker request, for
-price and 24h volume.
+price and 24h volume. Those come first and the charts last, so with several
+requests to wait between, the charts are the freshest data.
 
 | Source | Ticker for listed markets | Candles (1 per chart or line graph) |
 |---|---|---|
@@ -195,11 +202,13 @@ market. With nothing listed, no ticker request is made at all. A default
 update (1 chart, 1 listed market) is 2 requests and takes about 2s. 4
 charts with 2 or more listed markets take about 6.5s.
 
-Kraken's Ticker does take a list, but fails outright if any pair in it is
-unknown. So Kraken's pair list is fetched once per session and markets are
-checked against it first. Gate's error responses have no CORS headers, so the
-browser can't tell an unknown market there from a network failure. Those show
-"unknown pair or offline".
+Each source's market list is fetched once per session, and every market is
+resolved against it before any price is asked for: a market the exchange
+doesn't have shows "unknown pair" without a request. (Kraken's Ticker fails
+outright if any pair in it is unknown, and Gate's errors have no CORS
+headers, so asking would fail anyway.) The lists are large (OKX and Gate
+about 1MB, Coinbase 350KB) but load once. Kraken's takes two requests, as it
+lists stocks separately, and it prices crypto and stocks in a request each.
 
 KuCoin is implemented (`src/sources/kucoin.ts`) but not offered. Its API
 sends no CORS headers, so the WebView blocks every response. That was
@@ -209,10 +218,13 @@ Each chart's header also shows CoinGecko's index price (its price aggregated
 across exchanges), centred between the exchange's price and the market name,
 with its top level with theirs. It's always shown: in a crowded header it
 drops its "Index" label, then the fetch time and source make way. One
-`simple/price` request covers every chart, looked up by symbol (`XBT` and
-`XDG` are mapped to `btc` and `doge`). Stablecoin quotes such as USDC and USDT
-are priced in USD. A stock with no quote is priced as its xStock (`TSLA` as
-`tslax`, the token the exchanges trade), else by its ticker. It runs alongside the exchange's requests, at most once
+`simple/price` request covers every chart, looked up by what the market is on
+the exchange rather than by what was typed: a stock by its xStock symbol
+(Kraken's `TSLAx`, OKX's `XTSLA` and Gate's `TSLAX` are all `tslax`), a coin by
+its common code (`XBT` and `XDG` are `btc` and `doge`), an Ondo token by its
+own (`msfton`). Stablecoin quotes such
+as USDC and USDT are priced in USD. It's asked for alongside the exchange's
+last chart request, so it's as fresh as the chart beside it, and at most once
 every 12s. If CoinGecko doesn't know a coin, or the request fails, the
 header shows "Index —" (in text candles, "Index --"). CoinGecko's keyless API
 is rate-limited per IP. A rejected request shows up as a network error in the
@@ -271,6 +283,7 @@ npm run qr                                    # QR code to load the dev server i
 npm run pack                                  # build + market-glimpse.ehpk
 npm run icon                                  # assets/icon-24.png (store icon) from assets/icon.svg
 npm run screenshots                           # screenshots/*.png from the simulator, live data
+npm test                                      # name resolution, and every source against its live API
 ```
 
 The store icon is `assets/icon-24.png`. The upload validates it: 24×24,

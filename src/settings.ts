@@ -1,5 +1,6 @@
 import { isCalibration, type LookUpCalibration } from './lookup';
 import { DEFAULT_SOURCE, getSource, SOURCES } from './sources';
+import { CURRENCIES, DEFAULT_CURRENCY, type Currency } from './sources/symbols';
 
 export const CANDLE_WIDTHS = ['wide', 'narrow', 'thin', 'text-blocks', 'text-wide', 'text-narrow', 'text-thin'] as const;
 export type CandleWidth = (typeof CANDLE_WIDTHS)[number];
@@ -25,7 +26,9 @@ export function maxCharts(width: CandleWidth): number {
 export interface Settings {
   /** Market data source id, e.g. "kraken". */
   source: string;
-  /** Markets to monitor, e.g. "BTC-USDC". */
+  /** Quote currency for markets typed without one ("TSLA", "BTC"). */
+  currency: Currency;
+  /** Markets to monitor, e.g. "BTC-USDC", or "TSLA" with no quote. */
   markets: string[];
   /** Subset of `markets` drawn as charts (0–4). The rest are listed under the charts, or full screen if none. */
   charts: string[];
@@ -63,6 +66,7 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = {
   source: DEFAULT_SOURCE,
+  currency: DEFAULT_CURRENCY,
   markets: ['BTC-USDC', 'ETH-USDC'],
   charts: ['BTC-USDC'],
   interval: 5,
@@ -86,6 +90,7 @@ export function normalizeMarket(raw: string): string {
 export function sanitize(input: Partial<Settings>): Settings {
   const d = DEFAULT_SETTINGS;
   const source = SOURCES.some((s) => s.id === input.source) ? input.source! : d.source;
+  const currency = (CURRENCIES as readonly string[]).includes(input.currency as string) ? input.currency! : d.currency;
   const markets = dedupe((input.markets ?? d.markets).map(normalizeMarket).filter(Boolean)).slice(0, MAX_MARKETS);
   if (markets.length === 0) markets.push(...d.markets);
 
@@ -112,7 +117,7 @@ export function sanitize(input: Partial<Settings>): Settings {
   const lookUpCal = isCalibration(input.lookUpCal) ? input.lookUpCal : null;
   const alwaysOn = typeof input.alwaysOn === 'boolean' ? input.alwaysOn : d.alwaysOn;
 
-  return { source, markets, charts, interval, candleWidth, font, textList, showIndex, manualOnly, lookUpUpdate, lookUpCal, refreshSec, displaySec, alwaysOn };
+  return { source, currency, markets, charts, interval, candleWidth, font, textList, showIndex, manualOnly, lookUpUpdate, lookUpCal, refreshSec, displaySec, alwaysOn };
 }
 
 /** `minutes` if supported, else the supported size closest to it (by ratio). */

@@ -44,4 +44,10 @@ export const coinbase = exchangeSource({
       time: r[0]!, low: r[1]!, high: r[2]!, open: r[3]!, close: r[4]!, volume: r[5]!,
     }));
   },
+
+  async instruments(signal) {
+    // Coinbase has no tokenized stocks.
+    const rows = await get<{ id: string; base_currency: string; quote_currency: string; status: string }[]>('/products', signal);
+    return rows.filter((r) => r.status !== 'delisted').map((r) => ({ id: r.id, base: r.base_currency, quote: r.quote_currency }));
+  },
 });

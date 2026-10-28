@@ -1,79 +1,64 @@
-import { stockQuotes } from './exchange';
+import { lazyCatalog } from './exchange';
 import { PublicApi, describeError as describe, isAbort } from './http';
+import { canonAsset, type Instrument } from './symbols';
 import type { Candle, MarketData, MarketRequest, MarketSource } from './types';
 
 const api = new PublicApi('https://api.kraken.com/0/public');
 
-interface Pair {
+/** `id` is the name to request it by, e.g. "XBTUSD". */
+interface Pair extends Instrument {
   /** Key Kraken uses for this pair in results, e.g. "XXBTZUSD". */
   key: string;
-  /** Name to request it by, e.g. "XBTUSD". */
-  altname: string;
   /** A tokenized stock (e.g. "TSLAx/USD"), which Kraken lists and quotes separately from crypto. */
   tokenized: boolean;
 }
 
-// Kraken's own codes for a few assets; we show the common ones.
-const ALIASES: Record<string, string> = { XBT: 'BTC', XDG: 'DOGE' };
-const canon = (asset: string) => ALIASES[asset] ?? asset;
-// Uppercase, since market names are normalized to it and Kraken's stocks aren't ("TSLAx").
-const canonMarket = (base: string, quote: string) => `${canon(base)}-${canon(quote)}`.toUpperCase();
 const TOKENIZED = 'asset_class=tokenized_asset';
-
-/**
- * Every Kraken pair, by "BASE-QUOTE". Fetched once per session (two requests:
- * crypto, then tokenized stocks, which /AssetPairs only lists when asked).
- * Grouped requests fail outright if any pair in them is unknown, and Kraken
- * omits CORS headers on that error, so markets are checked here first.
- */
-let pairsPromise: Promise<Map<string, Pair>> | null = null;
-/** Set once loaded, so request counts can tell crypto from stocks. */
-let pairsLoaded: Map<string, Pair> | null = null;
-
-function tickerGroups(markets: string[]): number {
-  if (!pairsLoaded) return 1;
-  const classes = new Set(markets.map((m) => lookup(pairsLoaded!, m)?.tokenized).filter((t) => t !== undefined));
-  return classes.size;
-}
 
 type AssetPairs = { error: string[]; result?: Record<string, { altname: string; wsname?: string }> };
 
-function loadPairs(signal: AbortSignal): Promise<Map<string, Pair>> {
-  pairsPromise ??= (async () => {
-    const pairs = new Map<string, Pair>();
-    for (const tokenized of [false, true]) {
-      const body = await api.get<AssetPairs>(tokenized ? '/AssetPairs?aclass_base=tokenized_asset' : '/AssetPairs', signal);
-      if (body.error?.length) throw new Error(body.error.join(', '));
-      for (const [key, p] of Object.entries(body.result ?? {})) {
-        const [base, quote] = (p.wsname ?? '').split('/');
-        if (!base || !quote) continue;
-        const market = canonMarket(base, quote);
-        // Some stocks are listed twice under one altname; results come back keyed by the altname.
-        if (!pairs.has(market) || key === p.altname) pairs.set(market, { key, altname: p.altname, tokenized });
-      }
+/**
+ * Every Kraken pair. Fetched once per session (two requests: crypto, then
+ * tokenized stocks, which /AssetPairs only lists when asked). Grouped
+ * requests fail outright if any pair in them is unknown, and Kraken omits
+ * CORS headers on that error, so markets are checked against this first.
+ */
+const catalog = lazyCatalog<Pair>(async (signal) => {
+  const pairs = new Map<string, Pair>();
+  for (const tokenized of [false, true]) {
+    const body = await api.get<AssetPairs>(tokenized ? '/AssetPairs?aclass_base=tokenized_asset' : '/AssetPairs', signal);
+    if (body.error?.length) throw new Error(body.error.join(', '));
+    for (const [key, p] of Object.entries(body.result ?? {})) {
+      const [base, quote] = (p.wsname ?? '').split('/');
+      if (!base || !quote) continue;
+      // Stocks are their ticker + "x" ("TSLAx").
+      const pair: Pair = {
+        id: p.altname, key, tokenized, base: canonAsset(base), quote: canonAsset(quote),
+        stock: tokenized ? base.replace(/x$/, '') : undefined,
+      };
+      // Some stocks are listed twice under one altname; results come back keyed by the altname.
+      const name = `${pair.base}-${pair.quote}`;
+      if (!pairs.has(name) || key === p.altname) pairs.set(name, pair);
     }
-    pairsLoaded = pairs;
-    return pairs;
-  })();
-  // Don't cache a failure (e.g. offline, or superseded); try again next update.
-  pairsPromise.catch(() => { pairsPromise = null; });
-  return pairsPromise;
+  }
+  return [...pairs.values()];
+});
+
+async function resolve(markets: string[], currency: string, signal: AbortSignal): Promise<Map<string, Pair>> {
+  const c = await catalog.get(signal);
+  const out = new Map<string, Pair>();
+  for (const m of markets) {
+    const p = c.resolve(m, currency);
+    if (p) out.set(m, p);
+  }
+  return out;
 }
 
-/**
- * The pair for "BASE-QUOTE"; failing that, the stock "BASE" or "BASEx" in any
- * dollar quote (so "TSLA", "TSLAX" and "TSLA-USDC" all find "TSLAx/USD").
- */
-function lookup(pairs: Map<string, Pair>, market: string): Pair | undefined {
-  const [base, quote] = market.split('-');
-  if (!base) return undefined;
-  const pair = quote ? pairs.get(canonMarket(base, quote)) : undefined;
-  if (pair) return pair;
-  for (const b of [base, `${base}x`]) for (const q of stockQuotes(quote)) {
-    const stock = pairs.get(canonMarket(b, q));
-    if (stock?.tokenized) return stock;
-  }
-  return undefined;
+/** Ticker requests: one per asset class among the markets (one if the pairs aren't loaded yet). */
+function tickerGroups(req: MarketRequest): number {
+  const c = catalog.loaded;
+  if (!c) return 1;
+  return new Set(req.markets.map((m) => c.resolve(m, req.currency)?.tokenized).filter((t) => t !== undefined)).size;
 }
 
 interface Ticker {
@@ -90,35 +75,36 @@ export const kraken: MarketSource = {
   label: 'Kraken',
   intervals: [1, 5, 15, 30, 60, 240, 1440, 10080, 21600],
 
+  resolve,
+
   requestsPerUpdate(req) {
     // One grouped Ticker per asset class (crypto, stocks), plus OHLC
-    // (single-pair only) per chart or line graph, plus the pair lists until
-    // they have been loaded.
-    return tickerGroups(req.markets) + req.charts.length + req.lines.length + (pairsLoaded ? 0 : 2);
+    // (single-pair only) per known chart or line graph, plus the pair lists
+    // until they have been loaded.
+    const c = catalog.loaded;
+    const candles = [...req.charts, ...req.lines].filter((m) => !c || c.resolve(m, req.currency)).length;
+    return tickerGroups(req) + candles + (c ? 0 : 2);
   },
 
   estimateMs(req) {
     return api.estimateMs(this.requestsPerUpdate(req));
   },
 
-  async fetch(req: MarketRequest, signal: AbortSignal, onProgress?: (partial: MarketData[]) => void): Promise<MarketData[]> {
+  async fetch(
+    req: MarketRequest, signal: AbortSignal, onProgress?: (partial: MarketData[]) => void, onLastRequest?: () => void,
+  ): Promise<MarketData[]> {
     const out = new Map<string, MarketData>(req.markets.map((m) => [m, { market: m, candles: [] }]));
     const result = () => req.markets.map((m) => out.get(m)!);
 
-    let pairs: Map<string, Pair>;
+    let known: Map<string, Pair>;
     try {
-      pairs = await loadPairs(signal);
+      known = await resolve(req.markets, req.currency, signal);
     } catch (e) {
       if (isAbort(e)) throw e;
       for (const d of out.values()) d.error = describe(e);
       return result();
     }
-    const known = new Map<string, Pair>();
-    for (const m of req.markets) {
-      const p = lookup(pairs, m);
-      if (p) known.set(m, p);
-      else out.get(m)!.error = 'unknown pair';
-    }
+    for (const d of out.values()) if (!known.has(d.market)) d.error = 'unknown pair';
     if (known.size === 0) return result();
 
     // Rule 2: one Ticker request covers every market of an asset class
@@ -127,12 +113,12 @@ export const kraken: MarketSource = {
       const group = [...known].filter(([, p]) => p.tokenized === tokenized);
       if (group.length === 0) continue;
       try {
-        const names = group.map(([, p]) => p.altname).join(',');
+        const names = group.map(([, p]) => p.id).join(',');
         const body = await api.get<{ error: string[]; result?: Record<string, Ticker> }>(
           `/Ticker?pair=${encodeURIComponent(names)}${tokenized ? `&${TOKENIZED}` : ''}`, signal);
         if (body.error?.length) throw new Error(body.error.join(', ').replace(/^E\w+:/, ''));
         for (const [m, p] of group) {
-          const t = body.result?.[p.key] ?? body.result?.[p.altname];
+          const t = body.result?.[p.key] ?? body.result?.[p.id];
           if (!t) continue;
           Object.assign(out.get(m)!, { last: +t.c[0], dayVolume: +t.v[1] });
         }
@@ -144,17 +130,19 @@ export const kraken: MarketSource = {
     }
 
     // Rule 3: OHLC from just far enough back to fill the chart or line graph.
+    // Last, so the charts are the freshest data.
     const intervalSec = req.interval * 60;
     const current = Math.floor(Date.now() / 1000 / intervalSec) * intervalSec;
     const since = current - req.candles * intervalSec;
-    for (const m of [...req.charts, ...req.lines]) {
-      const p = known.get(m);
-      if (!p) continue;
+    const charted = [...req.charts, ...req.lines].filter((m) => known.has(m));
+    for (const m of charted) {
+      const p = known.get(m)!;
+      if (m === charted.at(-1)) onLastRequest?.();
       try {
         const body = await api.get<{ error: string[]; result?: Record<string, OhlcRow[]> }>(
-          `/OHLC?pair=${encodeURIComponent(p.altname)}&interval=${req.interval}&since=${since}${p.tokenized ? `&${TOKENIZED}` : ''}`, signal);
+          `/OHLC?pair=${encodeURIComponent(p.id)}&interval=${req.interval}&since=${since}${p.tokenized ? `&${TOKENIZED}` : ''}`, signal);
         if (body.error?.length) throw new Error(body.error.join(', ').replace(/^E\w+:/, ''));
-        const rows = body.result?.[p.key] ?? body.result?.[p.altname] ?? [];
+        const rows = body.result?.[p.key] ?? body.result?.[p.id] ?? [];
         const candles: Candle[] = rows.map((r) => ({
           time: r[0], open: +r[1], high: +r[2], low: +r[3], close: +r[4], volume: +r[6],
         }));

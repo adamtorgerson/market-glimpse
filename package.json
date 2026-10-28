@@ -1,7 +1,7 @@
 {
   "name": "market-glimpse",
   "private": true,
-  "version": "0.3.3",
+  "version": "0.3.4",
   "type": "module",
   "scripts": {
     "dev": "vite --host --port 5173",
@@ -10,7 +10,8 @@
     "qr": "evenhub qr --port 5173",
     "pack": "npm run build && evenhub pack app.json dist -o market-glimpse.ehpk",
     "icon": "node scripts/icon-png.mjs",
-    "screenshots": "node scripts/screenshots.mjs"
+    "screenshots": "node scripts/screenshots.mjs",
+    "test": "vitest run"
   },
   "dependencies": {
     "@evenrealities/even_hub_sdk": "^0.0.16",
@@ -21,6 +22,7 @@
     "@evenrealities/evenhub-simulator": "^0.9.5",
     "@types/pako": "^2.0.3",
     "typescript": "^5.9.3",
-    "vite": "^8.3.4"
+    "vite": "^8.3.4",
+    "vitest": "^5.0.4"
   }
 }

@@ -1,4 +1,5 @@
 import { describeError, isAbort, type PublicApi } from './http';
+import { Catalog, type Instrument } from './symbols';
 import type { Candle, MarketData, MarketRequest, MarketSource } from './types';
 
 export interface Ticker {
@@ -10,6 +11,10 @@ export interface Ticker {
 /**
  * An exchange whose public API has single-market candles, plus tickers for
  * either one market or all of them (none take a chosen list).
+ *
+ * Its market list is loaded once per session, and each typed market is
+ * resolved against it (`Catalog.resolve`); markets it doesn't have are never
+ * asked for.
  *
  * Charts get their price from their latest candle, so only the markets listed
  * under the charts need a ticker. Per update: none listed, no ticker request;
@@ -24,17 +29,14 @@ export interface ExchangeSpec {
   api: PublicApi;
   /** Supported candle sizes in minutes, mapped to the API's name for each. */
   intervals: Record<number, string>;
-  /** One market's ticker. Throws `UnknownMarketError` if there's no such market. */
+  /** One market's ticker, by its instrument id. Throws `UnknownMarketError` if there's no such market. */
   ticker(market: string, signal: AbortSignal): Promise<Ticker>;
-  /** Every spot market's ticker, keyed "BASE-QUOTE", from one request. */
+  /** Every spot market's ticker, keyed by instrument id, from one request. */
   tickers(signal: AbortSignal): Promise<Map<string, Ticker>>;
-  /** The `count` most recent candles for "BASE-QUOTE", oldest first. Throws `UnknownMarketError` like `ticker`. */
+  /** The `count` most recent candles for an instrument id, oldest first. Throws `UnknownMarketError` like `ticker`. */
   candles(market: string, interval: string, intervalSec: number, count: number, signal: AbortSignal): Promise<Candle[]>;
-  /**
-   * Tokenized stocks, keyed by plain "TICKER-QUOTE" (e.g. "TSLA-USDT"), to the
-   * exchange's market ("XTSLA-USDT"). Loaded only once a market isn't found.
-   */
-  stocks?(signal: AbortSignal): Promise<Map<string, string>>;
+  /** Every spot market, from one request, made once per session. */
+  instruments(signal: AbortSignal): Promise<Instrument[]>;
 }
 
 export class UnknownMarketError extends Error {
@@ -43,32 +45,23 @@ export class UnknownMarketError extends Error {
   }
 }
 
-// Kraken's codes for a few assets; everyone else uses the common ones.
-const ALIASES: Record<string, string> = { XBT: 'BTC', XDG: 'DOGE' };
-const canon = (market: string) => market.split('-').map((a) => ALIASES[a] ?? a).join('-');
-
-/** Dollar quotes, in the order to try them for a stock; a stock with no quote is in dollars. */
-export const DOLLARS = ['USD', 'USDT', 'USDC'];
-
-/** For a stock, the quotes to try: dollars are interchangeable, and none means dollars. */
-export function stockQuotes(quote: string | undefined): string[] {
-  return !quote || DOLLARS.includes(quote) ? [...new Set([quote ?? 'USD', ...DOLLARS])] : [quote];
-}
-
 /**
- * The stock a market most likely means: its ticker as typed, or as Kraken
- * ("TSLAX"), OKX ("XTSLA") or Gate ("TSLAX") spell it, in any dollar quote.
+ * Load an exchange's market list on first use and keep it for the session;
+ * a failure (offline, superseded) isn't kept, so the next update tries again.
  */
-function stockFor(stocks: Map<string, string>, market: string): string | undefined {
-  const [base, quote] = market.split('-');
-  if (!base) return undefined;
-  const bases = [base, base.replace(/X$/, ''), base.replace(/^X/, '')];
-  const quotes = stockQuotes(quote);
-  for (const b of bases) for (const q of quotes) {
-    const s = stocks.get(`${b}-${q}`);
-    if (s) return s;
-  }
-  return undefined;
+export function lazyCatalog<T extends Instrument>(load: (signal: AbortSignal) => Promise<T[]>) {
+  let promise: Promise<Catalog<T>> | null = null;
+  let loaded: Catalog<T> | null = null;
+  return {
+    get loaded() {
+      return loaded;
+    },
+    get(signal: AbortSignal): Promise<Catalog<T>> {
+      promise ??= load(signal).then((list) => (loaded = new Catalog(list)));
+      promise.catch(() => { promise = null; });
+      return promise;
+    },
+  };
 }
 
 /** Start of the current candle, in unix seconds. */
@@ -77,82 +70,16 @@ export function currentSlot(intervalSec: number): number {
 }
 
 export function exchangeSource(spec: ExchangeSpec): MarketSource {
-  // Markets (canonical names) that turned out to be stocks, to the exchange's name for them.
-  const resolved = new Map<string, string>();
-  const name = (market: string) => resolved.get(canon(market)) ?? canon(market);
-  let stocksPromise: Promise<Map<string, string>> | null = null;
-  const loadStocks = (signal: AbortSignal) => {
-    stocksPromise ??= spec.stocks!(signal);
-    // Don't cache a failure; try again next update.
-    stocksPromise.catch(() => { stocksPromise = null; });
-    return stocksPromise;
-  };
+  const catalog = lazyCatalog(spec.instruments);
 
-  /** Of `markets`, the ones that are stocks, remembering the exchange's name for each. */
-  async function findStocks(markets: string[], signal: AbortSignal): Promise<string[]> {
-    if (!spec.stocks) return [];
-    const stocks = await loadStocks(signal);
-    return markets.filter((m) => {
-      const s = stockFor(stocks, canon(m));
-      if (s) resolved.set(canon(m), s);
-      return s !== undefined;
-    });
-  }
-
-  async function fetchNamed(req: MarketRequest, signal: AbortSignal, onProgress?: (partial: MarketData[]) => void): Promise<MarketData[]> {
-    const out = new Map<string, MarketData>(req.markets.map((m) => [m, { market: m, candles: [] }]));
-    const result = () => req.markets.map((m) => out.get(m)!);
-    const listed = req.markets.filter((m) => !req.charts.includes(m));
-    const fail = (d: MarketData, e: unknown) => {
-      if (isAbort(e)) throw e;
-      d.error = describeError(e);
-    };
-
-    // Markets the all-markets ticker showed don't exist, so their charts aren't requested.
-    const unknown = new Set<string>();
-    if (listed.length === 1) {
-      const d = out.get(listed[0]!)!;
-      try {
-        Object.assign(d, await spec.ticker(name(d.market), signal));
-      } catch (e) {
-        fail(d, e);
-      }
-    } else if (listed.length > 1) {
-      try {
-        const tickers = await spec.tickers(signal);
-        for (const d of out.values()) {
-          const t = tickers.get(name(d.market));
-          if (t) Object.assign(d, t);
-          else if (listed.includes(d.market)) d.error = 'unknown pair';
-          else unknown.add(d.market);
-        }
-      } catch (e) {
-        for (const m of listed) fail(out.get(m)!, e);
-      }
+  async function resolve(markets: string[], currency: string, signal: AbortSignal): Promise<Map<string, Instrument>> {
+    const c = await catalog.get(signal);
+    const out = new Map<string, Instrument>();
+    for (const m of markets) {
+      const i = c.resolve(m, currency);
+      if (i) out.set(m, i);
     }
-    if (listed.length) onProgress?.(result());
-
-    const bar = spec.intervals[req.interval];
-    const intervalSec = req.interval * 60;
-    for (const m of [...req.charts, ...req.lines]) {
-      const d = out.get(m)!;
-      if (unknown.has(m) || d.error === 'unknown pair') {
-        d.error = 'unknown pair';
-        continue;
-      }
-      if (!bar) {
-        d.error = 'candle size not supported';
-        continue;
-      }
-      try {
-        d.candles = (await spec.candles(name(m), bar, intervalSec, req.candles, signal)).slice(-req.candles);
-        if (d.candles.length === 0) d.error = 'no data';
-      } catch (e) {
-        fail(d, e);
-      }
-      onProgress?.(result());
-    }
-    return result();
+    return out;
   }
 
   return {
@@ -160,50 +87,83 @@ export function exchangeSource(spec: ExchangeSpec): MarketSource {
     label: spec.label,
     intervals: Object.keys(spec.intervals).map(Number).sort((a, b) => a - b),
 
+    resolve,
+
     requestsPerUpdate(req) {
-      const listed = req.markets.length - req.charts.length;
-      return (listed > 0 ? 1 : 0) + req.charts.length + req.lines.length;
+      // Markets the list shows don't exist aren't asked for.
+      const c = catalog.loaded;
+      const known = (m: string) => !c || c.resolve(m, req.currency) !== undefined;
+      const listed = req.markets.filter((m) => known(m) && !req.charts.includes(m)).length;
+      const candles = [...req.charts, ...req.lines].filter(known).length;
+      return (c ? 0 : 1) + (listed > 0 ? 1 : 0) + candles;
     },
 
     estimateMs(req) {
       return spec.api.estimateMs(this.requestsPerUpdate(req));
     },
 
-    async fetch(req: MarketRequest, signal: AbortSignal, onProgress?: (partial: MarketData[]) => void): Promise<MarketData[]> {
-      const only = (markets: string[]): MarketRequest =>
-        ({ ...req, markets, charts: req.charts.filter((m) => markets.includes(m)), lines: req.lines.filter((m) => markets.includes(m)) });
-      const merge = (data: MarketData[], more: MarketData[]) => data.map((d) => more.find((x) => x.market === d.market) ?? d);
+    async fetch(
+      req: MarketRequest, signal: AbortSignal, onProgress?: (partial: MarketData[]) => void, onLastRequest?: () => void,
+    ): Promise<MarketData[]> {
+      const out = new Map<string, MarketData>(req.markets.map((m) => [m, { market: m, candles: [] }]));
+      const result = () => req.markets.map((m) => out.get(m)!);
+      const fail = (d: MarketData, e: unknown) => {
+        if (isAbort(e)) throw e;
+        d.error = describeError(e);
+      };
 
-      // A market with no quote ("TSLA") is a stock, so find its name before asking for it.
-      const unknown: MarketData[] = req.markets.map((m) => ({ market: m, candles: [], error: 'unknown pair' }));
-      const bare = req.markets.filter((m) => !m.includes('-') && !resolved.has(canon(m)));
-      if (bare.length) {
+      let known: Map<string, Instrument>;
+      try {
+        known = await resolve(req.markets, req.currency, signal);
+      } catch (e) {
+        for (const d of out.values()) fail(d, e);
+        return result();
+      }
+      for (const d of out.values()) if (!known.has(d.market)) d.error = 'unknown pair';
+      const id = (m: string) => known.get(m)!.id;
+
+      const listed = req.markets.filter((m) => known.has(m) && !req.charts.includes(m));
+      if (listed.length === 1) {
+        const d = out.get(listed[0]!)!;
         try {
-          await findStocks(bare, signal);
+          Object.assign(d, await spec.ticker(id(d.market), signal));
         } catch (e) {
-          if (isAbort(e)) throw e;
-          for (const d of unknown) if (bare.includes(d.market)) d.error = describeError(e);
+          fail(d, e);
+        }
+      } else if (listed.length > 1) {
+        try {
+          const tickers = await spec.tickers(signal);
+          for (const m of listed) {
+            const t = tickers.get(id(m));
+            if (t) Object.assign(out.get(m)!, t);
+            else out.get(m)!.error = 'no price';
+          }
+        } catch (e) {
+          for (const m of listed) fail(out.get(m)!, e);
         }
       }
-      const asked = req.markets.filter((m) => m.includes('-') || resolved.has(canon(m)));
-      const data = merge(unknown, await fetchNamed(only(asked), signal, onProgress && ((p) => onProgress(merge(unknown, p)))));
+      onProgress?.(result());
 
-      // Unknown markets may be stocks under the exchange's own name ("TSLA-USD"
-      // is "XTSLA-USDT" on OKX). Once one is found, later updates ask for it directly.
-      // "unknown pair or offline" too: Gate can't tell the two apart in the browser.
-      const missing = data
-        .filter((d) => asked.includes(d.market) && d.error?.startsWith('unknown pair') && !resolved.has(canon(d.market)))
-        .map((d) => d.market);
-      if (missing.length === 0) return data;
-      let found: string[];
-      try {
-        found = await findStocks(missing, signal);
-      } catch (e) {
-        if (isAbort(e)) throw e;
-        return data;
+      const bar = spec.intervals[req.interval];
+      const intervalSec = req.interval * 60;
+      // Last, so the charts are the freshest data.
+      const charted = [...req.charts, ...req.lines].filter((m) => known.has(m));
+      for (const m of charted) {
+        const d = out.get(m)!;
+        if (!bar) {
+          d.error = 'candle size not supported';
+          continue;
+        }
+        if (m === charted.at(-1)) onLastRequest?.();
+        try {
+          d.candles = (await spec.candles(id(m), bar, intervalSec, req.candles, signal)).slice(-req.candles);
+          if (d.candles.length === 0) d.error = 'no data';
+        } catch (e) {
+          fail(d, e);
+        }
+        onProgress?.(result());
       }
-      if (found.length === 0) return data;
-      return merge(data, await fetchNamed(only(found), signal, onProgress && ((p) => onProgress(merge(data, p)))));
+      return result();
     },
   };
 }

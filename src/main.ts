@@ -6,7 +6,8 @@ import { Glasses, type UploadStats } from './glasses';
 import { calibrate, LookUpDetector, type Vec } from './lookup';
 import { encodeTiles } from './png';
 import { buildLoadingList, buildTextChart, buildTextList, drawTextChart, serializeBox, textCandles, type TextBox } from './textchart';
-import { average, MIN_GAP_MS } from './sources/http';
+import { average, isAbort, MIN_GAP_MS } from './sources/http';
+import { CURRENCIES, type Currency } from './sources/symbols';
 import { getSource, SOURCES } from './sources';
 import { estimateIndexMs, fetchIndexPrices } from './sources/coingecko';
 import type { MarketData, MarketRequest } from './sources/types';
@@ -96,6 +97,7 @@ function marketRequest(s: Settings): MarketRequest {
   const charts = shownCharts(s);
   return {
     markets: s.markets,
+    currency: s.currency,
     charts,
     // With nothing charted, the image market list has a line graph per market,
     // over the period one chart would show.
@@ -246,12 +248,22 @@ async function runUpdate(ctrl: AbortController, showAt: number, reuse: boolean):
   } else {
     showFetching();
     try {
-      // Different APIs, so these run side by side; each keeps its own rate limit.
-      const [markets, index] = await Promise.all([
-        getSource(s.source).fetch(marketRequest(s), ctrl.signal, (partial) => onProgress(ctrl, partial)),
-        fetchIndexPrices(indexMarkets(s), ctrl.signal),
-      ]);
+      // Different APIs, each with its own rate limit. The index is asked for
+      // alongside the source's last chart request, so it's as fresh as the
+      // chart beside it, and by what each market is on the exchange.
+      const src = getSource(s.source);
       const wanted = indexMarkets(s);
+      let lastRequest!: () => void;
+      const lastRequested = new Promise<void>((resolve) => (lastRequest = resolve));
+      const [markets, index] = await Promise.all([
+        src.fetch(marketRequest(s), ctrl.signal, (partial) => onProgress(ctrl, partial), lastRequest).finally(lastRequest),
+        wanted.length === 0 ? new Map<string, number>() : lastRequested
+          .then(() => src.resolve(wanted, s.currency, ctrl.signal))
+          .then((resolved) => fetchIndexPrices(resolved, ctrl.signal), (e) => {
+            if (isAbort(e)) throw e;
+            return new Map<string, number>();
+          }),
+      ]);
       data = markets.map((d) => ({ ...d, index: wanted.includes(d.market) ? index.get(d.market) ?? null : undefined }));
     } catch {
       return; // superseded by a newer update
@@ -456,6 +468,7 @@ document.addEventListener('visibilitychange', syncCountdown);
 
 const form = $<HTMLFormElement>('settings');
 const sourceSel = $<HTMLSelectElement>('source');
+const currencySel = $<HTMLSelectElement>('currency');
 const marketList = $<HTMLUListElement>('markets');
 const addMarketBtn = $<HTMLButtonElement>('add-market');
 const intervalSel = $<HTMLSelectElement>('interval');
@@ -472,6 +485,7 @@ const displayInput = $<HTMLInputElement>('display');
 const formError = $('form-error');
 
 for (const src of SOURCES) sourceSel.add(new Option(src.label, src.id));
+for (const c of CURRENCIES) currencySel.add(new Option(c, c));
 const CANDLE_WIDTH_LABELS: Record<CandleWidth, string> = { wide: 'Wide', narrow: 'Narrow', thin: 'Thin', 'text-blocks': 'Text blocks, 1 chart', 'text-wide': 'Text wide, 1 chart', 'text-narrow': 'Text narrow, 1 chart', 'text-thin': 'Text thin, 1 chart' };
 for (const w of CANDLE_WIDTHS) candleWidthSel.add(new Option(CANDLE_WIDTH_LABELS[w], w));
 for (const f of CHART_FONTS) fontSel.add(new Option(FONTS[f].label, f));
@@ -545,6 +559,7 @@ addMarketBtn.addEventListener('click', () => {
 
 function fillForm(s: Settings): void {
   sourceSel.value = s.source;
+  currencySel.value = s.currency;
   syncIntervalOptions(s.interval);
   marketList.replaceChildren();
   for (const m of s.markets) addMarketRow(m, s.charts.includes(m));
@@ -579,6 +594,7 @@ function readForm(): Settings {
 
   const next = sanitize({
     source: sourceSel.value,
+    currency: currencySel.value as Currency,
     markets: rows.map((r) => r.market),
     charts: rows.filter((r) => r.charted).map((r) => r.market),
     interval: Number(intervalSel.value),
@@ -636,7 +652,7 @@ async function applyForm(): Promise<void> {
   // Changes to what's charted, or how, show the new chart right away, like
   // Show now. Anything else (markets in the list, timings) waits for the
   // schedule, re-timed if the refresh rate changed.
-  const chartChanged = next.source !== prev.source || next.interval !== prev.interval
+  const chartChanged = next.source !== prev.source || next.currency !== prev.currency || next.interval !== prev.interval
     || next.candleWidth !== prev.candleWidth || shownCharts(next).join() !== shownCharts(prev).join()
     || next.showIndex !== prev.showIndex || next.textList !== prev.textList;
   if (chartChanged) restartSchedule({ cancel: true, manual: true });

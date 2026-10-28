@@ -43,12 +43,15 @@ export const okx = exchangeSource({
     }));
   },
 
-  async stocks(signal) {
-    // Category 3 is tokenized stocks, named "X" + ticker ("XTSLA-USDT").
+  async instruments(signal) {
+    // Category 3 is tokenized stocks (xStocks), named "X" + ticker ("XTSLA-USDT").
     const rows = await get<{ instId: string; baseCcy: string; quoteCcy: string; instCategory: string }[]>(
       '/public/instruments?instType=SPOT', signal);
-    return new Map(rows
-      .filter((r) => r.instCategory === '3' && r.baseCcy.startsWith('X'))
-      .map((r) => [`${r.baseCcy.slice(1)}-${r.quoteCcy}`, r.instId]));
+    return rows.map((r) => ({
+      id: r.instId,
+      base: r.baseCcy,
+      quote: r.quoteCcy,
+      stock: r.instCategory === '3' && r.baseCcy.startsWith('X') ? r.baseCcy.slice(1) : undefined,
+    }));
   },
 });

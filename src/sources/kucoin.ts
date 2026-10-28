@@ -47,4 +47,9 @@ export const kucoin = exchangeSource({
       time: +r[0]!, open: +r[1]!, close: +r[2]!, high: +r[3]!, low: +r[4]!, volume: +r[5]!,
     }));
   },
+
+  async instruments(signal) {
+    const rows = await get<{ symbol: string; baseCurrency: string; quoteCurrency: string; enableTrading: boolean }[]>('/symbols', signal);
+    return rows.filter((r) => r.enableTrading).map((r) => ({ id: r.symbol, base: r.baseCurrency, quote: r.quoteCurrency }));
+  },
 });
