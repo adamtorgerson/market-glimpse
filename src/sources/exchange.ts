@@ -10,7 +10,7 @@ export interface Ticker {
 
 /**
  * An exchange whose public API has single-market candles, plus tickers for
- * either one market or all of them (none take a chosen list).
+ * one market, and for all of them or a chosen list.
  *
  * Its market list is loaded once per session, and each typed market is
  * resolved against it (`Catalog.resolve`); markets it doesn't have are never
@@ -18,8 +18,9 @@ export interface Ticker {
  *
  * Charts get their price from their latest candle, so only the markets listed
  * under the charts need a ticker. Per update: none listed, no ticker request;
- * one listed, a single-market ticker; two or more, the all-markets ticker
- * (rule 2: one request, though a large one). Then one candle request per
+ * one listed, a single-market ticker; two or more, one ticker request for
+ * them all (rule 2: one request, though a large one where the API can't take
+ * a list). Then one candle request per
  * chart or line graph, asking only for the candles that fit (rule 3).
  */
 export interface ExchangeSpec {
@@ -31,8 +32,11 @@ export interface ExchangeSpec {
   intervals: Record<number, string>;
   /** One market's ticker, by its instrument id. Throws `UnknownMarketError` if there's no such market. */
   ticker(market: string, signal: AbortSignal): Promise<Ticker>;
-  /** Every spot market's ticker, keyed by instrument id, from one request. */
-  tickers(signal: AbortSignal): Promise<Map<string, Ticker>>;
+  /**
+   * Tickers for instrument `ids`, keyed by id, from one request: just those
+   * if the API takes a list, else every spot market's.
+   */
+  tickers(signal: AbortSignal, ids: string[]): Promise<Map<string, Ticker>>;
   /** The `count` most recent candles for an instrument id, oldest first. Throws `UnknownMarketError` like `ticker`. */
   candles(market: string, interval: string, intervalSec: number, count: number, signal: AbortSignal): Promise<Candle[]>;
   /** Every spot market, from one request, made once per session. */
@@ -132,7 +136,8 @@ export function exchangeSource(spec: ExchangeSpec): MarketSource {
         }
       } else if (listed.length > 1) {
         try {
-          const tickers = await spec.tickers(signal);
+          // Two names can mean one market ("BTC", "BTC-USD").
+          const tickers = await spec.tickers(signal, [...new Set(listed.map(id))]);
           for (const m of listed) {
             const t = tickers.get(id(m));
             if (t) Object.assign(out.get(m)!, t);

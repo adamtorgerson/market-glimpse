@@ -30,6 +30,11 @@ const gate = new Catalog([
   { id: 'BTC-USDT', base: 'BTC', quote: 'USDT' },
   { id: 'IMX-USDT', base: 'IMX', quote: 'USDT' },
 ]);
+const bitget = new Catalog([
+  { id: 'RTSLAUSDT', base: 'RTSLA', quote: 'USDT', stock: 'TSLA' },
+  { id: 'BTCUSDT', base: 'BTC', quote: 'USDT' },
+  { id: 'BTCEUR', base: 'BTC', quote: 'EUR' },
+]);
 const coinbase = new Catalog([
   { id: 'BTC-USD', base: 'BTC', quote: 'USD' },
   { id: 'BTC-USDC', base: 'BTC', quote: 'USDC' },
@@ -77,6 +82,14 @@ describe('a market with no quote', () => {
     expect(id(okx, 'RP')).toBeUndefined(); // not XRP
     expect(id(gate, 'IM')).toBeUndefined(); // not IMX
     expect(id(gate, 'TSLAO')).toBeUndefined(); // not Ondo's TSLAON
+  });
+
+  it("is Bitget's own token on Bitget", () => {
+    expect(id(bitget, 'TSLA')).toBe('RTSLAUSDT');
+    expect(id(bitget, 'TSLA-USD')).toBe('RTSLAUSDT');
+    expect(id(bitget, 'RTSLA')).toBe('RTSLAUSDT');
+    expect(id(bitget, 'BTC')).toBe('BTCUSDT');
+    expect(id(bitget, 'BTC', 'EUR')).toBe('BTCEUR');
   });
 
   it("is an Ondo token where there's no xStock", () => {
@@ -136,7 +149,7 @@ describe('CoinGecko names', () => {
   const name = (c: Catalog, market: string, currency = 'USD') => coinGeckoName(c.resolve(market, currency)!);
 
   it('price a stock as its xStock, whatever the exchange calls it', () => {
-    for (const c of [kraken, okx, gate]) expect(name(c, 'TSLA')).toEqual({ symbol: 'tslax', vs: 'usd' });
+    for (const c of [kraken, okx, gate, bitget]) expect(name(c, 'TSLA')).toEqual({ symbol: 'tslax', vs: 'usd' });
     expect(name(okx, 'XTSLA-USDC')).toEqual({ symbol: 'tslax', vs: 'usd' });
   });
 

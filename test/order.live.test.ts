@@ -12,10 +12,12 @@ const HOSTS: Record<string, string> = {
   okx: 'www.okx.com',
   coinbase: 'api.exchange.coinbase.com',
   gate: 'api.gateio.ws',
+  binanceus: 'api.binance.us',
+  bitget: 'api.bitget.com',
 };
 
 /** A path that asks for candles, on each source. */
-const CANDLES = /\/OHLC\?|\/market\/candles\?|\/candles\?|\/candlesticks\?/;
+const CANDLES = /\/OHLC\?|\/market\/candles\?|\/candles\?|\/candlesticks\?|\/klines\?/;
 
 /** Every request made, by host, in order; "last request" marks the source's signal. */
 const log: { host: string; path: string }[] = [];

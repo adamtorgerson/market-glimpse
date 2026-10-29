@@ -7,6 +7,8 @@ const HOSTS: Record<string, string> = {
   okx: 'www.okx.com',
   coinbase: 'api.exchange.coinbase.com',
   gate: 'api.gateio.ws',
+  binanceus: 'api.binance.us',
+  bitget: 'api.bitget.com',
 };
 
 /** Record every request's host, answering each as if offline. */
