@@ -18,7 +18,27 @@ refreshes every 2m, chart shown for 12s, narrow candles.
   Kraken, OKX, Coinbase, Gate, Binance.US or Bitget. Market names use `BASE-QUOTE` on all of
   them (`BTC-USDT`). Each exchange lists different markets. For example,
   Coinbase has `BTC-USD` but no `BTC-USDC`. A market the exchange doesn't
-  have shows "unknown pair".
+  have shows "unknown pair". The list also offers **prediction markets**
+  (Polymarket, Polymarket US); see below.
+- **Prediction markets** (Polymarket or Polymarket US as the data source):
+  the market list becomes up to 8 events, entered as a link or the event's
+  slug, with the same Chart ticks as markets: up to 4 charted, the rest
+  listed under the charts (title, likeliest outcome's probability and name,
+  and 24h volume),
+  or with none ticked, the full-screen list (each event's title, its
+  likeliest outcome's probability and name, its 24h volume where the source
+  gives one (Polymarket US doesn't), and a line plot of its top outcomes; or
+  as text with **Market list as text**, which takes precedence
+  over charts as for markets). A link is kept as its slug
+  (`https://polymarket.com/event/balance-of-power-2026-midterms` is
+  `balance-of-power-2026-midterms`). Polymarket (polymarket.com) and
+  Polymarket US (polymarket.us, the US exchange) are separate exchanges with
+  their own events, named their own ways (`bitcoin-up-or-down-on-october-29-2026`
+  against `btc-updown-1d-2026-10-27-2100z`), so each keeps its own list, as
+  do the exchanges: switching source finds each list as it was. Candle size
+  becomes **History spacing** (1m to 1d, each labelled with the span the
+  chart covers), and the exchange-only options (candle width, index price,
+  currency type) are hidden.
 - **Currency type**: USD (default), EUR or AUD, the fiat currencies most of
   the sources quote in. It's the quote for markets entered without one.
 - **Stocks and bare names**: a name with no quote (`TSLA`, `BTC`) is first a
@@ -219,6 +239,57 @@ lists stocks separately, and it prices crypto and stocks in a request each.
 KuCoin is implemented (`src/sources/kucoin.ts`) but not offered. Its API
 sends no CORS headers, so the WebView blocks every response. That was
 checked in Chrome and the Even simulator.
+
+### Prediction markets
+
+An event's chart (`src/predictchart.ts`) plots each outcome's probability
+over time on a fixed 0–100% scale, ending at its current price. One event
+fills the screen; 2 stack, and 4 take a quadrant each, on one time scale.
+Up to 4 outcomes get a line, told apart by brightness and dash (solid,
+dashed, dotted, dash-dot). Which ones depends on the event's shape
+(`pick` in `src/sources/polymarket.ts`):
+
+- **Sports game**: only who wins, not the spreads, totals and props bundled
+  with it (an NBA game has 400 markets). Most sports: the two teams, drawn as
+  one market. Soccer: home, draw and away. An event with no winner market
+  (soccer's "more markets") shows "no winner market".
+- **One market**: Yes and No (or two named outcomes), which add up to 100%,
+  so the second is drawn from the first's history.
+- **Exclusive set** (exactly one outcome wins: candidates, the Fed's
+  decision, seat ranges): the 4 likeliest, and "Other" with the rest's
+  combined probability.
+- **Ladder** (separate yes/no markets on ordered numbers or dates: "Bitcoin
+  ↑ 85,000", "ceasefire holds through November 15"): 4 consecutive rungs, in
+  order, where they're closest to even odds; the far rungs are near certain
+  either way. "Other" counts the rest ("16 more") without a price: the rungs
+  aren't exclusive, so their prices don't add up.
+- **Other separate yes/no markets** ("who will Trump meet"): the 4 likeliest,
+  and the rest counted.
+
+The legend lists the outcomes in that order. Gridlines are faint dots, kept 5px clear of the
+lines. A legend on each chart gives each line's price and name beside a
+sample of its style, and its market's 24h volume (Polymarket; a yes/no
+market's or a game's two sides share one market, so it's on the first),
+wherever it covers the fewest lit pixels; outlined where it has to cover a
+line.
+
+| Source | Events and current prices | History |
+|---|---|---|
+| Polymarket | Gamma `events?slug=A&slug=B…` (every event, one request) | CLOB `POST batch-prices-history` (up to 20 outcomes per request, the most it takes: one for 4 events, two for 8), from just far enough back, at the history spacing |
+| Polymarket US | Gateway `v1/events?slug=A&slug=B…` (every event, one request) | `v1/price-history?symbol=` (one market per request: there's no batch endpoint), likewise |
+
+Polymarket's two are separate APIs, each with its own rate limit. Polymarket
+US's history takes a request per charted market (a yes/no market or a game's
+two teams are one; a soccer match three; four events with four outcomes
+each, 16, about 25s), so its refresh can't be shorter than its requests
+allow. Its current prices are its display prices, from the latest history
+point (a market's bid and ask, before that: their midpoint, or with no
+offers, the bid). It doesn't say whether an event's markets are exclusive:
+markets on an asset's price ranges are, and on its passing strikes are a
+ladder (`assetPriceTerms`); otherwise an event tagged `neg-risk` is, or one
+whose quoted prices add up to about 100%. The events request
+is large for events with many markets (the 2028 presidential winner is
+440KB, 41KB compressed: Polymarket returns every market, closed ones too).
 
 Each chart's header also shows CoinGecko's index price (its price aggregated
 across exchanges), centred between the exchange's price and the market name,

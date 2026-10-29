@@ -1,5 +1,6 @@
 import { formatPrice, formatTime, formatVolume, SCREEN_H, SCREEN_W, timeTicks } from './chart';
 import { formatInterval, type TextWidth } from './settings';
+import type { PredictionData } from './sources/prediction';
 import type { MarketData } from './sources/types';
 
 /**
@@ -238,6 +239,82 @@ export function buildTextList(m: TextListModel): TextBox[] {
   header.lines[0]!.texts.push({ x: 4, text: stamp }, { x: SCREEN_W - 4 - textWidth(m.source), text: m.source });
   if (m.name) footer.lines[0]!.texts.push({ x: SCREEN_W - 4 - textWidth(m.name), text: m.name });
   return [bright, mid, header, footer];
+}
+
+export interface EventTextListModel {
+  items: PredictionData[];
+  updated: Date;
+  source: string;
+  /** Shown in the bottom-right corner, e.g. the app's name. */
+  name?: string;
+}
+
+/** The widest an event's title is shown in the text list, in px; the rest is its leader. */
+const TITLE_W = 300;
+
+/**
+ * Prediction markets' list as text, like the market list: one event per
+ * line, its title mid-bright, then its leading outcome's probability bright
+ * and right-aligned, the outcome's name mid-bright, and the event's 24h
+ * volume dim against the right edge. Titles too long are
+ * cut short with "..." (the glasses' font may lack "…").
+ */
+export function buildEventTextList(m: EventTextListModel): TextBox[] {
+  const rows = m.items.length;
+  const footerY = SCREEN_H - LINE_H;
+  const y = LINE_H + Math.max(0, Math.round((footerY - LINE_H - rows * LINE_H) / 2));
+  const box = (color: number, at: number, n: number): TextBox =>
+    ({ y: at, color, lines: Array.from({ length: n }, () => ({ strokes: new Map<number, string>(), texts: [] })) });
+  const bright = box(BRIGHT, y, rows);
+  const mid = box(MID, y, rows);
+  // The leaders' names in their own container, placed from the left edge: in
+  // a title's, they'd be placed after it, by its estimated width.
+  const names = box(MID, y, rows);
+  // The volumes against the right edge, in theirs: placed from the left, as
+  // the names are, rather than after the names' estimated widths.
+  const volumes = box(DIM, y, rows);
+  const header = box(DIM, 0, 1);
+  const footer = box(DIM, footerY, 1);
+
+  const vols = m.items.map((d) => (d.dayVolume === undefined || d.error ? '' : `$${formatVolume(d.dayVolume)}`));
+  const volW = Math.max(0, ...vols.map(textWidth));
+  const titles = m.items.map((d) => cut(d.title, TITLE_W - (volW ? volW + 16 : 0)));
+  // The likeliest outcome, of those charted.
+  const leaders = m.items.map((d) => (d.error ? undefined : [...d.outcomes].sort((a, b) => b.price - a.price)[0]));
+  const pcts = leaders.map((o) => (o ? formatPct(o.price) : null));
+  const titleR = 4 + Math.max(...titles.map(textWidth));
+  const pctR = titleR + 16 + Math.max(0, ...pcts.map((p) => (p ? textWidth(p) : 0)));
+  m.items.forEach((d, i) => {
+    mid.lines[i]!.texts.push({ x: 4, text: titles[i]! });
+    const pct = pcts[i];
+    if (!pct) {
+      mid.lines[i]!.texts.push({ x: titleR + 16, text: d.error ?? 'no data' });
+      return;
+    }
+    bright.lines[i]!.texts.push({ x: pctR - textWidth(pct), text: pct });
+    // Clear of the percentages, whose signs ("<", ">", "%") are estimated widths.
+    names.lines[i]!.texts.push({ x: pctR + 16, text: cut(leaders[i]!.name, SCREEN_W - 4 - pctR - 16 - (volW ? volW + 16 : 0)) });
+    if (vols[i]) volumes.lines[i]!.texts.push({ x: SCREEN_W - 4 - textWidth(vols[i]!), text: vols[i]! });
+  });
+
+  const stamp = m.updated.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  header.lines[0]!.texts.push({ x: 4, text: stamp }, { x: SCREEN_W - 4 - textWidth(m.source), text: m.source });
+  if (m.name) footer.lines[0]!.texts.push({ x: SCREEN_W - 4 - textWidth(m.name), text: m.name });
+  return [bright, mid, names, volumes, header, footer];
+}
+
+/** "49%", or "<1%" and ">99%" at the ends, as on the charts. */
+function formatPct(p: number): string {
+  const n = Math.round(p * 100);
+  return n < 1 ? '<1%' : n > 99 ? '>99%' : `${n}%`;
+}
+
+/** `text`, cut short with "..." to fit `max` px in the glasses' font. */
+function cut(text: string, max: number): string {
+  if (textWidth(text) <= max) return text;
+  let s = text;
+  while (s.length > 1 && textWidth(`${s}...`) > max) s = s.slice(0, -1);
+  return `${s.trimEnd()}...`;
 }
 
 /**

@@ -1,5 +1,6 @@
 import { isCalibration, type LookUpCalibration } from './lookup';
-import { DEFAULT_SOURCE, getSource, SOURCES } from './sources';
+import { DEFAULT_SOURCE, getSource, isPredictionSource, PREDICTION_SOURCES, SOURCES } from './sources';
+import { EVENT_INTERVALS, eventSlug } from './sources/prediction';
 import { CURRENCIES, DEFAULT_CURRENCY, type Currency } from './sources/symbols';
 
 export const CANDLE_WIDTHS = ['wide', 'narrow', 'thin', 'text-blocks', 'text-wide', 'text-narrow', 'text-thin'] as const;
@@ -11,6 +12,7 @@ export const CHART_FONTS = ['atkinson', 'b612', 'dejavu-mono', 'hack', 'terminus
 export type ChartFont = (typeof CHART_FONTS)[number];
 
 export const MAX_CHARTS = 4;
+
 export const MAX_MARKETS = 8;
 
 /** Text candles are drawn in the glasses' font instead of sent as images. */
@@ -24,7 +26,7 @@ export function maxCharts(width: CandleWidth): number {
 }
 
 export interface Settings {
-  /** Market data source id, e.g. "kraken". */
+  /** Data source id: an exchange ("kraken") or a prediction market ("polymarket"). */
   source: string;
   /** Quote currency for markets typed without one ("TSLA", "BTC"). */
   currency: Currency;
@@ -34,6 +36,18 @@ export interface Settings {
   charts: string[];
   /** Candle size in minutes; one the source supports. */
   interval: number;
+  /**
+   * Events to monitor (slugs), up to 8, by prediction-market source id: each
+   * names its events its own way (polymarket.com's
+   * "bitcoin-up-or-down-on-october-29-2026", polymarket.us's
+   * "btc-updown-1d-2026-10-27-2100z"). Kept apart from `markets`, so
+   * switching sources keeps every list.
+   */
+  events: Record<string, string[]>;
+  /** Subset of each source's `events` charted (0–4), as `charts` is of `markets`. */
+  eventCharts: Record<string, string[]>;
+  /** Spacing of the events' history, in minutes (`EVENT_INTERVALS`). */
+  eventInterval: number;
   /**
    * Candle body width: wide = 6px (4px in quadrants), narrow = 3px, thin = 2px,
    * or text-wide / text-narrow / text-thin = drawn in the glasses' font rather
@@ -70,6 +84,9 @@ export const DEFAULT_SETTINGS: Settings = {
   markets: ['BTC-USDC', 'ETH-USDC'],
   charts: ['BTC-USDC'],
   interval: 5,
+  events: {},
+  eventCharts: {},
+  eventInterval: 5,
   candleWidth: 'narrow',
   font: 'atkinson',
   textList: false,
@@ -89,12 +106,24 @@ export function normalizeMarket(raw: string): string {
 /** Coerce arbitrary (possibly stale or hand-edited) input into valid settings. */
 export function sanitize(input: Partial<Settings>): Settings {
   const d = DEFAULT_SETTINGS;
-  const source = SOURCES.some((s) => s.id === input.source) ? input.source! : d.source;
+  const source = SOURCES.some((s) => s.id === input.source) || isPredictionSource(input.source ?? '') ? input.source! : d.source;
   const currency = (CURRENCIES as readonly string[]).includes(input.currency as string) ? input.currency! : d.currency;
   const markets = dedupe((input.markets ?? d.markets).map(normalizeMarket).filter(Boolean)).slice(0, MAX_MARKETS);
   if (markets.length === 0) markets.push(...d.markets);
 
-  const interval = nearestInterval(getSource(source).intervals, Number(input.interval) || d.interval);
+  // Kept as is while a prediction market is chosen, for when an exchange is again.
+  const interval = isPredictionSource(source)
+    ? clampInt(input.interval, 1, 43200, d.interval)
+    : nearestInterval(getSource(source).intervals, Number(input.interval) || d.interval);
+  // A single list was Polymarket's, before there was more than one prediction market.
+  const rawEvents: Record<string, unknown> = Array.isArray(input.events) ? { polymarket: input.events } : input.events ?? d.events;
+  const slugs = (raw: unknown) => (Array.isArray(raw) ? dedupe(raw.filter((e): e is string => typeof e === 'string').map(eventSlug).filter(Boolean)) : []);
+  const events = Object.fromEntries(PREDICTION_SOURCES.map((src) => [src.id, slugs(rawEvents[src.id]).slice(0, MAX_MARKETS)]));
+  // Before events could be listed, every one was charted.
+  const rawCharts: Record<string, unknown> = input.eventCharts ?? events;
+  const eventCharts = Object.fromEntries(PREDICTION_SOURCES.map((src) =>
+    [src.id, slugs(rawCharts[src.id]).filter((e) => events[src.id]!.includes(e)).slice(0, MAX_CHARTS)]));
+  const eventInterval = nearestInterval(EVENT_INTERVALS, Number(input.eventInterval) || d.eventInterval);
 
   // 'text' was the only text width before there were three.
   const width = (input.candleWidth as string) === 'text' ? 'text-wide' : input.candleWidth;
@@ -117,7 +146,7 @@ export function sanitize(input: Partial<Settings>): Settings {
   const lookUpCal = isCalibration(input.lookUpCal) ? input.lookUpCal : null;
   const alwaysOn = typeof input.alwaysOn === 'boolean' ? input.alwaysOn : d.alwaysOn;
 
-  return { source, currency, markets, charts, interval, candleWidth, font, textList, showIndex, manualOnly, lookUpUpdate, lookUpCal, refreshSec, displaySec, alwaysOn };
+  return { source, currency, markets, charts, interval, events, eventCharts, eventInterval, candleWidth, font, textList, showIndex, manualOnly, lookUpUpdate, lookUpCal, refreshSec, displaySec, alwaysOn };
 }
 
 /** `minutes` if supported, else the supported size closest to it (by ratio). */

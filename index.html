@@ -30,7 +30,7 @@
       <form id="settings" autocomplete="off">
         <fieldset>
           <legend>Markets</legend>
-          <p class="muted small">Up to 4 charts; 8 markets</p>
+          <p id="markets-hint" class="muted small">Up to 4 charts; 8 markets</p>
           <ul id="markets"></ul>
           <button id="add-market" type="button" class="secondary">+ Add market</button>
           <label>Market list as text
@@ -57,16 +57,16 @@
             <span id="look-up-status" class="muted small">Not calibrated</span>
             <button id="calibrate" type="button" class="secondary">Calibrate</button>
           </div>
-          <label>Candle size
+          <label><span id="interval-label">Candle size</span>
             <select name="interval" id="interval"></select>
           </label>
-          <label>Candle width
+          <label data-exchange>Candle width
             <select name="candle-width" id="candle-width"></select>
           </label>
           <label>Font
             <select name="font" id="font"></select>
           </label>
-          <label>Show index price (CoinGecko)
+          <label data-exchange>Show index price (CoinGecko)
             <input type="checkbox" name="show-index" id="show-index" />
           </label>
         </fieldset>
@@ -76,10 +76,10 @@
           <label>Data source
             <select name="source" id="source"></select>
           </label>
-          <label>Currency type
+          <label data-exchange>Currency type
             <select name="currency" id="currency"></select>
           </label>
-          <p class="muted small">For markets entered without a quote: TSLA is a stock if the exchange has it, else a coin in this currency.</p>
+          <p data-exchange class="muted small">For markets entered without a quote: TSLA is a stock if the exchange has it, else a coin in this currency.</p>
         </fieldset>
 
         <fieldset data-dev-only>

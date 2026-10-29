@@ -4,12 +4,14 @@ import { candleCapacity, DEFAULT_AXIS_W, renderScreen, SCREEN_H, SCREEN_W, type 
 import { FONTS, loadFont } from './fonts';
 import { Glasses, type UploadStats } from './glasses';
 import { onTraffic, tapBridge, traffic, type Counter } from './traffic';
+import { predictionCapacity, renderPrediction, renderPredictionList } from './predictchart';
 import { calibrate, LookUpDetector, type Vec } from './lookup';
 import { encodeTiles } from './png';
-import { buildLoadingList, buildTextChart, buildTextList, drawTextChart, serializeBox, textCandles, type TextBox } from './textchart';
+import { buildEventTextList, buildLoadingList, buildTextChart, buildTextList, drawTextChart, serializeBox, textCandles, type TextBox } from './textchart';
 import { average, isAbort, MIN_GAP_MS } from './sources/http';
 import { CURRENCIES, type Currency } from './sources/symbols';
-import { getSource, SOURCES } from './sources';
+import { getPredictionSource, getSource, isPredictionSource, PREDICTION_SOURCES, sourceLabel, SOURCES } from './sources';
+import { EVENT_INTERVALS, eventSlug, type PredictionData, type PredictionRequest } from './sources/prediction';
 import { estimateIndexMs, fetchIndexPrices } from './sources/coingecko';
 import type { MarketData, MarketRequest } from './sources/types';
 import {
@@ -18,6 +20,7 @@ import {
   DEFAULT_SETTINGS,
   formatInterval,
   isTextWidth,
+  MAX_CHARTS,
   MAX_MARKETS,
   maxCharts,
   nearestInterval,
@@ -145,6 +148,58 @@ function reusable(s: Settings): MarketData[] | null {
   return lastFetch?.key === fetchKey(s) ? lastFetch.data : null;
 }
 
+/** The chosen prediction market's events (each source keeps its own list). */
+function sourceEvents(s: Settings): string[] {
+  return s.events[s.source] ?? [];
+}
+
+/** The chosen prediction market's charted events. */
+function sourceEventCharts(s: Settings): string[] {
+  return s.eventCharts[s.source] ?? [];
+}
+
+/**
+ * A prediction market's events, as text: its list (the watchlist with
+ * nothing charted, as the option takes precedence over charts). Current
+ * prices only, no history.
+ */
+function eventTextList(s: Settings): boolean {
+  return s.textList;
+}
+
+/** The events a prediction-market update charts: the watchlist's ticked. */
+function chartedEvents(s: Settings): string[] {
+  return eventTextList(s) ? [] : sourceEventCharts(s);
+}
+
+/**
+ * What a prediction-market update asks for: history for the charted events
+ * only (the rest are listed), no more than one of their charts shows; with
+ * none charted, for every event's line plot in the list, or none for text.
+ */
+function eventRequest(s: Settings): PredictionRequest {
+  const markets = sourceEvents(s);
+  const charts = chartedEvents(s);
+  return {
+    markets,
+    interval: s.eventInterval,
+    points: eventTextList(s) ? 0 : predictionCapacity(Math.max(1, charts.length)),
+    ...(charts.length ? { history: charts } : {}),
+  };
+}
+
+/** The last prediction-market update's events, as `lastFetch` is for exchanges. */
+let lastEvents: { key: string; data: PredictionData[]; updated: Date } | null = null;
+
+function eventsKey(s: Settings): string {
+  return JSON.stringify([s.source, eventRequest(s)]);
+}
+
+/** True if the last update's data can be redrawn for `s` without fetching. */
+function canReuse(s: Settings): boolean {
+  return isPredictionSource(s.source) ? lastEvents?.key === eventsKey(s) : reusable(s) !== null;
+}
+
 /** When the update in progress should have its chart up (ms), for the loading estimate. */
 let inFlightEta = 0;
 
@@ -156,9 +211,9 @@ async function update({ cancel = false, manual = false, showAt = 0, reuse = fals
   if (!joining) {
     inFlight?.abort();
     // Redrawing the last data skips the fetch, and its list is complete from the start.
-    const cached = reuse ? reusable(settings) : null;
+    const cached = reuse && canReuse(settings);
     inFlightEta = Math.max(Date.now() + (cached ? drawMs + (glasses ? uploadMs : 0) : estimateUpdateMs()), showAt);
-    progress = cached ?? [];
+    progress = (cached && reusable(settings)) || [];
     clearTimeout(dueTimer);
     dueAt = showAt;
     // Not drawn by its time: the loading screen goes up, unless a chart is still showing.
@@ -194,7 +249,7 @@ function late(): boolean {
 /** Put the loading screen up for a scheduled update, re-estimating what's left from the markets fetched so far. */
 function showRemaining(): void {
   const after = drawMs + (glasses ? uploadMs : 0);
-  const left = 1 - progress.length / Math.max(1, settings.markets.length);
+  const left = 1 - progress.length / Math.max(1, loadingItems().length);
   inFlightEta = Date.now() + (estimateUpdateMs() - after) * left + after;
   showLoading(Math.max(1, Math.round((inFlightEta - Date.now()) / 1000)));
 }
@@ -209,6 +264,7 @@ let uploadMs = 1000;
  * response times; then drawing and sending the tiles, from recent updates.
  */
 function estimateUpdateMs(): number {
+  if (isPredictionSource(settings.source)) return getPredictionSource(settings.source).estimateMs(eventRequest(settings)) + drawMs + (glasses ? uploadMs : 0);
   const fetchMs = Math.max(
     getSource(settings.source).estimateMs(marketRequest(settings)),
     estimateIndexMs(indexMarkets(settings)),
@@ -223,7 +279,17 @@ let progress: MarketData[] = [];
 
 /** Every monitored market, with what's been fetched of it so far. */
 function loadingItems(): MarketData[] {
+  if (isPredictionSource(settings.source)) {
+    // Each event by its title if it's been fetched before, else its slug; the
+    // one request brings them all at once, so there's no progress to show.
+    const titles = new Map(lastEvents?.data.map((d) => [d.market, d.title]));
+    return eventRequest(settings).markets.map((e) => ({ market: shorten(titles.get(e) ?? e, 24), candles: [] }));
+  }
   return settings.markets.map((m) => progress.find((d) => d.market === m) ?? { market: m, candles: [] });
+}
+
+function shorten(text: string, max: number): string {
+  return text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`;
 }
 
 function showLoading(etaSec: number): void {
@@ -235,7 +301,7 @@ function showLoading(etaSec: number): void {
     // The time (dim, beside the message) top-left and the source top-right, as on the other screens.
     message: `Loading… ~${etaSec}s`,
     topLeft: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-    topRight: getSource(settings.source).label,
+    topRight: sourceLabel(settings.source),
     bottomLeft: '',
     bottomRight: APP_NAME,
     list: buildLoadingList(loadingItems()),
@@ -250,6 +316,7 @@ function onProgress(ctrl: AbortController, partial: MarketData[]): void {
 }
 
 async function runUpdate(ctrl: AbortController, showAt: number, reuse: boolean): Promise<void> {
+  if (isPredictionSource(settings.source)) return runEventsUpdate(ctrl, showAt, reuse);
   const s = settings;
   const key = fetchKey(s);
   let data: MarketData[], updated: Date;
@@ -258,23 +325,7 @@ async function runUpdate(ctrl: AbortController, showAt: number, reuse: boolean):
   } else {
     showFetching();
     try {
-      // Different APIs, each with its own rate limit. The index is asked for
-      // alongside the source's last chart request, so it's as fresh as the
-      // chart beside it, and by what each market is on the exchange.
-      const src = getSource(s.source);
-      const wanted = indexMarkets(s);
-      let lastRequest!: () => void;
-      const lastRequested = new Promise<void>((resolve) => (lastRequest = resolve));
-      const [markets, index] = await Promise.all([
-        src.fetch(marketRequest(s), ctrl.signal, (partial) => onProgress(ctrl, partial), lastRequest).finally(lastRequest),
-        wanted.length === 0 ? new Map<string, number>() : lastRequested
-          .then(() => src.resolve(wanted, s.currency, ctrl.signal))
-          .then((resolved) => fetchIndexPrices(resolved, ctrl.signal), (e) => {
-            if (isAbort(e)) throw e;
-            return new Map<string, number>();
-          }),
-      ]);
-      data = markets.map((d) => ({ ...d, index: wanted.includes(d.market) ? index.get(d.market) ?? null : undefined }));
+      data = await watchlistMarkets(s, ctrl);
     } catch {
       return; // superseded by a newer update
     }
@@ -312,6 +363,75 @@ async function runUpdate(ctrl: AbortController, showAt: number, reuse: boolean):
   notDue();
 
   const failed = data.filter((d) => d.error).map((d) => `${d.market}: ${d.error}`);
+  await present(ctrl, showAt, textBoxes, failed, updated, drawStart);
+}
+
+/** The watchlist's markets, with the index for the charts. Rejects only with an AbortError. */
+async function watchlistMarkets(s: Settings, ctrl: AbortController): Promise<MarketData[]> {
+  // Different APIs, each with its own rate limit. The index is asked for
+  // alongside the source's last chart request, so it's as fresh as the
+  // chart beside it, and by what each market is on the exchange.
+  const src = getSource(s.source);
+  const wanted = indexMarkets(s);
+  let lastRequest!: () => void;
+  const lastRequested = new Promise<void>((resolve) => (lastRequest = resolve));
+  const [markets, index] = await Promise.all([
+    src.fetch(marketRequest(s), ctrl.signal, (partial) => onProgress(ctrl, partial), lastRequest).finally(lastRequest),
+    wanted.length === 0 ? new Map<string, number>() : lastRequested
+      .then(() => src.resolve(wanted, s.currency, ctrl.signal))
+      .then((resolved) => fetchIndexPrices(resolved, ctrl.signal), (e) => {
+        if (isAbort(e)) throw e;
+        return new Map<string, number>();
+      }),
+  ]);
+  return markets.map((d) => ({ ...d, index: wanted.includes(d.market) ? index.get(d.market) ?? null : undefined }));
+}
+
+/** A prediction-market update: fetch the events (or reuse them), draw their charts, and show them. */
+async function runEventsUpdate(ctrl: AbortController, showAt: number, reuse: boolean): Promise<void> {
+  const s = settings;
+  const key = eventsKey(s);
+  let data: PredictionData[], updated: Date;
+  if (reuse && lastEvents?.key === key) {
+    ({ data, updated } = lastEvents);
+  } else {
+    showFetching();
+    try {
+      data = await getPredictionSource(s.source).fetch(eventRequest(s), ctrl.signal);
+    } catch {
+      return; // superseded by a newer update
+    }
+    if (ctrl.signal.aborted) return;
+    updated = new Date();
+    lastEvents = { key, data, updated };
+  }
+  await loadFont(s.font).catch(() => {});
+  if (ctrl.signal.aborted) return;
+
+  const drawStart = Date.now();
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+  const model = { interval: s.eventInterval, updated, source: sourceLabel(s.source), font: s.font };
+  // The charted events, and the rest listed under them; with none charted,
+  // the list, as text in the glasses' font if asked, else as an image.
+  const charted = chartedEvents(s).flatMap((m) => data.filter((d) => d.market === m));
+  let textBoxes: TextBox[] | null = null;
+  if (eventTextList(s)) {
+    textBoxes = buildEventTextList({ items: data, updated, source: model.source, name: APP_NAME });
+    drawTextChart(ctx, textBoxes);
+  } else if (charted.length === 0) {
+    renderPredictionList(ctx, { ...model, items: data });
+  } else {
+    renderPrediction(ctx, { ...model, charts: charted, ticker: data.filter((d) => !charted.includes(d)) });
+  }
+  notDue();
+  await present(ctrl, showAt, textBoxes, data.filter((d) => d.error).map((d) => `${d.market}: ${d.error}`), updated, drawStart);
+}
+
+/**
+ * Put the screen drawn on the canvas (or `textBoxes`) on the glasses once
+ * it's due, then set it to come down after the show-for time.
+ */
+async function present(ctrl: AbortController, showAt: number, textBoxes: TextBox[] | null, failed: string[], updated: Date, drawStart: number): Promise<void> {
   // Plain spaces: some WebView fonts lack the narrow no-break space before
   // "PM", and the fallback font would shift the line.
   const stamp = updated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }).replace(/\s/g, ' ');
@@ -514,16 +634,33 @@ const calibrateBtn = $<HTMLButtonElement>('calibrate');
 const refreshInput = $<HTMLInputElement>('refresh');
 const displayInput = $<HTMLInputElement>('display');
 const formError = $('form-error');
+const marketsHint = $('markets-hint');
+const intervalLabel = $('interval-label');
 
-for (const src of SOURCES) sourceSel.add(new Option(src.label, src.id));
+// One list of sources, grouped by kind.
+for (const [label, sources] of [['Exchanges', SOURCES], ['Prediction markets', PREDICTION_SOURCES]] as const) {
+  const group = document.createElement('optgroup');
+  group.label = label;
+  for (const src of sources) group.append(new Option(src.label, src.id));
+  sourceSel.append(group);
+}
 for (const c of CURRENCIES) currencySel.add(new Option(c, c));
 const CANDLE_WIDTH_LABELS: Record<CandleWidth, string> = { wide: 'Wide', narrow: 'Narrow', thin: 'Thin', 'text-blocks': 'Text blocks, 1 chart', 'text-wide': 'Text wide, 1 chart', 'text-narrow': 'Text narrow, 1 chart', 'text-thin': 'Text thin, 1 chart' };
 for (const w of CANDLE_WIDTHS) candleWidthSel.add(new Option(CANDLE_WIDTH_LABELS[w], w));
 for (const f of CHART_FONTS) fontSel.add(new Option(FONTS[f].label, f));
 let lastAxisW = DEFAULT_AXIS_W;
 
-/** Label each width with the time span it covers, e.g. "Thin · ~14h", for the form's current candle size and chart count. */
+/**
+ * Label each width with the time span it covers, e.g. "Thin · ~14h", for the
+ * form's current candle size and chart count; for events, each history
+ * spacing, e.g. "5m · ~14h".
+ */
 function refreshWidthLabels(): void {
+  if (marketList.dataset.kind === 'events') {
+    const points = predictionCapacity(Math.max(1, marketList.querySelectorAll('input[type=checkbox]:checked').length));
+    for (const opt of intervalSel.options) opt.text = `${formatInterval(+opt.value)} · ~${formatSpan(points * +opt.value)}`;
+    return;
+  }
   const nCharts = marketList.querySelectorAll('input[type=checkbox]:checked').length;
   const minutes = Number(intervalSel.value);
   for (const opt of candleWidthSel.options) {
@@ -532,14 +669,50 @@ function refreshWidthLabels(): void {
   }
 }
 
-/** Offer the selected source's candle sizes, keeping the current size or the nearest one. */
-function syncIntervalOptions(current = Number(intervalSel.value) || settings.interval): void {
-  const supported = getSource(sourceSel.value).intervals;
+/**
+ * Offer the selected source's candle sizes (or, for events, history
+ * spacings), keeping the current one or the nearest. Switching kinds starts
+ * from that kind's saved size.
+ */
+function syncIntervalOptions(current?: number): void {
+  const events = isPredictionSource(sourceSel.value);
+  const kind = events ? 'events' : 'markets';
+  const switched = intervalSel.dataset.kind !== kind;
+  intervalSel.dataset.kind = kind;
+  const want = current ?? (switched ? (events ? settings.eventInterval : settings.interval) : Number(intervalSel.value) || settings.interval);
+  const supported = events ? EVENT_INTERVALS : getSource(sourceSel.value).intervals;
   const shown = [...intervalSel.options].map((o) => Number(o.value));
-  if (shown.join() !== supported.join()) {
+  if (switched || shown.join() !== supported.join()) {
     intervalSel.replaceChildren(...supported.map((m) => new Option(formatInterval(m), String(m))));
   }
-  intervalSel.value = String(nearestInterval(supported, current));
+  intervalSel.value = String(nearestInterval(supported, want));
+}
+
+/**
+ * Show the form for the chosen source's kind: exchange markets (with chart
+ * ticks, and the exchange-only options), or prediction-market events, all
+ * charted. Each kind keeps its own list; switching shows the other's as saved.
+ */
+function syncKind(s: Settings = settings): void {
+  const events = isPredictionSource(sourceSel.value);
+  for (const el of document.querySelectorAll<HTMLElement>('[data-exchange]')) el.hidden = events;
+  intervalLabel.textContent = events ? 'History spacing' : 'Candle size';
+  addMarketBtn.textContent = events ? '+ Add event' : '+ Add market';
+  marketsHint.textContent = events ? `Up to ${MAX_CHARTS} charts; ${MAX_MARKETS} events: a Polymarket link or the event's slug` : `Up to ${MAX_CHARTS} charts; ${MAX_MARKETS} markets`;
+  // Each prediction market has its own list too.
+  const kind = events ? 'events' : 'markets';
+  const list = events ? sourceSel.value : '';
+  if (marketList.dataset.kind === kind && marketList.dataset.source === list) return;
+  marketList.dataset.kind = kind;
+  marketList.dataset.source = list;
+  marketList.replaceChildren();
+  if (events) {
+    const saved = s.events[list] ?? [];
+    for (const e of saved) addMarketRow(e, (s.eventCharts[list] ?? []).includes(e));
+    if (saved.length === 0) addMarketRow();
+  } else {
+    for (const m of s.markets) addMarketRow(m, s.charts.includes(m));
+  }
 }
 
 function formatSpan(minutes: number): string {
@@ -553,13 +726,18 @@ function formatSpan(minutes: number): string {
 
 function addMarketRow(market = '', charted = false): void {
   const li = document.createElement('li');
-  li.innerHTML = `
+  li.innerHTML = marketList.dataset.kind === 'events'
+    ? `
+    <input type="text" placeholder="Polymarket link or event slug" spellcheck="false" autocapitalize="off" />
+    <label><input type="checkbox" /> Chart</label>
+    <button type="button" class="secondary" aria-label="Remove">✕</button>`
+    : `
     <input type="text" placeholder="e.g. SOL-USDC, or TSLA" spellcheck="false" autocapitalize="characters" />
     <label><input type="checkbox" /> Chart</label>
     <button type="button" class="secondary" aria-label="Remove">✕</button>`;
-  const [text, check] = li.querySelectorAll('input');
-  text!.value = market;
-  check!.checked = charted;
+  li.querySelector<HTMLInputElement>('input[type=text]')!.value = market;
+  const check = li.querySelector<HTMLInputElement>('input[type=checkbox]');
+  if (check) check.checked = charted;
   li.querySelector('button')!.addEventListener('click', () => {
     li.remove();
     syncMarketControls();
@@ -572,8 +750,9 @@ function addMarketRow(market = '', charted = false): void {
 /** Enforce the chart / market limits in the UI. */
 function syncMarketControls(): void {
   const rows = [...marketList.children];
-  const checks = rows.map((li) => li.querySelector<HTMLInputElement>('input[type=checkbox]')!);
-  const max = maxCharts(candleWidthSel.value as CandleWidth);
+  const checks = rows.flatMap((li) => li.querySelector<HTMLInputElement>('input[type=checkbox]') ?? []);
+  // Text candles are for exchanges' charts; a prediction market's take any width.
+  const max = marketList.dataset.kind === 'events' ? MAX_CHARTS : maxCharts(candleWidthSel.value as CandleWidth);
   // A width that allows fewer charts keeps the first ones ticked.
   checks.filter((c) => c.checked).slice(max).forEach((c) => { c.checked = false; });
   const nChecked = checks.filter((c) => c.checked).length;
@@ -591,9 +770,9 @@ addMarketBtn.addEventListener('click', () => {
 function fillForm(s: Settings): void {
   sourceSel.value = s.source;
   currencySel.value = s.currency;
-  syncIntervalOptions(s.interval);
-  marketList.replaceChildren();
-  for (const m of s.markets) addMarketRow(m, s.charts.includes(m));
+  syncIntervalOptions(isPredictionSource(s.source) ? s.eventInterval : s.interval);
+  marketList.dataset.kind = '';
+  syncKind(s);
   candleWidthSel.value = s.candleWidth;
   fontSel.value = s.font;
   textListBox.checked = s.textList;
@@ -611,11 +790,13 @@ function fillForm(s: Settings): void {
 }
 
 function readForm(): Settings {
+  // The rows are one kind's list; the other kind's is kept as saved.
+  const events = marketList.dataset.kind === 'events';
   const rows = [...marketList.children].map((li) => ({
-    market: normalizeMarket(li.querySelector<HTMLInputElement>('input[type=text]')!.value),
-    charted: li.querySelector<HTMLInputElement>('input[type=checkbox]')!.checked,
+    market: (events ? eventSlug : normalizeMarket)(li.querySelector<HTMLInputElement>('input[type=text]')!.value),
+    charted: li.querySelector<HTMLInputElement>('input[type=checkbox]')?.checked ?? false,
   })).filter((r) => r.market);
-  if (rows.length === 0) throw new Error('Add at least one market.');
+  if (rows.length === 0) throw new Error(events ? 'Add at least one event.' : 'Add at least one market.');
 
   const manualOnly = manualOnlyBox.checked;
   const refreshSec = parseDuration(refreshInput.value, 'Refresh');
@@ -626,9 +807,12 @@ function readForm(): Settings {
   const next = sanitize({
     source: sourceSel.value,
     currency: currencySel.value as Currency,
-    markets: rows.map((r) => r.market),
-    charts: rows.filter((r) => r.charted).map((r) => r.market),
-    interval: Number(intervalSel.value),
+    markets: events ? settings.markets : rows.map((r) => r.market),
+    charts: events ? settings.charts : rows.filter((r) => r.charted).map((r) => r.market),
+    interval: events ? settings.interval : Number(intervalSel.value),
+    events: events ? { ...settings.events, [sourceSel.value]: rows.map((r) => r.market) } : settings.events,
+    eventCharts: events ? { ...settings.eventCharts, [sourceSel.value]: rows.filter((r) => r.charted).map((r) => r.market) } : settings.eventCharts,
+    eventInterval: events ? Number(intervalSel.value) : settings.eventInterval,
     candleWidth: candleWidthSel.value as CandleWidth,
     font: fontSel.value as ChartFont,
     textList: textListBox.checked,
@@ -642,8 +826,8 @@ function readForm(): Settings {
   });
   // Keep within the one-request-per-MIN_GAP_MS budget: an update has to finish its
   // requests before the next one is due.
-  const src = getSource(next.source);
-  const requests = src.requestsPerUpdate(marketRequest(next));
+  const src = events ? getPredictionSource(next.source) : getSource(next.source);
+  const requests = events ? getPredictionSource(next.source).requestsPerUpdate(eventRequest(next)) : getSource(next.source).requestsPerUpdate(marketRequest(next));
   const minRefresh = Math.max(15, Math.ceil((requests * MIN_GAP_MS) / 1000));
   if (!manualOnly && refreshSec < minRefresh) {
     throw new Error(`Refresh must be at least ${formatDuration(minRefresh)} for ${requests} ${src.label} requests per update (one per ${MIN_GAP_MS / 1000}s).`);
@@ -654,6 +838,7 @@ function readForm(): Settings {
 /** Apply the form as soon as anything changes; no-op if the result is unchanged. */
 async function applyForm(): Promise<void> {
   syncManualOnlyRows();
+  syncKind();
   syncIntervalOptions();
   syncMarketControls();
   let next: Settings;
@@ -667,7 +852,7 @@ async function applyForm(): Promise<void> {
   // Show the normalized values without rebuilding rows (which would steal focus).
   for (const li of marketList.children) {
     const text = li.querySelector<HTMLInputElement>('input[type=text]')!;
-    if (text.value) text.value = normalizeMarket(text.value);
+    if (text.value) text.value = marketList.dataset.kind === 'events' ? eventSlug(text.value) : normalizeMarket(text.value);
   }
   refreshInput.value = formatDuration(next.refreshSec);
   refreshInput.disabled = next.manualOnly;
@@ -685,7 +870,9 @@ async function applyForm(): Promise<void> {
   // schedule, re-timed if the refresh rate changed.
   const chartChanged = next.source !== prev.source || next.currency !== prev.currency || next.interval !== prev.interval
     || next.candleWidth !== prev.candleWidth || shownCharts(next).join() !== shownCharts(prev).join()
-    || next.showIndex !== prev.showIndex || next.textList !== prev.textList;
+    || next.showIndex !== prev.showIndex || next.textList !== prev.textList
+    || JSON.stringify(next.events) !== JSON.stringify(prev.events) || JSON.stringify(next.eventCharts) !== JSON.stringify(prev.eventCharts)
+    || next.eventInterval !== prev.eventInterval;
   if (chartChanged) restartSchedule({ cancel: true, manual: true });
   // A new font needs no new data: redraw the last, sparing the APIs (CoinGecko
   // drops the index when asked too often). Without data to reuse, this fetches.

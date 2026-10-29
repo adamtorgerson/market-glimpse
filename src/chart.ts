@@ -7,10 +7,10 @@ export const SCREEN_W = 576;
 export const SCREEN_H = 288;
 
 // The G2 renders 16 levels of green; we draw in greyscale and let png.ts quantize.
-const FG = '#ffffff';
-const MID = '#a0a0a0';
-const DIM = '#505050';
-const FAINT = '#282828';
+export const FG = '#ffffff';
+export const MID = '#a0a0a0';
+export const DIM = '#505050';
+export const FAINT = '#282828';
 // Volume bars sit a step below the candles so they read as background context.
 const VOL_UP = '#686868';
 const VOL_DOWN = '#404040';
@@ -20,7 +20,7 @@ const LIST_PX = 13;
 /** Space between a market's name, price and volume, and between markets on a line. */
 const CELL_GAP = 5;
 const ITEM_GAP = 18;
-const TIME_AXIS_H = 14;
+export const TIME_AXIS_H = 14;
 
 /** The font of the render in progress; `renderScreen` sets it, so helpers needn't pass it along. */
 let chartFont: ChartFont = 'atkinson';
@@ -177,7 +177,7 @@ export function candleCapacity(nCharts: number, width: CandleWidth, axisW = DEFA
 }
 
 /** 1: full screen. 2–3: stacked full-width rows. 4: quadrants. */
-function layout(n: number, a: Rect): Rect[] {
+export function layout(n: number, a: Rect): Rect[] {
   if (n <= 3) {
     return Array.from({ length: n }, (_, i) => {
       const y0 = Math.round(a.y + (a.h * i) / n), y1 = Math.round(a.y + (a.h * (i + 1)) / n);
@@ -579,7 +579,7 @@ const LOGO_PIXELS = (() => {
   return pixels;
 })();
 /** The icon's lit pixels' bounds, inside its padding. */
-const LOGO_INK = {
+export const LOGO_INK = {
   left: Math.min(...LOGO_PIXELS.map((p) => p.x)),
   top: Math.min(...LOGO_PIXELS.map((p) => p.y)),
   right: Math.max(...LOGO_PIXELS.map((p) => p.x)) + 1,
@@ -590,7 +590,7 @@ const LOGO_INK = {
 /** A little dimmer than labels, so the logo stays in the background. */
 const LOGO_COLOR = '#787878';
 
-function drawLogo(ctx: CanvasRenderingContext2D, right: number, bottom: number): void {
+export function drawLogo(ctx: CanvasRenderingContext2D, right: number, bottom: number): void {
   const x = right - LOGO_INK.right, y = bottom - LOGO_INK.bottom;
   ctx.save();
   ctx.fillStyle = LOGO_COLOR;
@@ -646,7 +646,7 @@ export function formatTime(t: number, step: number, utc: boolean): string {
   return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
 }
 
-function formatStamp(updated: Date): string {
+export function formatStamp(updated: Date): string {
   return updated.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 

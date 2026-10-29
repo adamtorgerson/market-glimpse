@@ -115,6 +115,8 @@ label > input:disabled { opacity: 0.4; }
 #markets { list-style: none; margin: 10px 0; padding: 0; }
 #markets li { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 #markets li input[type="text"] { flex: 1; text-transform: uppercase; }
+/* Event slugs are lowercase, and links keep their case. */
+#markets[data-kind="events"] li input[type="text"] { text-transform: none; }
 #markets li label { margin: 0; gap: 6px; font-size: 0.9rem; color: var(--muted); }
 #markets li input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent); }
 #markets li button { padding: 6px 12px; }
