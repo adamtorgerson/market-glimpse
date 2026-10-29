@@ -46,9 +46,12 @@ function stockTickers(name: string): string[] {
 export class Catalog<T extends Instrument = Instrument> {
   private readonly pairs = new Map<string, T>();
   private readonly stocks = new Map<string, T>();
+  /** Every instrument, as listed. */
+  readonly all: readonly T[];
 
   constructor(instruments: Iterable<T>) {
-    for (const i of instruments) {
+    this.all = [...instruments];
+    for (const i of this.all) {
       const pair = `${i.base}-${i.quote}`;
       if (!this.pairs.has(pair)) this.pairs.set(pair, i);
       if (i.stock) {
@@ -106,4 +109,53 @@ export function coinGeckoName(i: Instrument): { symbol: string; vs: string } {
     symbol: (i.stock && !i.ondo ? `${i.stock}x` : i.base).toLowerCase(),
     vs: USD_LIKE.has(i.quote) ? 'usd' : i.quote.toLowerCase(),
   };
+}
+
+/** Assets that are money rather than markets: Explore leaves out their pairs (USDC-USDT, EUR-USD). */
+const MONEY = new Set([
+  'USD', 'EUR', 'GBP', 'AUD', 'CAD', 'JPY', 'CHF', 'TRY', 'BRL',
+  'USDT', 'USDC', 'DAI', 'PYUSD', 'USD1', 'FDUSD', 'TUSD', 'USDE', 'USDS', 'USDD', 'BUSD', 'USDP', 'GUSD', 'RLUSD', 'USDG',
+  'EURC', 'EURT', 'EURQ', 'EURR', 'AUDD',
+]);
+
+/** Leveraged tokens (Gate's "SKHYNIX5L", 5× long; "BTC3S", 3× short; "ETHBULL"): bets on a market, not markets. */
+const LEVERAGED = /(\d[LS]|BULL|BEAR)$/;
+
+/** Markets ranked by their volume are only the most traded this many, for movers: thin markets swing wildly. */
+const MOVERS_POOL = 100;
+
+/**
+ * The top `n` markets by `by`, among those quoted in `currency` (any dollar
+ * for USD), one per asset (its most traded market), leaving out pairs of
+ * money. Biggest movers are by the size of the change, either way, and most
+ * liquid by the money at the top of the book, both among the MOVERS_POOL
+ * most traded (a big order resting on a dead market isn't liquidity).
+ */
+export function rankMarkets<R extends { instrument: Instrument; last: number; quoteVolume: number; change?: number; topOfBook?: number }>(
+  rows: R[],
+  by: 'volume' | 'movers' | 'liquidity',
+  currency: string,
+  n: number,
+): R[] {
+  const quotes = DOLLARS.includes(currency) ? DOLLARS : [currency];
+  const best = new Map<string, R>();
+  for (const r of rows) {
+    const i = r.instrument;
+    if (!quotes.includes(i.quote) || MONEY.has(i.base) || LEVERAGED.test(i.base) || !(r.quoteVolume > 0) || !(r.last > 0)) continue;
+    const asset = i.stock ?? i.base;
+    if (!(best.get(asset)?.quoteVolume! >= r.quoteVolume)) best.set(asset, r);
+  }
+  const byVolume = [...best.values()].sort((a, b) => b.quoteVolume - a.quoteVolume);
+  if (by === 'volume') return byVolume.slice(0, n);
+  if (by === 'liquidity') {
+    return byVolume.slice(0, MOVERS_POOL).filter((r) => r.topOfBook !== undefined && Number.isFinite(r.topOfBook))
+      .sort((a, b) => b.topOfBook! - a.topOfBook!).slice(0, n);
+  }
+  return byVolume.slice(0, MOVERS_POOL).filter((r) => r.change !== undefined && Number.isFinite(r.change))
+    .sort((a, b) => Math.abs(b.change!) - Math.abs(a.change!)).slice(0, n);
+}
+
+/** How Explore names a market it found, so the catalog finds it again: "BTC-USDT", or a stock "TSLA-USDT". */
+export function marketName(i: Instrument): string {
+  return `${i.stock ?? i.base}-${i.quote}`;
 }

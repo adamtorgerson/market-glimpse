@@ -19,7 +19,30 @@ export interface MarketData {
   index?: number | null;
   /** Rolling 24h volume in the base currency. */
   dayVolume?: number;
+  /** 24h change, as a fraction (0.05 is +5%); shown in place of the volume for Explore's biggest movers. */
+  dayChange?: number;
   error?: string;
+}
+
+/**
+ * What Explore ranks a source's markets by: 24h volume in the quote
+ * currency, the size of the 24h change, or liquidity (the money at the best
+ * bid and ask: the top of the book, not its depth).
+ */
+export type ExploreBy = 'volume' | 'movers' | 'liquidity';
+
+/** A market Explore found, as it would be typed, with what it was ranked by. */
+export interface ExploreItem {
+  market: string;
+  last: number;
+  /** In the base currency, as `MarketData.dayVolume`. */
+  dayVolume?: number;
+  /** 24h volume in the quote currency (dollars, euros…): comparable across markets. */
+  quoteVolume: number;
+  /** 24h change, as a fraction; missing where the exchange doesn't give it. */
+  change?: number;
+  /** Money at the best bid and best ask, in the quote currency (`ExploreBy` liquidity). */
+  topOfBook?: number;
 }
 
 export interface MarketRequest {
@@ -72,4 +95,17 @@ export interface MarketSource {
   fetch(
     req: MarketRequest, signal: AbortSignal, onProgress?: (partial: MarketData[]) => void, onLastRequest?: () => void,
   ): Promise<MarketData[]>;
+  /**
+   * The source's top markets (up to `EXPLORE_COUNT`) quoted in `currency`
+   * (any dollar for USD), by `by`, one per asset: from every market's 24h
+   * ticker, in as few requests as the API allows (usually one).
+   */
+  explore(by: ExploreBy, currency: string, signal: AbortSignal): Promise<ExploreItem[]>;
+  /** Requests one `explore` by `by` makes, including the market list until it's loaded. */
+  exploreRequests(by: ExploreBy): number;
+  /** Rough ms for an `explore` by `by` and then `candles` single-market candle requests (line graphs), started now. */
+  estimateExploreMs(by: ExploreBy, candles: number): number;
 }
+
+/** Markets Explore monitors: as many as the market list shows. */
+export const EXPLORE_COUNT = 8;

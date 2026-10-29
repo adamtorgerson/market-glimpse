@@ -1,4 +1,4 @@
-import { exchangeSource, UnknownMarketError, type Ticker } from './exchange';
+import { exchangeSource, topOfBook, UnknownMarketError, type Ticker } from './exchange';
 import { HttpError, PublicApi } from './http';
 
 const api = new PublicApi('https://api.gateio.ws/api/v4');
@@ -15,8 +15,16 @@ async function get<T>(path: string, signal: AbortSignal): Promise<T> {
   }
 }
 
-interface GateTicker { currency_pair: string; last: string; base_volume: string }
-const toTicker = (t: GateTicker): Ticker => ({ last: +t.last, dayVolume: +t.base_volume });
+interface GateTicker {
+  currency_pair: string; last: string; base_volume: string; quote_volume: string; change_percentage: string;
+  highest_bid: string; highest_size: string; lowest_ask: string; lowest_size: string;
+}
+const toTicker = (t: GateTicker): Ticker => ({
+  last: +t.last, dayVolume: +t.base_volume, quoteVolume: +t.quote_volume,
+  // Gate gives the 24h change, in percent, rather than the open.
+  open: +t.last / (1 + +t.change_percentage / 100),
+  topOfBook: topOfBook(+t.highest_bid, +t.highest_size, +t.lowest_ask, +t.lowest_size),
+});
 function stock(base: string, name: string): { stock?: string; ondo?: boolean } {
   if (name.endsWith('xStock') && base.endsWith('X')) return { stock: base.slice(0, -1) };
   if (name.includes('Ondo Tokenized') && base.endsWith('ON')) return { stock: base.slice(0, -2), ondo: true };
@@ -41,6 +49,12 @@ export const gate = exchangeSource({
   async tickers(signal) {
     const rows = await get<GateTicker[]>('/spot/tickers', signal);
     return new Map<string, Ticker>(rows.map((t) => [t.currency_pair.replace('_', '-'), toTicker(t)]));
+  },
+
+  async topOfBook(market, signal) {
+    // Its all-markets tickers leave out the sizes at the best bid and ask; one market's has them.
+    const [t] = await get<GateTicker[]>(`/spot/tickers?currency_pair=${encodeURIComponent(toGate(market))}`, signal);
+    return t && toTicker(t).topOfBook;
   },
 
   async candles(market, interval, _intervalSec, count, signal) {

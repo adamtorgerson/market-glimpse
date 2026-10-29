@@ -418,7 +418,7 @@ function fit(ctx: CanvasRenderingContext2D, text: string, max: number): string {
   return `${s.trimEnd()}…`;
 }
 
-/** The full-screen list's rows: as many events as the watchlist holds. */
+/** The full-screen list's rows: as many as Explore finds. */
 const LIST_ROWS = 8;
 
 /**

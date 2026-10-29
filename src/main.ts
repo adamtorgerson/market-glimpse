@@ -1,6 +1,6 @@
 import './style.css';
 import LOGO_SVG from '../assets/icon.svg?raw';
-import { candleCapacity, DEFAULT_AXIS_W, renderScreen, SCREEN_H, SCREEN_W, type ScreenModel } from './chart';
+import { candleCapacity, DEFAULT_AXIS_W, formatChange, formatVolume, renderScreen, SCREEN_H, SCREEN_W, type ScreenModel } from './chart';
 import { FONTS, loadFont } from './fonts';
 import { Glasses, type UploadStats } from './glasses';
 import { onTraffic, tapBridge, traffic, type Counter } from './traffic';
@@ -8,16 +8,17 @@ import { predictionCapacity, renderPrediction, renderPredictionList } from './pr
 import { calibrate, LookUpDetector, type Vec } from './lookup';
 import { encodeTiles } from './png';
 import { buildEventTextList, buildLoadingList, buildTextChart, buildTextList, drawTextChart, serializeBox, textCandles, type TextBox } from './textchart';
-import { average, isAbort, MIN_GAP_MS } from './sources/http';
-import { CURRENCIES, type Currency } from './sources/symbols';
+import { average, describeError, isAbort, MIN_GAP_MS } from './sources/http';
+import { CURRENCIES, DOLLARS, type Currency } from './sources/symbols';
 import { getPredictionSource, getSource, isPredictionSource, PREDICTION_SOURCES, sourceLabel, SOURCES } from './sources';
-import { EVENT_INTERVALS, eventSlug, type PredictionData, type PredictionRequest } from './sources/prediction';
+import { EVENT_INTERVALS, eventSlug, type ExploredEvent, type PredictionData, type PredictionRequest } from './sources/prediction';
 import { estimateIndexMs, fetchIndexPrices } from './sources/coingecko';
-import type { MarketData, MarketRequest } from './sources/types';
+import { EXPLORE_COUNT, type ExploreBy, type ExploreItem, type MarketData, type MarketRequest } from './sources/types';
 import {
   CANDLE_WIDTHS,
   CHART_FONTS,
   DEFAULT_SETTINGS,
+  exploreCharts,
   formatInterval,
   isTextWidth,
   MAX_CHARTS,
@@ -28,6 +29,7 @@ import {
   sanitize,
   type CandleWidth,
   type ChartFont,
+  type ExploreView,
   type Settings,
 } from './settings';
 
@@ -140,7 +142,33 @@ let lastFetch: { key: string; data: MarketData[]; updated: Date } | null = null;
 
 /** What an update fetches with `s`; data fetched for the same key can be redrawn as is. */
 function fetchKey(s: Settings): string {
+  if (s.explore) {
+    const n = exploreCharts(s.exploreView, s.candleWidth, false);
+    return JSON.stringify(['explore', s.source, s.exploreBy, s.currency, s.exploreView, s.textList, s.interval, s.candleWidth, capacity(n, s.candleWidth), n && s.showIndex]);
+  }
   return JSON.stringify([s.source, marketRequest(s), indexMarkets(s)]);
+}
+
+/**
+ * Explore's latest top list, for the phone page: each market (or event) as
+ * it's added to the watchlist, as it's shown, and the volume or change it was
+ * ranked by; or why there's none.
+ */
+let explored: { key: string; items: { market: string; label: string; value: string }[]; error?: string } | null = null;
+
+/** Which top list `s` explores: the source's, by its ranking (and for an exchange, in its currency type). */
+function exploreKey(s: Settings): string {
+  return JSON.stringify([s.source, s.exploreBy, isPredictionSource(s.source) ? '' : s.currency]);
+}
+
+function setExplored(s: Settings, items: { market: string; label: string; value: string }[], error?: string): void {
+  explored = { key: exploreKey(s), items, error };
+  renderExplore();
+}
+
+/** The markets (or events) Explore last found for `s`; none before it's run. */
+function exploredMarkets(s: Settings): string[] {
+  return explored?.key === exploreKey(s) ? explored.items.map((i) => i.market) : [];
 }
 
 /** The last update's data, if it was fetched for what `s` would fetch. */
@@ -160,16 +188,17 @@ function sourceEventCharts(s: Settings): string[] {
 
 /**
  * A prediction market's events, as text: its list (the watchlist with
- * nothing charted, as the option takes precedence over charts). Current
- * prices only, no history.
+ * nothing charted, as the option takes precedence over charts, or Explore's
+ * List). Current prices only, no history.
  */
 function eventTextList(s: Settings): boolean {
-  return s.textList;
+  return s.textList && (!s.explore || exploreCharts(s.exploreView, s.candleWidth, true) === 0);
 }
 
-/** The events a prediction-market update charts: the watchlist's ticked. */
-function chartedEvents(s: Settings): string[] {
-  return eventTextList(s) ? [] : sourceEventCharts(s);
+/** The events a prediction-market update charts: the top ones Explore found, or the watchlist's ticked. */
+function chartedEvents(s: Settings, markets: string[]): string[] {
+  if (eventTextList(s)) return [];
+  return s.explore ? markets.slice(0, exploreCharts(s.exploreView, s.candleWidth, true)) : sourceEventCharts(s);
 }
 
 /**
@@ -177,9 +206,10 @@ function chartedEvents(s: Settings): string[] {
  * only (the rest are listed), no more than one of their charts shows; with
  * none charted, for every event's line plot in the list, or none for text.
  */
-function eventRequest(s: Settings): PredictionRequest {
-  const markets = sourceEvents(s);
-  const charts = chartedEvents(s);
+function eventRequest(s: Settings, found?: string[]): PredictionRequest {
+  // Exploring, the events found last time stand in for the estimate until this update finds its own.
+  const markets = found ?? (s.explore ? exploredMarkets(s) : sourceEvents(s));
+  const charts = chartedEvents(s, markets);
   return {
     markets,
     interval: s.eventInterval,
@@ -192,6 +222,7 @@ function eventRequest(s: Settings): PredictionRequest {
 let lastEvents: { key: string; data: PredictionData[]; updated: Date } | null = null;
 
 function eventsKey(s: Settings): string {
+  if (s.explore) return JSON.stringify(['explore', s.source, s.exploreBy, exploreCharts(s.exploreView, s.candleWidth, true), eventTextList(s), s.eventInterval]);
   return JSON.stringify([s.source, eventRequest(s)]);
 }
 
@@ -264,7 +295,14 @@ let uploadMs = 1000;
  * response times; then drawing and sending the tiles, from recent updates.
  */
 function estimateUpdateMs(): number {
-  if (isPredictionSource(settings.source)) return getPredictionSource(settings.source).estimateMs(eventRequest(settings)) + drawMs + (glasses ? uploadMs : 0);
+  const after = drawMs + (glasses ? uploadMs : 0);
+  if (isPredictionSource(settings.source)) {
+    // Exploring, finding the events is a request first (or more, for Polymarket US's liquidity).
+    const src = getPredictionSource(settings.source);
+    const finding = settings.explore ? (src.exploreRequests?.(settings.exploreBy) ?? 1) * MIN_GAP_MS : 0;
+    return src.estimateMs(eventRequest(settings)) + finding + after;
+  }
+  if (settings.explore) return getSource(settings.source).estimateExploreMs(settings.exploreBy, exploreCandles(settings)) + after;
   const fetchMs = Math.max(
     getSource(settings.source).estimateMs(marketRequest(settings)),
     estimateIndexMs(indexMarkets(settings)),
@@ -276,7 +314,6 @@ function estimateUpdateMs(): number {
 let loading = false;
 /** The update in progress's results so far, for the loading screen's market list. */
 let progress: MarketData[] = [];
-
 /** Every monitored market, with what's been fetched of it so far. */
 function loadingItems(): MarketData[] {
   if (isPredictionSource(settings.source)) {
@@ -285,7 +322,9 @@ function loadingItems(): MarketData[] {
     const titles = new Map(lastEvents?.data.map((d) => [d.market, d.title]));
     return eventRequest(settings).markets.map((e) => ({ market: shorten(titles.get(e) ?? e, 24), candles: [] }));
   }
-  return settings.markets.map((m) => progress.find((d) => d.market === m) ?? { market: m, candles: [] });
+  // Exploring: the markets found so far this update, else last time's.
+  const markets = settings.explore ? (progress.length ? progress.map((d) => d.market) : exploredMarkets(settings)) : settings.markets;
+  return markets.map((m) => progress.find((d) => d.market === m) ?? { market: m, candles: [] });
 }
 
 function shorten(text: string, max: number): string {
@@ -325,7 +364,7 @@ async function runUpdate(ctrl: AbortController, showAt: number, reuse: boolean):
   } else {
     showFetching();
     try {
-      data = await watchlistMarkets(s, ctrl);
+      data = s.explore ? await exploreMarkets(s, ctrl) : await watchlistMarkets(s, ctrl);
     } catch {
       return; // superseded by a newer update
     }
@@ -340,16 +379,18 @@ async function runUpdate(ctrl: AbortController, showAt: number, reuse: boolean):
   const drawStart = Date.now();
   const byMarket = new Map(data.map((d) => [d.market, d]));
   const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
-  const shown = shownCharts(s);
+  // Explore's top markets are charted (or none, for the list), and the rest listed, in their order.
+  const exploring = s.explore ? exploreCharts(s.exploreView, s.candleWidth, false) : 0;
+  const shown = s.explore ? data.slice(0, exploring).map((d) => d.market) : shownCharts(s);
   const charts = shown.map((m) => byMarket.get(m)!);
-  const ticker = s.markets.filter((m) => !shown.includes(m)).map((m) => byMarket.get(m)!);
+  const ticker = s.explore ? data.slice(exploring) : s.markets.filter((m) => !shown.includes(m)).map((m) => byMarket.get(m)!);
   const source = getSource(s.source).label;
   // Text candles draw the one chart in the glasses' font, and the text list
   // the market list; otherwise the screen goes as image tiles.
   let textBoxes: TextBox[] | null = null;
   if (isTextWidth(s.candleWidth) && charts.length === 1) {
     textBoxes = buildTextChart({ chart: charts[0]!, width: s.candleWidth, ticker, interval: s.interval, updated, source, name: APP_NAME });
-  } else if (s.textList) {
+  } else if (s.textList && charts.length === 0) {
     textBoxes = buildTextList({ items: ticker, updated, source, name: APP_NAME });
   }
   if (textBoxes) {
@@ -387,6 +428,79 @@ async function watchlistMarkets(s: Settings, ctrl: AbortController): Promise<Mar
   return markets.map((d) => ({ ...d, index: wanted.includes(d.market) ? index.get(d.market) ?? null : undefined }));
 }
 
+/**
+ * Explore: the source's top markets, ranked from every market's ticker, each
+ * with its 24h change in place of its volume for biggest movers. The top
+ * 1, 2 or 4 charted (with the index, as charts are), or in the list, a line
+ * graph of each unless it's text. Rejects only with an AbortError.
+ */
+async function exploreMarkets(s: Settings, ctrl: AbortController): Promise<MarketData[]> {
+  const src = getSource(s.source);
+  let found: ExploreItem[];
+  try {
+    found = await src.explore(s.exploreBy, s.currency, ctrl.signal);
+  } catch (e) {
+    if (isAbort(e)) throw e;
+    setExplored(s, [], describeError(e));
+    return [{ market: 'Explore', candles: [], error: describeError(e) }];
+  }
+  const movers = s.exploreBy === 'movers';
+  setExplored(s, found.map((f) => ({
+    market: f.market,
+    label: f.market,
+    value: movers ? (f.change === undefined ? '' : formatChange(f.change))
+      : s.exploreBy === 'liquidity' ? (f.topOfBook === undefined ? '' : `${formatQuoteVolume(f.topOfBook, f.market)} bid/ask`)
+      : formatQuoteVolume(f.quoteVolume, f.market),
+  })));
+  const data = found.map((f): MarketData => ({ market: f.market, candles: [], last: f.last, dayVolume: f.dayVolume, ...(movers ? { dayChange: f.change } : {}) }));
+  onProgress(ctrl, data);
+  const n = exploreCharts(s.exploreView, s.candleWidth, false);
+  const markets = (n ? data.slice(0, n) : s.textList ? [] : data).map((d) => d.market);
+  if (markets.length === 0) return data;
+  // Candles asked for as charts: the tickers are in hand, so there's no second ticker request.
+  const withCandles = (partial: MarketData[]) => data.map((d) => ({ ...d, candles: partial.find((p) => p.market === d.market)?.candles ?? [] }));
+  // The charts' index, from CoinGecko, alongside the last candle request, as for the watchlist's.
+  const wanted = n && s.showIndex ? markets : [];
+  let lastRequest!: () => void;
+  const lastRequested = new Promise<void>((resolve) => (lastRequest = resolve));
+  const [candles, index] = await Promise.all([
+    src.fetch(
+      { markets, currency: s.currency, charts: markets, lines: [], interval: s.interval, candles: capacity(n, s.candleWidth) },
+      ctrl.signal, (partial) => onProgress(ctrl, withCandles(partial)), lastRequest).finally(lastRequest),
+    wanted.length === 0 ? new Map<string, number>() : lastRequested
+      .then(() => src.resolve(wanted, s.currency, ctrl.signal))
+      .then((resolved) => fetchIndexPrices(resolved, ctrl.signal), (e) => {
+        if (isAbort(e)) throw e;
+        return new Map<string, number>();
+      }),
+  ]);
+  return withCandles(candles).map((d) => (wanted.includes(d.market) ? { ...d, index: index.get(d.market) ?? null } : d));
+}
+
+/**
+ * Candle requests an Explore update makes after ranking: one per chart, or
+ * in the list, one per line graph (none as text).
+ */
+function exploreCandles(s: Settings): number {
+  const n = exploreCharts(s.exploreView, s.candleWidth, false);
+  return n || (s.textList ? 0 : EXPLORE_COUNT);
+}
+
+/** 24h volume in a market's quote currency: "$421.4M", "€12.0M", or "1.2K BTC". */
+function formatQuoteVolume(v: number, market: string): string {
+  const quote = market.split('-')[1] ?? '';
+  if (DOLLARS.includes(quote)) return `$${formatVolume(v)}`;
+  if (quote === 'EUR') return `€${formatVolume(v)}`;
+  if (quote === 'AUD') return `A$${formatVolume(v)}`;
+  return `${formatVolume(v)} ${quote}`;
+}
+
+/** A change in probability, in points: "+15 pts". */
+function formatPoints(change: number): string {
+  const pts = Math.round(change * 100);
+  return `${pts >= 0 ? '+' : '−'}${Math.abs(pts)} pts`;
+}
+
 /** A prediction-market update: fetch the events (or reuse them), draw their charts, and show them. */
 async function runEventsUpdate(ctrl: AbortController, showAt: number, reuse: boolean): Promise<void> {
   const s = settings;
@@ -397,7 +511,7 @@ async function runEventsUpdate(ctrl: AbortController, showAt: number, reuse: boo
   } else {
     showFetching();
     try {
-      data = await getPredictionSource(s.source).fetch(eventRequest(s), ctrl.signal);
+      data = s.explore ? await exploreEvents(s, ctrl) : await getPredictionSource(s.source).fetch(eventRequest(s), ctrl.signal);
     } catch {
       return; // superseded by a newer update
     }
@@ -413,7 +527,7 @@ async function runEventsUpdate(ctrl: AbortController, showAt: number, reuse: boo
   const model = { interval: s.eventInterval, updated, source: sourceLabel(s.source), font: s.font };
   // The charted events, and the rest listed under them; with none charted,
   // the list, as text in the glasses' font if asked, else as an image.
-  const charted = chartedEvents(s).flatMap((m) => data.filter((d) => d.market === m));
+  const charted = chartedEvents(s, data.map((d) => d.market)).flatMap((m) => data.filter((d) => d.market === m));
   let textBoxes: TextBox[] | null = null;
   if (eventTextList(s)) {
     textBoxes = buildEventTextList({ items: data, updated, source: model.source, name: APP_NAME });
@@ -425,6 +539,39 @@ async function runEventsUpdate(ctrl: AbortController, showAt: number, reuse: boo
   }
   notDue();
   await present(ctrl, showAt, textBoxes, data.filter((d) => d.error).map((d) => `${d.market}: ${d.error}`), updated, drawStart);
+}
+
+/** Explore for a prediction market: its top events, charted. Rejects only with an AbortError. */
+async function exploreEvents(s: Settings, ctrl: AbortController): Promise<PredictionData[]> {
+  const src = getPredictionSource(s.source);
+  const fail = (error: string): PredictionData[] => {
+    setExplored(s, [], error);
+    return [{ market: 'explore', title: 'Explore', outcomes: [], error }];
+  };
+  if (!src.explore) return fail(`${src.label} doesn't publish volume or price changes to rank by`);
+  let found: ExploredEvent[];
+  try {
+    found = await src.explore(s.exploreBy, ctrl.signal);
+  } catch (e) {
+    if (isAbort(e)) throw e;
+    return fail(describeError(e));
+  }
+  const value = (f: ExploredEvent) => {
+    if (s.exploreBy === 'movers') return f.change === undefined ? '' : formatPoints(f.change);
+    // Polymarket's own liquidity is its books; Polymarket US's, the top of its leading market's.
+    if (s.exploreBy === 'liquidity') return f.liquidity === undefined ? '' : `$${formatVolume(f.liquidity)} ${s.source === 'polymarket' ? 'book' : 'bid/ask'}`;
+    return f.volume === undefined ? '' : `$${formatVolume(f.volume)}`;
+  };
+  // The list on the phone as soon as they're found, by the titles the ranking gave.
+  setExplored(s, found.map((f) => ({ market: f.market, label: f.title ?? f.market, value: value(f) })));
+  // History for the charted ones, or the list's line plots (none as text).
+  const data = await src.fetch(eventRequest(s, found.map((f) => f.market)), ctrl.signal);
+  setExplored(s, found.map((f, i) => ({
+    market: f.market,
+    label: data[i]?.title ?? f.title ?? f.market,
+    value: value(f),
+  })));
+  return data;
 }
 
 /**
@@ -635,6 +782,14 @@ const refreshInput = $<HTMLInputElement>('refresh');
 const displayInput = $<HTMLInputElement>('display');
 const formError = $('form-error');
 const marketsHint = $('markets-hint');
+const tabWatchlist = $<HTMLButtonElement>('tab-watchlist');
+const tabExplore = $<HTMLButtonElement>('tab-explore');
+const watchlistPanel = $('watchlist');
+const explorePanel = $('explore');
+const exploreBySel = $<HTMLSelectElement>('explore-by');
+const exploreViewSel = $<HTMLSelectElement>('explore-view');
+const exploreHint = $('explore-hint');
+const exploreList = $<HTMLOListElement>('explore-list');
 const intervalLabel = $('interval-label');
 
 // One list of sources, grouped by kind.
@@ -760,6 +915,8 @@ function syncMarketControls(): void {
   for (const c of checks) c.disabled = textListBox.checked || (!c.checked && nChecked >= max);
   addMarketBtn.disabled = rows.length >= MAX_MARKETS;
   refreshWidthLabels();
+  // Explore's "+" buttons show while there's room.
+  renderExplore();
 }
 
 addMarketBtn.addEventListener('click', () => {
@@ -767,16 +924,97 @@ addMarketBtn.addEventListener('click', () => {
   marketList.querySelector<HTMLInputElement>('li:last-child input[type=text]')!.focus();
 });
 
+/**
+ * Offer the Explore layouts the candle width allows (text candles fill the
+ * glasses with one chart), and the rankings the source does.
+ */
+function syncExploreView(): void {
+  const events = isPredictionSource(sourceSel.value);
+  const rankings = events ? getPredictionSource(sourceSel.value).exploreRankings : undefined;
+  for (const opt of exploreBySel.options) opt.disabled = !!rankings && !rankings.includes(opt.value as ExploreBy);
+  if (exploreBySel.selectedOptions[0]?.disabled) exploreBySel.value = rankings![0]!;
+  const max = events ? MAX_CHARTS : maxCharts(candleWidthSel.value as CandleWidth);
+  for (const opt of exploreViewSel.options) {
+    opt.disabled = opt.value !== 'list' && Number(opt.value) > max;
+  }
+  if (exploreViewSel.selectedOptions[0]?.disabled) exploreViewSel.value = String(max);
+}
+
+/** Show the Watchlist or Explore tab; which is selected is the `explore` setting. */
+function selectTab(explore: boolean): void {
+  tabWatchlist.setAttribute('aria-selected', String(!explore));
+  tabExplore.setAttribute('aria-selected', String(explore));
+  watchlistPanel.hidden = explore;
+  explorePanel.hidden = !explore;
+}
+
+for (const tab of [tabWatchlist, tabExplore]) {
+  tab.addEventListener('click', () => {
+    if (tab.getAttribute('aria-selected') === 'true') return;
+    selectTab(tab === tabExplore);
+    void applyForm();
+  });
+}
+
+/**
+ * The Explore tab: the top markets (or events) last found for the settings,
+ * each with what it was ranked by, and a "+" to add it to the watchlist while
+ * there's room for it there.
+ */
+function renderExplore(): void {
+  const events = isPredictionSource(settings.source);
+  const result = explored?.key === exploreKey(settings) ? explored : null;
+  const note = events ? getPredictionSource(settings.source).exploreNote ?? '' : '';
+  exploreHint.textContent = result ? result.error ?? (result.items.length ? note : 'Nothing found.') : settings.explore ? 'Loading…' : note;
+  // The watchlist as it is in the form (its rows are this source's kind).
+  const rows = [...marketList.querySelectorAll<HTMLInputElement>('li input[type=text]')]
+    .map((i) => (events ? eventSlug : normalizeMarket)(i.value)).filter(Boolean);
+  const room = rows.length < MAX_MARKETS;
+  exploreList.replaceChildren(...(result?.items ?? []).map((item, i) => {
+    const li = document.createElement('li');
+    for (const [cls, text] of [['rank', String(i + 1)], ['name', item.label], ['value', item.value]]) {
+      const span = document.createElement('span');
+      span.className = cls!;
+      span.textContent = text!;
+      li.append(span);
+    }
+    if (rows.includes(item.market)) {
+      const added = document.createElement('span');
+      added.className = 'added';
+      added.textContent = '✓';
+      added.title = 'In the watchlist';
+      li.append(added);
+    } else if (room) {
+      const add = document.createElement('button');
+      add.type = 'button';
+      add.className = 'secondary';
+      add.textContent = '+';
+      add.setAttribute('aria-label', `Add ${item.label} to the watchlist`);
+      add.addEventListener('click', () => {
+        addMarketRow(item.market);
+        void applyForm().then(renderExplore);
+      });
+      li.append(add);
+    }
+    return li;
+  }));
+}
+
 function fillForm(s: Settings): void {
   sourceSel.value = s.source;
+  selectTab(s.explore);
+  exploreBySel.value = s.exploreBy;
+  exploreViewSel.value = s.exploreView;
   currencySel.value = s.currency;
   syncIntervalOptions(isPredictionSource(s.source) ? s.eventInterval : s.interval);
   marketList.dataset.kind = '';
   syncKind(s);
   candleWidthSel.value = s.candleWidth;
+  syncExploreView();
   fontSel.value = s.font;
   textListBox.checked = s.textList;
   syncMarketControls();
+  renderExplore();
   showIndexBox.checked = s.showIndex;
   manualOnlyBox.checked = s.manualOnly;
   lookUpBox.checked = s.lookUpUpdate;
@@ -796,7 +1034,10 @@ function readForm(): Settings {
     market: (events ? eventSlug : normalizeMarket)(li.querySelector<HTMLInputElement>('input[type=text]')!.value),
     charted: li.querySelector<HTMLInputElement>('input[type=checkbox]')?.checked ?? false,
   })).filter((r) => r.market);
-  if (rows.length === 0) throw new Error(events ? 'Add at least one event.' : 'Add at least one market.');
+  // Exploring, the watchlist may be empty: it's kept as it was.
+  const explore = tabExplore.getAttribute('aria-selected') === 'true';
+  if (rows.length === 0 && !explore) throw new Error(events ? 'Add at least one event.' : 'Add at least one market.');
+  const watchlist = rows.length ? rows : null;
 
   const manualOnly = manualOnlyBox.checked;
   const refreshSec = parseDuration(refreshInput.value, 'Refresh');
@@ -807,12 +1048,15 @@ function readForm(): Settings {
   const next = sanitize({
     source: sourceSel.value,
     currency: currencySel.value as Currency,
-    markets: events ? settings.markets : rows.map((r) => r.market),
-    charts: events ? settings.charts : rows.filter((r) => r.charted).map((r) => r.market),
+    markets: events || !watchlist ? settings.markets : watchlist.map((r) => r.market),
+    charts: events || !watchlist ? settings.charts : watchlist.filter((r) => r.charted).map((r) => r.market),
     interval: events ? settings.interval : Number(intervalSel.value),
-    events: events ? { ...settings.events, [sourceSel.value]: rows.map((r) => r.market) } : settings.events,
-    eventCharts: events ? { ...settings.eventCharts, [sourceSel.value]: rows.filter((r) => r.charted).map((r) => r.market) } : settings.eventCharts,
+    events: events && watchlist ? { ...settings.events, [sourceSel.value]: watchlist.map((r) => r.market) } : settings.events,
+    eventCharts: events && watchlist ? { ...settings.eventCharts, [sourceSel.value]: watchlist.filter((r) => r.charted).map((r) => r.market) } : settings.eventCharts,
     eventInterval: events ? Number(intervalSel.value) : settings.eventInterval,
+    explore,
+    exploreBy: exploreBySel.value as ExploreBy,
+    exploreView: exploreViewSel.value as ExploreView,
     candleWidth: candleWidthSel.value as CandleWidth,
     font: fontSel.value as ChartFont,
     textList: textListBox.checked,
@@ -827,7 +1071,13 @@ function readForm(): Settings {
   // Keep within the one-request-per-MIN_GAP_MS budget: an update has to finish its
   // requests before the next one is due.
   const src = events ? getPredictionSource(next.source) : getSource(next.source);
-  const requests = events ? getPredictionSource(next.source).requestsPerUpdate(eventRequest(next)) : getSource(next.source).requestsPerUpdate(marketRequest(next));
+  const requests = events
+    // Exploring: finding the events, then charting as many as fit.
+    ? getPredictionSource(next.source).requestsPerUpdate(explore
+      ? eventRequest(next, Array.from({ length: EXPLORE_COUNT }, (_, i) => String(i)))
+      : eventRequest(next)) + (explore ? getPredictionSource(next.source).exploreRequests?.(next.exploreBy) ?? 1 : 0)
+    // Exploring: ranking every market, then a line graph of each found (unless the list is text).
+    : explore ? getSource(next.source).exploreRequests(next.exploreBy) + exploreCandles(next) : getSource(next.source).requestsPerUpdate(marketRequest(next));
   const minRefresh = Math.max(15, Math.ceil((requests * MIN_GAP_MS) / 1000));
   if (!manualOnly && refreshSec < minRefresh) {
     throw new Error(`Refresh must be at least ${formatDuration(minRefresh)} for ${requests} ${src.label} requests per update (one per ${MIN_GAP_MS / 1000}s).`);
@@ -839,6 +1089,7 @@ function readForm(): Settings {
 async function applyForm(): Promise<void> {
   syncManualOnlyRows();
   syncKind();
+  syncExploreView();
   syncIntervalOptions();
   syncMarketControls();
   let next: Settings;
@@ -863,6 +1114,7 @@ async function applyForm(): Promise<void> {
   if (JSON.stringify(next) === JSON.stringify(settings)) return;
   const prev = settings;
   settings = next;
+  renderExplore();
   await saveSettings(settings);
   syncLookUp();
   // Changes to what's charted, or how, show the new chart right away, like
@@ -872,7 +1124,8 @@ async function applyForm(): Promise<void> {
     || next.candleWidth !== prev.candleWidth || shownCharts(next).join() !== shownCharts(prev).join()
     || next.showIndex !== prev.showIndex || next.textList !== prev.textList
     || JSON.stringify(next.events) !== JSON.stringify(prev.events) || JSON.stringify(next.eventCharts) !== JSON.stringify(prev.eventCharts)
-    || next.eventInterval !== prev.eventInterval;
+    || next.eventInterval !== prev.eventInterval
+    || next.explore !== prev.explore || next.exploreBy !== prev.exploreBy || next.exploreView !== prev.exploreView;
   if (chartChanged) restartSchedule({ cancel: true, manual: true });
   // A new font needs no new data: redraw the last, sparing the APIs (CoinGecko
   // drops the index when asked too often). Without data to reuse, this fetches.

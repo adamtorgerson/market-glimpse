@@ -30,9 +30,34 @@
       <form id="settings" autocomplete="off">
         <fieldset>
           <legend>Markets</legend>
-          <p id="markets-hint" class="muted small">Up to 4 charts; 8 markets</p>
-          <ul id="markets"></ul>
-          <button id="add-market" type="button" class="secondary">+ Add market</button>
+          <div class="tabs" role="tablist" aria-label="Markets to monitor">
+            <button type="button" role="tab" id="tab-watchlist" aria-controls="watchlist" aria-selected="true">Watchlist</button>
+            <button type="button" role="tab" id="tab-explore" aria-controls="explore" aria-selected="false">Explore</button>
+          </div>
+          <div id="watchlist" role="tabpanel" aria-labelledby="tab-watchlist">
+            <p id="markets-hint" class="muted small">Up to 4 charts; 8 markets</p>
+            <ul id="markets"></ul>
+            <button id="add-market" type="button" class="secondary">+ Add market</button>
+          </div>
+          <div id="explore" role="tabpanel" aria-labelledby="tab-explore" hidden>
+            <label>Rank by
+              <select name="explore-by" id="explore-by">
+                <option value="volume">Highest volume</option>
+                <option value="movers">Biggest movers</option>
+                <option value="liquidity">Most liquid</option>
+              </select>
+            </label>
+            <label>Show
+              <select name="explore-view" id="explore-view">
+                <option value="list">List</option>
+                <option value="1">1 chart</option>
+                <option value="2">2 charts</option>
+                <option value="4">4 charts</option>
+              </select>
+            </label>
+            <p id="explore-hint" class="muted small"></p>
+            <ol id="explore-list"></ol>
+          </div>
           <label>Market list as text
             <input type="checkbox" name="text-list" id="text-list" />
           </label>

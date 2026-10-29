@@ -1,4 +1,4 @@
-import { formatPrice, formatTime, formatVolume, SCREEN_H, SCREEN_W, timeTicks } from './chart';
+import { formatChange, formatPrice, formatTime, formatVolume, SCREEN_H, SCREEN_W, timeTicks } from './chart';
 import { formatInterval, type TextWidth } from './settings';
 import type { PredictionData } from './sources/prediction';
 import type { MarketData } from './sources/types';
@@ -195,7 +195,8 @@ const MID = 2;
 
 /**
  * The market list (nothing charted) as text: one market per line, with the
- * name and 24h volume mid-bright and the price bright and right-aligned.
+ * name and 24h volume (or change, if given) mid-bright and the price bright
+ * and right-aligned.
  * Corners as on the other screens: the time top-left, the source top-right,
  * and `name` bottom-right. Columns are lined up by the font's measured widths,
  * so they may be off by a px or two.
@@ -226,7 +227,8 @@ export function buildTextList(m: TextListModel): TextBox[] {
       return;
     }
     bright.lines[i]!.texts.push({ x: priceR - textWidth(price), text: price });
-    if (d.dayVolume !== undefined) mid.lines[i]!.texts.push({ x: priceR + 16, text: formatVolume(d.dayVolume) });
+    const after = d.dayChange !== undefined ? formatChange(d.dayChange) : d.dayVolume !== undefined ? formatVolume(d.dayVolume) : null;
+    if (after) mid.lines[i]!.texts.push({ x: priceR + 16, text: after });
   });
   if (m.right) {
     // Shift the whole block so its widest row ends 4px from the right edge.

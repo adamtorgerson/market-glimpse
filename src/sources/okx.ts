@@ -1,4 +1,4 @@
-import { exchangeSource, UnknownMarketError, type Ticker } from './exchange';
+import { exchangeSource, topOfBook, UnknownMarketError, type Ticker } from './exchange';
 import { PublicApi } from './http';
 
 const api = new PublicApi('https://www.okx.com/api/v5');
@@ -10,8 +10,11 @@ async function get<T>(path: string, signal: AbortSignal): Promise<T> {
   return body.data;
 }
 
-interface OkxTicker { instId: string; last: string; vol24h: string }
-const toTicker = (t: OkxTicker): Ticker => ({ last: +t.last, dayVolume: +t.vol24h });
+// For spot, vol24h is in the base currency and volCcy24h in the quote.
+interface OkxTicker { instId: string; last: string; vol24h: string; volCcy24h: string; open24h: string; bidPx: string; bidSz: string; askPx: string; askSz: string }
+const toTicker = (t: OkxTicker): Ticker => ({
+  last: +t.last, dayVolume: +t.vol24h, open: +t.open24h, quoteVolume: +t.volCcy24h, topOfBook: topOfBook(+t.bidPx, +t.bidSz, +t.askPx, +t.askSz),
+});
 
 export const okx = exchangeSource({
   id: 'okx',

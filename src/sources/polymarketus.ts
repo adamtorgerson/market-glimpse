@@ -1,5 +1,6 @@
 import { describeError, isAbort, PublicApi } from './http';
-import { chooseOutcomes, type Chosen, type PredictionData, type PredictionSource } from './prediction';
+import { EXPLORE_COUNT } from './types';
+import { chooseOutcomes, type Chosen, type ExploredEvent, type PredictionData, type PredictionSource } from './prediction';
 
 /**
  * Polymarket US (polymarket.us): the US exchange, with its own events and
@@ -133,6 +134,20 @@ export function pickUs(e: UsEvent): UsPick {
   return chooseOutcomes(lines, exclusive, numbers.every(Number.isFinite) ? numbers : undefined);
 }
 
+/** A market's best bid and ask, with the shares at each (`v1/markets/{slug}/bbo`). */
+interface UsQuote {
+  bestBid?: { value: string };
+  bestAsk?: { value: string };
+  bidShares?: string;
+  askShares?: string;
+}
+
+/** Most traded events whose leading market's quote is looked up, for liquidity, and how long the ranking is kept. */
+const QUOTE_POOL = 12;
+const QUOTE_TTL_MS = 10 * 60_000;
+let liquid: { at: number; found: ExploredEvent[] } | null = null;
+const liquidFresh = () => !!liquid && Date.now() - liquid.at < QUOTE_TTL_MS;
+
 /** Markets each event needed history for last time, for the request estimate (2 until fetched). */
 const historyCounts = new Map<string, number>();
 
@@ -147,6 +162,41 @@ export const polymarketUs: PredictionSource = {
 
   estimateMs(req) {
     return gateway.estimateMs(this.requestsPerUpdate(req));
+  },
+
+  // It publishes no 24h volume or price changes; it does order events by
+  // their volume (all time, it appears), and that's one request. Liquidity
+  // is the money at the top of each of the most traded events' leading
+  // market, a quote each (not the book), ranked every QUOTE_TTL_MS.
+  exploreRankings: ['volume', 'liquidity'],
+  exploreNote: 'Ranked by total volume (no 24h volume is published), or liquidity at the top of the book.',
+
+  exploreRequests(by) {
+    return by === 'liquidity' && !liquidFresh() ? 1 + QUOTE_POOL : 1;
+  },
+
+  async explore(by, signal) {
+    if (by === 'liquidity' && liquidFresh()) return liquid!.found;
+    const { events } = await gateway.get<{ events: UsEvent[] }>(
+      `/v1/events?active=true&closed=false&orderBy=volume&orderDirection=desc&limit=${EXPLORE_COUNT * 3}`, signal);
+    // Only events with something to chart.
+    const chartable = events.map((e) => ({ e, lines: pickUs(e).lines })).filter((x) => x.lines.length > 0);
+    if (by !== 'liquidity') return chartable.slice(0, EXPLORE_COUNT).map(({ e }) => ({ market: e.slug, title: e.title }));
+
+    const pool = chartable.slice(0, QUOTE_POOL);
+    const ranked: (ExploredEvent & { liquidity: number })[] = [];
+    for (const { e, lines } of pool) {
+      try {
+        const { marketData: q } = await gateway.get<{ marketData: UsQuote }>(`/v1/markets/${encodeURIComponent(lines[0]!.market)}/bbo`, signal);
+        const money = (+(q.bestBid?.value ?? 0)) * +(q.bidShares ?? 0) + (+(q.bestAsk?.value ?? 0)) * +(q.askShares ?? 0);
+        if (Number.isFinite(money) && money > 0) ranked.push({ market: e.slug, title: e.title, liquidity: money });
+      } catch (err) {
+        if (isAbort(err)) throw err;
+      }
+    }
+    const found = ranked.sort((a, b) => b.liquidity - a.liquidity).slice(0, EXPLORE_COUNT);
+    liquid = { at: Date.now(), found };
+    return found;
   },
 
   async fetch(req, signal) {

@@ -1,12 +1,29 @@
 import { describeError, isAbort, type PublicApi } from './http';
-import { Catalog, type Instrument } from './symbols';
-import type { Candle, MarketData, MarketRequest, MarketSource } from './types';
+import { Catalog, marketName, rankMarkets, type Instrument } from './symbols';
+import { EXPLORE_COUNT, type Candle, type MarketData, type MarketRequest, type MarketSource } from './types';
 
 export interface Ticker {
   last: number;
   /** Rolling 24h volume in the base currency. */
   dayVolume?: number;
+  /** The price 24h ago, for the 24h change. */
+  open?: number;
+  /** Rolling 24h volume in the quote currency; else Explore takes it as `dayVolume` × `last`. */
+  quoteVolume?: number;
+  /** Money at the best bid and best ask (price × size, each), in the quote currency. */
+  topOfBook?: number;
 }
+
+/** Money at a best bid and ask: price × size, each. */
+export function topOfBook(bid: number, bidSize: number, ask: number, askSize: number): number | undefined {
+  const sum = bid * bidSize + ask * askSize;
+  return Number.isFinite(sum) && sum > 0 ? sum : undefined;
+}
+
+/** Most traded markets whose best bid and ask are looked up one by one, where the tickers lack their sizes. */
+const QUOTE_POOL = 12;
+/** How long those are kept: a ranking, not a price. */
+const QUOTE_TTL_MS = 10 * 60_000;
 
 /**
  * An exchange whose public API has single-market candles, plus tickers for
@@ -34,13 +51,20 @@ export interface ExchangeSpec {
   ticker(market: string, signal: AbortSignal): Promise<Ticker>;
   /**
    * Tickers for instrument `ids`, keyed by id, from one request: just those
-   * if the API takes a list, else every spot market's.
+   * if the API takes a list, else every spot market's. Every spot market's
+   * if `ids` is empty (Explore).
    */
   tickers(signal: AbortSignal, ids: string[]): Promise<Map<string, Ticker>>;
   /** The `count` most recent candles for an instrument id, oldest first. Throws `UnknownMarketError` like `ticker`. */
   candles(market: string, interval: string, intervalSec: number, count: number, signal: AbortSignal): Promise<Candle[]>;
   /** Every spot market, from one request, made once per session. */
   instruments(signal: AbortSignal): Promise<Instrument[]>;
+  /**
+   * The money at one market's best bid and ask, for an exchange whose tickers
+   * don't give their sizes: Explore's most liquid then looks up the
+   * QUOTE_POOL most traded, one request each, every QUOTE_TTL_MS.
+   */
+  topOfBook?(market: string, signal: AbortSignal): Promise<number | undefined>;
 }
 
 export class UnknownMarketError extends Error {
@@ -75,6 +99,9 @@ export function currentSlot(intervalSec: number): number {
 
 export function exchangeSource(spec: ExchangeSpec): MarketSource {
   const catalog = lazyCatalog(spec.instruments);
+  /** Looked-up tops of the book, by instrument id, and when. */
+  let quoted: { at: number; byId: Map<string, number | undefined> } | null = null;
+  const quotesFresh = () => !!quoted && Date.now() - quoted.at < QUOTE_TTL_MS;
 
   async function resolve(markets: string[], currency: string, signal: AbortSignal): Promise<Map<string, Instrument>> {
     const c = await catalog.get(signal);
@@ -104,6 +131,47 @@ export function exchangeSource(spec: ExchangeSpec): MarketSource {
 
     estimateMs(req) {
       return spec.api.estimateMs(this.requestsPerUpdate(req));
+    },
+
+    async explore(by, currency, signal) {
+      const c = await catalog.get(signal);
+      const tickers = await spec.tickers(signal, []);
+      let rows = c.all.flatMap((instrument) => {
+        const t = tickers.get(instrument.id);
+        if (!t) return [];
+        const quoteVolume = t.quoteVolume ?? (t.dayVolume ?? 0) * t.last;
+        return [{ instrument, last: t.last, dayVolume: t.dayVolume, quoteVolume, change: t.open ? t.last / t.open - 1 : undefined, topOfBook: t.topOfBook }];
+      });
+      if (by === 'liquidity' && spec.topOfBook) {
+        // Tickers without the sizes: the most traded markets' tops of the book, one by one.
+        const pool = rankMarkets(rows, 'volume', currency, QUOTE_POOL);
+        if (!quotesFresh() || pool.some((r) => !quoted!.byId.has(r.instrument.id))) {
+          const byId = new Map<string, number | undefined>();
+          for (const r of pool) {
+            try {
+              byId.set(r.instrument.id, await spec.topOfBook(r.instrument.id, signal));
+            } catch (e) {
+              if (isAbort(e)) throw e;
+            }
+          }
+          quoted = { at: Date.now(), byId };
+        }
+        rows = pool.map((r) => ({ ...r, topOfBook: quoted!.byId.get(r.instrument.id) }));
+      }
+      return rankMarkets(rows, by, currency, EXPLORE_COUNT).map((r) => ({
+        market: marketName(r.instrument), last: r.last, dayVolume: r.dayVolume, quoteVolume: r.quoteVolume, change: r.change, topOfBook: r.topOfBook,
+      }));
+    },
+
+    exploreRequests(by) {
+      // Every market's ticker, plus the market list until it's loaded, plus
+      // for liquidity without sizes in the tickers, the looked-up tops of the book.
+      const quotes = by === 'liquidity' && spec.topOfBook && !quotesFresh() ? QUOTE_POOL : 0;
+      return 1 + (catalog.loaded ? 0 : 1) + quotes;
+    },
+
+    estimateExploreMs(by, candles) {
+      return spec.api.estimateMs(this.exploreRequests(by) + candles);
     },
 
     async fetch(

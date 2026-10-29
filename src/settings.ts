@@ -1,7 +1,8 @@
 import { isCalibration, type LookUpCalibration } from './lookup';
-import { DEFAULT_SOURCE, getSource, isPredictionSource, PREDICTION_SOURCES, SOURCES } from './sources';
+import { DEFAULT_SOURCE, getPredictionSource, getSource, isPredictionSource, PREDICTION_SOURCES, SOURCES } from './sources';
 import { EVENT_INTERVALS, eventSlug } from './sources/prediction';
 import { CURRENCIES, DEFAULT_CURRENCY, type Currency } from './sources/symbols';
+import type { ExploreBy } from './sources/types';
 
 export const CANDLE_WIDTHS = ['wide', 'narrow', 'thin', 'text-blocks', 'text-wide', 'text-narrow', 'text-thin'] as const;
 export type CandleWidth = (typeof CANDLE_WIDTHS)[number];
@@ -13,6 +14,15 @@ export type ChartFont = (typeof CHART_FONTS)[number];
 
 export const MAX_CHARTS = 4;
 
+/** Explore's layouts: the market list, or that many of the top markets charted. */
+export const EXPLORE_VIEWS = ['list', '1', '2', '4'] as const;
+export type ExploreView = (typeof EXPLORE_VIEWS)[number];
+
+/** Markets (or events) Explore charts with `view`: none for the list, and no more than `width` allows. */
+export function exploreCharts(view: ExploreView, width: CandleWidth, events: boolean): number {
+  if (view === 'list') return 0;
+  return events ? Number(view) : Math.min(Number(view), maxCharts(width));
+}
 export const MAX_MARKETS = 8;
 
 /** Text candles are drawn in the glasses' font instead of sent as images. */
@@ -48,6 +58,18 @@ export interface Settings {
   eventCharts: Record<string, string[]>;
   /** Spacing of the events' history, in minutes (`EVENT_INTERVALS`). */
   eventInterval: number;
+  /**
+   * Monitor the source's top markets (Explore) instead of the watchlist
+   * (`markets`, or for a prediction market, its `events`).
+   */
+  explore: boolean;
+  /** What Explore ranks by: 24h volume, or the size of the 24h change. */
+  exploreBy: ExploreBy;
+  /**
+   * How Explore shows what it finds: the full-screen list, or the top 1, 2
+   * or 4 charted (for an exchange, the rest listed under them).
+   */
+  exploreView: ExploreView;
   /**
    * Candle body width: wide = 6px (4px in quadrants), narrow = 3px, thin = 2px,
    * or text-wide / text-narrow / text-thin = drawn in the glasses' font rather
@@ -87,6 +109,9 @@ export const DEFAULT_SETTINGS: Settings = {
   events: {},
   eventCharts: {},
   eventInterval: 5,
+  explore: false,
+  exploreBy: 'volume',
+  exploreView: 'list',
   candleWidth: 'narrow',
   font: 'atkinson',
   textList: false,
@@ -145,8 +170,14 @@ export function sanitize(input: Partial<Settings>): Settings {
   const lookUpUpdate = typeof input.lookUpUpdate === 'boolean' ? input.lookUpUpdate : d.lookUpUpdate;
   const lookUpCal = isCalibration(input.lookUpCal) ? input.lookUpCal : null;
   const alwaysOn = typeof input.alwaysOn === 'boolean' ? input.alwaysOn : d.alwaysOn;
+  const explore = typeof input.explore === 'boolean' ? input.explore : d.explore;
+  // A ranking the source offers (Polymarket US has only volume).
+  const rankings = isPredictionSource(source) ? getPredictionSource(source).exploreRankings : undefined;
+  const wantBy: ExploreBy = input.exploreBy === 'movers' || input.exploreBy === 'liquidity' ? input.exploreBy : 'volume';
+  const exploreBy = !rankings || rankings.includes(wantBy) ? wantBy : rankings[0]!;
+  const exploreView = (EXPLORE_VIEWS as readonly string[]).includes(input.exploreView as string) ? input.exploreView! : d.exploreView;
 
-  return { source, currency, markets, charts, interval, events, eventCharts, eventInterval, candleWidth, font, textList, showIndex, manualOnly, lookUpUpdate, lookUpCal, refreshSec, displaySec, alwaysOn };
+  return { source, currency, markets, charts, interval, events, eventCharts, eventInterval, explore, exploreBy, exploreView, candleWidth, font, textList, showIndex, manualOnly, lookUpUpdate, lookUpCal, refreshSec, displaySec, alwaysOn };
 }
 
 /** `minutes` if supported, else the supported size closest to it (by ratio). */

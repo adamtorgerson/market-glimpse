@@ -1,5 +1,6 @@
 import { describeError, isAbort, PublicApi } from './http';
-import { chooseOutcomes, MAX_OUTCOMES, type Chosen, type PredictionRequest, type Outcome, type PredictionData, type PredictionSource, type PricePoint } from './prediction';
+import { EXPLORE_COUNT } from './types';
+import { chooseOutcomes, MAX_OUTCOMES, type Chosen, type PredictionRequest, type ExploredEvent, type Outcome, type PredictionData, type PredictionSource, type PricePoint } from './prediction';
 
 // Two APIs, each with its own rate limit: Gamma for events and current
 // prices, the CLOB for price history.
@@ -28,6 +29,8 @@ export interface GammaEvent {
   slug: string;
   title: string;
   volume24hr?: number;
+  /** Money on its markets' books, in dollars. */
+  liquidity?: number;
   /** Exactly one of the event's markets resolves Yes, so their prices add up to about 1. */
   negRisk?: boolean;
   markets: GammaMarket[];
@@ -113,6 +116,27 @@ export const polymarket: PredictionSource = {
   estimateMs(req) {
     // The events, then their history, from each API, one after the other.
     return gamma.estimateMs(1) + clob.estimateMs(historyRequests(req));
+  },
+
+  async explore(by, signal) {
+    if (by === 'liquidity') {
+      // Polymarket sorts events by the money on their books: one request.
+      const events = await gamma.get<GammaEvent[]>(`/events?active=true&closed=false&order=liquidity&ascending=false&limit=${EXPLORE_COUNT * 2}`, signal);
+      return events.filter((e) => !e.slug.endsWith('-more-markets') && pick(e).lines.length > 0).slice(0, EXPLORE_COUNT)
+        .map((e) => ({ market: e.slug, title: e.title, volume: e.volume24hr, liquidity: e.liquidity }));
+    }
+    // The most traded markets, each with its event: one request, ranked by the
+    // event's most traded market, or its market that moved most.
+    const markets = await gamma.get<{ volume24hr?: number; oneDayPriceChange?: number; events?: { slug: string; title?: string }[] }[]>(
+      '/markets?active=true&closed=false&order=volume24hr&ascending=false&limit=100', signal);
+    const ranked = by === 'volume' ? markets : [...markets].sort((a, b) => Math.abs(b.oneDayPriceChange ?? 0) - Math.abs(a.oneDayPriceChange ?? 0));
+    const events: ExploredEvent[] = [];
+    for (const m of ranked) {
+      const e = m.events?.[0];
+      // A game's "more markets" event is its spreads and totals, with no winner to chart.
+      if (e?.slug && !e.slug.endsWith('-more-markets') && !events.some((x) => x.market === e.slug)) events.push({ market: e.slug, title: e.title, volume: m.volume24hr, change: m.oneDayPriceChange });
+    }
+    return events.slice(0, EXPLORE_COUNT);
   },
 
   async fetch(req, signal) {

@@ -1,3 +1,4 @@
+import type { ExploreBy } from './types';
 /**
  * Prediction markets: a different kind of source from the exchanges. A market
  * is an event ("Man City vs. Brighton") whose outcomes ("Man City", "Draw",
@@ -59,10 +60,34 @@ export interface PredictionSource {
   estimateMs(req: PredictionRequest): number;
   /** One result per `req.markets` entry, in order. Rejects only with an AbortError. */
   fetch(req: PredictionRequest, signal: AbortSignal): Promise<PredictionData[]>;
+  /**
+   * The top events (up to EXPLORE_COUNT, as many as the list shows) by 24h
+   * volume, or by their markets' biggest 1-day move, with what they were
+   * ranked by. Missing where the API doesn't give either.
+   */
+  explore?(by: ExploreBy, signal: AbortSignal): Promise<ExploredEvent[]>;
+  /** The rankings `explore` offers, if not all. */
+  exploreRankings?: readonly ExploreBy[];
+  /** Requests one `explore` by `by` makes, if not 1. */
+  exploreRequests?(by: ExploreBy): number;
+  /** Shown with Explore's list, e.g. what its ranking means for this source. */
+  exploreNote?: string;
 }
 
 /** History spacings offered, in minutes. */
 export const EVENT_INTERVALS = [1, 5, 15, 60, 240, 1440];
+
+export interface ExploredEvent {
+  /** Slug. */
+  market: string;
+  title?: string;
+  /** Its most traded market's 24h volume, in dollars. */
+  volume?: number;
+  /** Its market that moved most: the 1-day change in probability (0.15 is 15 points). */
+  change?: number;
+  /** Its liquidity in dollars: the money on its books, or at the top of its leading market's. */
+  liquidity?: number;
+}
 
 /** Lines one chart can tell apart without colour. */
 export const MAX_OUTCOMES = 4;

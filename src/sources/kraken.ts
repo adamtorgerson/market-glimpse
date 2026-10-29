@@ -1,7 +1,7 @@
-import { lazyCatalog } from './exchange';
+import { lazyCatalog, topOfBook } from './exchange';
 import { PublicApi, describeError as describe, isAbort } from './http';
-import { canonAsset, type Instrument } from './symbols';
-import type { Candle, MarketData, MarketRequest, MarketSource } from './types';
+import { canonAsset, marketName, rankMarkets, type Instrument } from './symbols';
+import { EXPLORE_COUNT, type Candle, type MarketData, type MarketRequest, type MarketSource } from './types';
 
 const api = new PublicApi('https://api.kraken.com/0/public');
 
@@ -66,6 +66,13 @@ interface Ticker {
   c: [string, string];
   /** Volume [today, last 24h]. */
   v: [string, string];
+  /** Volume-weighted average price [today, last 24h]. */
+  p: [string, string];
+  /** Today's opening price (since midnight UTC): Kraken gives no price from 24h ago. */
+  o: string;
+  /** Best ask and bid: [price, whole lot volume, lot volume]. */
+  a: [string, string, string];
+  b: [string, string, string];
 }
 
 type OhlcRow = [number, string, string, string, string, string, string, number];
@@ -88,6 +95,37 @@ export const kraken: MarketSource = {
 
   estimateMs(req) {
     return api.estimateMs(this.requestsPerUpdate(req));
+  },
+
+  async explore(by, currency, signal) {
+    const c = await catalog.get(signal);
+    // Every pair's ticker: one request per asset class, as Kraken can't mix them.
+    const rows = [];
+    for (const tokenized of [false, true]) {
+      const body = await api.get<{ error: string[]; result?: Record<string, Ticker> }>(`/Ticker${tokenized ? `?${TOKENIZED}` : ''}`, signal);
+      if (body.error?.length) throw new Error(body.error.join(', ').replace(/^E\w+:/, ''));
+      for (const instrument of c.all.filter((p) => p.tokenized === tokenized)) {
+        const t = body.result?.[instrument.key] ?? body.result?.[instrument.id];
+        if (!t) continue;
+        const last = +t.c[0], dayVolume = +t.v[1];
+        rows.push({
+          instrument, last, dayVolume, quoteVolume: dayVolume * +t.p[1], change: +t.o ? last / +t.o - 1 : undefined,
+          topOfBook: topOfBook(+t.b[0], +t.b[2], +t.a[0], +t.a[2]),
+        });
+      }
+    }
+    return rankMarkets(rows, by, currency, EXPLORE_COUNT).map((r) => ({
+      market: marketName(r.instrument), last: r.last, dayVolume: r.dayVolume, quoteVolume: r.quoteVolume, change: r.change, topOfBook: r.topOfBook,
+    }));
+  },
+
+  exploreRequests() {
+    // Every pair's ticker, crypto then stocks, plus the pair lists until they've been loaded.
+    return 2 + (catalog.loaded ? 0 : 2);
+  },
+
+  estimateExploreMs(by, candles) {
+    return api.estimateMs(this.exploreRequests(by) + candles);
   },
 
   async fetch(

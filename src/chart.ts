@@ -664,12 +664,13 @@ function drawCorner(ctx: CanvasRenderingContext2D, r: Rect, font: string, pad: n
 
 type Cell = { text: string; color: string; bold?: boolean };
 
-/** Name, price and 24h volume (unlabelled), or name and error. */
+/** Name, price and 24h volume (unlabelled), or 24h change if given; or name and error. */
 function marketCells(m: MarketData): Cell[] {
   const last = m.last ?? m.candles.at(-1)?.close;
   if (m.error || last === undefined) return [{ text: m.market, color: MID }, { text: m.error ?? 'no data', color: DIM }];
   const cells: Cell[] = [{ text: m.market, color: MID }, { text: formatPrice(last), color: FG, bold: true }];
-  if (m.dayVolume !== undefined) cells.push({ text: formatVolume(m.dayVolume), color: MID });
+  if (m.dayChange !== undefined) cells.push({ text: formatChange(m.dayChange), color: MID });
+  else if (m.dayVolume !== undefined) cells.push({ text: formatVolume(m.dayVolume), color: MID });
   return cells;
 }
 
@@ -787,6 +788,12 @@ export function formatPrice(p: number): string {
   const abs = Math.abs(p);
   const digits = abs >= 10000 ? 0 : abs >= 100 ? 2 : abs >= 1 ? 3 : abs >= 0.01 ? 5 : 8;
   return p.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+}
+
+/** A 24h change, signed: "+12.3%", "−4.0%". */
+export function formatChange(f: number): string {
+  const pct = f * 100;
+  return `${pct >= 0 ? '+' : '−'}${Math.abs(pct).toFixed(Math.abs(pct) >= 100 ? 0 : 1)}%`;
 }
 
 export function formatVolume(v: number): string {

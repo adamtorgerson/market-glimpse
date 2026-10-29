@@ -1,4 +1,4 @@
-import { exchangeSource, UnknownMarketError, type Ticker } from './exchange';
+import { exchangeSource, topOfBook, UnknownMarketError, type Ticker } from './exchange';
 import { HttpError, PublicApi } from './http';
 
 // Binance.US: Binance.com blocks the US (HTTP 451).
@@ -16,8 +16,14 @@ async function get<T>(path: string, signal: AbortSignal): Promise<T> {
   }
 }
 
-interface BinanceTicker { symbol: string; lastPrice: string; volume: string }
-const toTicker = (t: BinanceTicker): Ticker => ({ last: +t.lastPrice, dayVolume: +t.volume });
+interface BinanceTicker {
+  symbol: string; lastPrice: string; volume: string; quoteVolume: string; openPrice: string;
+  bidPrice: string; bidQty: string; askPrice: string; askQty: string;
+}
+const toTicker = (t: BinanceTicker): Ticker => ({
+  last: +t.lastPrice, dayVolume: +t.volume, open: +t.openPrice, quoteVolume: +t.quoteVolume,
+  topOfBook: topOfBook(+t.bidPrice, +t.bidQty, +t.askPrice, +t.askQty),
+});
 
 export const binanceus = exchangeSource({
   id: 'binanceus',
@@ -33,8 +39,9 @@ export const binanceus = exchangeSource({
   },
 
   async tickers(signal, ids) {
-    // Just the markets asked for; one unknown symbol fails the lot, but they come from the market list.
-    const rows = await get<BinanceTicker[]>(`/ticker/24hr?symbols=${encodeURIComponent(JSON.stringify(ids))}`, signal);
+    // Just the markets asked for (one unknown symbol fails the lot, but they
+    // come from the market list), or with none, every market.
+    const rows = await get<BinanceTicker[]>(ids.length ? `/ticker/24hr?symbols=${encodeURIComponent(JSON.stringify(ids))}` : '/ticker/24hr', signal);
     return new Map<string, Ticker>(rows.map((t) => [t.symbol, toTicker(t)]));
   },
 

@@ -121,6 +121,22 @@ label > input:disabled { opacity: 0.4; }
 #markets li input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent); }
 #markets li button { padding: 6px 12px; }
 
+/* Watchlist / Explore: a segmented control. */
+.tabs { display: flex; margin: 4px 0 10px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.tabs button { flex: 1; border: 0; border-radius: 0; background: transparent; color: var(--muted); padding: 8px 12px; }
+.tabs button + button { border-left: 1px solid var(--line); }
+.tabs button[aria-selected="true"] { background: var(--accent); color: #04110a; }
+
+#explore-list { list-style: none; margin: 10px 0; padding: 0; }
+#explore-list li { display: flex; align-items: center; gap: 10px; min-height: 40px; border-top: 1px solid var(--line); }
+#explore-list li:first-child { border-top: 0; }
+#explore-list .rank { width: 1.2em; color: var(--muted); text-align: right; font-size: 0.85rem; }
+/* Event titles can be long: they wrap rather than push the value off. */
+#explore-list .name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+#explore-list .value { color: var(--muted); font-size: 0.9rem; white-space: nowrap; }
+#explore-list button { padding: 4px 12px; }
+#explore-list .added { width: 2.6em; text-align: center; color: var(--muted); }
+
 code { color: var(--fg); }
 
 #speed-results { width: 100%; border-collapse: collapse; }

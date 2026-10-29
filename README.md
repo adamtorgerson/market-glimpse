@@ -63,6 +63,48 @@ refreshes every 2m, chart shown for 12s, narrow candles.
   an unlabelled line graph of its closing prices over the period one chart
   would show (the candle size times the candles that fit). Each graph costs
   a candle request, so 8 markets take about 13s to fetch.
+- **Watchlist / Explore**: two tabs under Markets, choosing what's
+  monitored. **Watchlist** is the markets (or events) entered by hand, as
+  above. **Explore** monitors the data source's top markets instead, ranked
+  by **Highest volume** (default; 24h volume in the quote currency) or
+  **Biggest movers** (the size of the 24h change, up or down, among its 100
+  most traded): the top 8. **Show** picks how: **List** (default), the
+  full-screen market list, with the 24h change in place of the volume for
+  movers; or **1 chart**, **2 charts** or **4 charts**, charting just the top
+  1, 2 or 4 (with the index, as on any chart) and listing the rest of the 8
+  under them. Text candles allow 1. For a prediction market, List is its
+  top 8 events, one per row: the title, the likeliest outcome's probability
+  and name, the 24h volume, and a line plot of the event's top
+  (up to 4) outcomes over the period one chart shows, in the charts' line
+  styles, each row scaled to its own lines; or the top 1, 2 or 4 charted,
+  the rest listed under them. With **Market list as text**, the List goes as
+  text: each event's title, its likeliest outcome's probability, that
+  outcome's name, and its 24h volume, from just the events request (no
+  history). Only markets quoted in
+  the currency type count (any dollar for USD), one per asset (its most
+  traded market), leaving out pairs of money (USDC-USDT, EUR-USD) and
+  leveraged tokens (`BTC5L`, `ETHBULL`). The tab lists them with their volume
+  or change, and while the watchlist has room, a **+** adds one to it (✓ once
+  it's there). Ranking takes every market's ticker, one request (Kraken: one
+  for crypto and one for stocks; Polymarket: its 100 most traded markets,
+  leaving out a game's "more markets" event, which has no winner),
+  then a candle request per chart, or in the list, per line graph (none for
+  the text list). Kraken's
+  change is from midnight UTC: it gives no price from 24h ago. Polymarket US
+  publishes no 24h volume or price changes, but orders its events by volume
+  (all time, it appears): it offers Highest volume only, by that, with no
+  figure to show.
+- **Most liquid** (a third Explore ranking): the money at the best bid and
+  best ask (price × size, each), the top of the book rather than its depth,
+  among the 100 most traded (a big order on a dead market isn't liquidity);
+  no order books are fetched. Kraken, OKX, Binance.US and Bitget give the
+  sizes in the tickers already fetched. Coinbase's tickers have no bid or
+  ask, and Gate's all-market tickers no sizes: they look up their 12 most
+  traded markets' best bid and ask, a request each, and keep the ranking 10
+  minutes. Polymarket ranks events by its own liquidity (the money on their
+  books), one request. Polymarket US by the money at the top of each of its
+  12 most traded events' leading market (a quote each), kept 10 minutes.
+  Explore's tab shows it beside each ("$1.2M bid/ask", "$74.6M book").
 - **Market list as text**: the glasses draw the full-screen market list in
   their own font (name, price and 24h volume, no line graphs) instead of any
   charts. It takes precedence: chart ticks are greyed out but kept, so
@@ -275,7 +317,7 @@ line.
 
 | Source | Events and current prices | History |
 |---|---|---|
-| Polymarket | Gamma `events?slug=A&slug=B…` (every event, one request) | CLOB `POST batch-prices-history` (up to 20 outcomes per request, the most it takes: one for 4 events, two for 8), from just far enough back, at the history spacing |
+| Polymarket | Gamma `events?slug=A&slug=B…` (every event, one request) | CLOB `POST batch-prices-history` (up to 20 outcomes per request, the most it takes: one for 4 events, two for Explore's 8), from just far enough back, at the history spacing |
 | Polymarket US | Gateway `v1/events?slug=A&slug=B…` (every event, one request) | `v1/price-history?symbol=` (one market per request: there's no batch endpoint), likewise |
 
 Polymarket's two are separate APIs, each with its own rate limit. Polymarket

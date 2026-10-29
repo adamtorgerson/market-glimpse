@@ -1,4 +1,4 @@
-import { exchangeSource, UnknownMarketError, type Ticker } from './exchange';
+import { exchangeSource, topOfBook, UnknownMarketError, type Ticker } from './exchange';
 import { HttpError, PublicApi } from './http';
 
 const api = new PublicApi('https://api.bitget.com/api/v2/spot');
@@ -16,8 +16,11 @@ async function get<T>(path: string, signal: AbortSignal): Promise<T> {
   return body.data;
 }
 
-interface BitgetTicker { symbol: string; lastPr: string; baseVolume: string }
-const toTicker = (t: BitgetTicker): Ticker => ({ last: +t.lastPr, dayVolume: +t.baseVolume });
+// `open` is the price 24h ago (`openUtc` is midnight UTC's).
+interface BitgetTicker { symbol: string; lastPr: string; baseVolume: string; quoteVolume: string; open: string; bidPr: string; bidSz: string; askPr: string; askSz: string }
+const toTicker = (t: BitgetTicker): Ticker => ({
+  last: +t.lastPr, dayVolume: +t.baseVolume, open: +t.open, quoteVolume: +t.quoteVolume, topOfBook: topOfBook(+t.bidPr, +t.bidSz, +t.askPr, +t.askSz),
+});
 
 export const bitget = exchangeSource({
   id: 'bitget',

@@ -1,4 +1,4 @@
-import { currentSlot, exchangeSource, UnknownMarketError, type Ticker } from './exchange';
+import { currentSlot, exchangeSource, topOfBook, UnknownMarketError, type Ticker } from './exchange';
 import { HttpError, PublicApi } from './http';
 
 // The Exchange API; the newer Advanced Trade API doesn't send CORS headers.
@@ -26,12 +26,19 @@ export const coinbase = exchangeSource({
   },
 
   async tickers(signal) {
-    const stats = await get<Record<string, { stats_24hour?: { last: string; volume: string } }>>('/products/stats', signal);
+    const stats = await get<Record<string, { stats_24hour?: { last: string; volume: string; open: string } }>>('/products/stats', signal);
     const out = new Map<string, Ticker>();
     for (const [id, s] of Object.entries(stats)) {
-      if (s.stats_24hour) out.set(id, { last: +s.stats_24hour.last, dayVolume: +s.stats_24hour.volume });
+      if (s.stats_24hour) out.set(id, { last: +s.stats_24hour.last, dayVolume: +s.stats_24hour.volume, open: +s.stats_24hour.open });
     }
     return out;
+  },
+
+  async topOfBook(market, signal) {
+    // The best bid and ask only (level 1), not the book.
+    const book = await get<{ bids: [string, string][]; asks: [string, string][] }>(`/products/${encodeURIComponent(market)}/book?level=1`, signal);
+    const [bid, ask] = [book.bids[0], book.asks[0]];
+    return bid && ask ? topOfBook(+bid[0], +bid[1], +ask[0], +ask[1]) : undefined;
   },
 
   async candles(market, granularity, intervalSec, count, signal) {
