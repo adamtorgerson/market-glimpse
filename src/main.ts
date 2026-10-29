@@ -1017,6 +1017,27 @@ for (const tab of [tabWatchlist, tabExplore]) {
 }
 
 /**
+ * "Loading… 4s" on the Explore tab, counting up from when it started waiting
+ * for the top list, until the list (or an error) replaces it.
+ */
+let exploreLoadingSince = 0;
+let exploreTimer: ReturnType<typeof setInterval> | undefined;
+function exploreLoadingText(): string {
+  const secs = Math.floor((Date.now() - exploreLoadingSince) / 1000);
+  return secs > 0 ? `Loading… ${secs}s` : 'Loading…';
+}
+function syncExploreTimer(waiting: boolean): void {
+  if (!waiting) {
+    clearInterval(exploreTimer);
+    exploreTimer = undefined;
+    exploreLoadingSince = 0;
+    return;
+  }
+  exploreLoadingSince ||= Date.now();
+  exploreTimer ??= setInterval(() => { exploreHint.textContent = exploreLoadingText(); }, 1000);
+}
+
+/**
  * The Explore tab: the top markets (or events) last found for the settings,
  * each with what it was ranked by, and a "+" to add it to the watchlist while
  * there's room for it there.
@@ -1025,7 +1046,8 @@ function renderExplore(): void {
   const events = isPredictionSource(settings.source);
   const result = explored?.key === exploreKey(settings) ? explored : null;
   const note = events ? getPredictionSource(settings.source).exploreNote ?? '' : '';
-  exploreHint.textContent = result ? result.error ?? (result.items.length ? note : 'Nothing found.') : settings.explore ? 'Loading…' : note;
+  syncExploreTimer(!result && settings.explore);
+  exploreHint.textContent = result ? result.error ?? (result.items.length ? note : 'Nothing found.') : settings.explore ? exploreLoadingText() : note;
   // The watchlist as it is in the form (its rows are this source's kind).
   const rows = [...marketList.querySelectorAll<HTMLInputElement>('li input[type=text]')]
     .map((i) => (events ? eventSlug : normalizeMarket)(i.value)).filter(Boolean);
