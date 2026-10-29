@@ -101,9 +101,14 @@ function setShowing(v: boolean): void {
 }
 let inFlight: AbortController | null = null;
 
-/** Markets drawn as charts: none when the market list is shown as text, which takes precedence (the ticks are kept). */
+/** Markets drawn as charts: none when the market list is asked for, which takes precedence (the ticks are kept). */
 function shownCharts(s: Settings): string[] {
-  return s.textList ? [] : s.charts;
+  return s.showList ? [] : s.charts;
+}
+
+/** Markets (or events) Explore charts, no more than `max`: none when the market list is asked for. */
+function exploreShown(s: Settings, max: number): number {
+  return s.showList ? 0 : exploreCharts(s.exploreView, max);
 }
 
 /** Charted markets to look up on CoinGecko; none if the index is turned off. */
@@ -147,8 +152,8 @@ let lastFetch: { key: string; data: MarketData[]; updated: Date } | null = null;
 /** What an update fetches with `s`; data fetched for the same key can be redrawn as is. */
 function fetchKey(s: Settings): string {
   if (s.explore) {
-    const n = exploreCharts(s.exploreView, maxCharts(s.candleWidth));
-    return JSON.stringify(['explore', s.source, s.exploreBy, s.currency, s.exploreView, s.textList, s.interval, s.candleWidth, capacity(n, s.candleWidth), n && s.showIndex]);
+    const n = exploreShown(s, maxCharts(s.candleWidth));
+    return JSON.stringify(['explore', s.source, s.exploreBy, s.currency, s.exploreView, s.showList, s.textList, s.interval, s.candleWidth, capacity(n, s.candleWidth), n && s.showIndex]);
   }
   return JSON.stringify([s.source, marketRequest(s), indexMarkets(s)]);
 }
@@ -206,18 +211,19 @@ function sourceEventCharts(s: Settings): string[] {
 }
 
 /**
- * A prediction market's events, as text: its list (the watchlist with
- * nothing charted, as the option takes precedence over charts, or Explore's
- * List). Current prices only, no history.
+ * A prediction market's events, as text: its list (Market List, the
+ * watchlist with nothing charted, or Explore's List). Current prices only,
+ * no history.
  */
 function eventTextList(s: Settings): boolean {
-  return s.textList && (!s.explore || exploreCharts(s.exploreView, maxEventCharts(s.eventTextChart)) === 0);
+  if (!s.textList) return false;
+  return s.explore ? exploreShown(s, maxEventCharts(s.eventTextChart)) === 0 : s.showList || sourceEventCharts(s).length === 0;
 }
 
-/** The events a prediction-market update charts: the top ones Explore found, or the watchlist's ticked. */
+/** The events a prediction-market update charts: the top ones Explore found, or the watchlist's ticked (none for Market List). */
 function chartedEvents(s: Settings, markets: string[]): string[] {
-  if (eventTextList(s)) return [];
-  return s.explore ? markets.slice(0, exploreCharts(s.exploreView, maxEventCharts(s.eventTextChart))) : sourceEventCharts(s);
+  if (s.explore) return markets.slice(0, exploreShown(s, maxEventCharts(s.eventTextChart)));
+  return s.showList ? [] : sourceEventCharts(s);
 }
 
 /**
@@ -246,7 +252,7 @@ function eventPoints(textChart: boolean, nCharts: number): number {
 let lastEvents: { key: string; data: PredictionData[]; updated: Date } | null = null;
 
 function eventsKey(s: Settings): string {
-  if (s.explore) return JSON.stringify(['explore', s.source, s.exploreBy, exploreCharts(s.exploreView, maxEventCharts(s.eventTextChart)), eventTextList(s), s.eventTextChart, s.eventInterval]);
+  if (s.explore) return JSON.stringify(['explore', s.source, s.exploreBy, exploreShown(s, maxEventCharts(s.eventTextChart)), eventTextList(s), s.eventTextChart, s.eventInterval]);
   return JSON.stringify([s.source, eventRequest(s)]);
 }
 
@@ -437,7 +443,7 @@ async function runUpdate(ctrl: AbortController, showAt: number, reuse: boolean):
   const byMarket = new Map(data.map((d) => [d.market, d]));
   const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
   // Explore's top markets are charted (or none, for the list), and the rest listed, in their order.
-  const exploring = s.explore ? exploreCharts(s.exploreView, maxCharts(s.candleWidth)) : 0;
+  const exploring = s.explore ? exploreShown(s, maxCharts(s.candleWidth)) : 0;
   const shown = s.explore ? data.slice(0, exploring).map((d) => d.market) : shownCharts(s);
   const charts = shown.map((m) => byMarket.get(m)!);
   const ticker = s.explore ? data.slice(exploring) : s.markets.filter((m) => !shown.includes(m)).map((m) => byMarket.get(m)!);
@@ -511,7 +517,7 @@ async function exploreMarkets(s: Settings, ctrl: AbortController): Promise<Marke
   })));
   const data = found.map((f): MarketData => ({ market: f.market, candles: [], last: f.last, dayVolume: f.dayVolume, ...(movers ? { dayChange: f.change } : {}) }));
   onProgress(ctrl, data);
-  const n = exploreCharts(s.exploreView, maxCharts(s.candleWidth));
+  const n = exploreShown(s, maxCharts(s.candleWidth));
   const markets = (n ? data.slice(0, n) : s.textList ? [] : data).map((d) => d.market);
   if (markets.length === 0) return data;
   // Candles asked for as charts: the tickers are in hand, so there's no second ticker request.
@@ -539,7 +545,7 @@ async function exploreMarkets(s: Settings, ctrl: AbortController): Promise<Marke
  * in the list, one per line graph (none as text).
  */
 function exploreCandles(s: Settings): number {
-  const n = exploreCharts(s.exploreView, maxCharts(s.candleWidth));
+  const n = exploreShown(s, maxCharts(s.candleWidth));
   return n || (s.textList ? 0 : EXPLORE_COUNT);
 }
 
@@ -835,6 +841,7 @@ const intervalSel = $<HTMLSelectElement>('interval');
 const candleWidthSel = $<HTMLSelectElement>('candle-width');
 const fontSel = $<HTMLSelectElement>('font');
 const showIndexBox = $<HTMLInputElement>('show-index');
+const showListBox = $<HTMLInputElement>('show-list');
 const textListBox = $<HTMLInputElement>('text-list');
 const eventStyleSel = $<HTMLSelectElement>('event-style');
 const manualOnlyBox = $<HTMLInputElement>('manual-only');
@@ -975,8 +982,8 @@ function syncMarketControls(): void {
   // A width that allows fewer charts keeps the first ones ticked.
   checks.filter((c) => c.checked).slice(max).forEach((c) => { c.checked = false; });
   const nChecked = checks.filter((c) => c.checked).length;
-  // The text list takes precedence over charts: their ticks are kept but greyed out.
-  for (const c of checks) c.disabled = textListBox.checked || (!c.checked && nChecked >= max);
+  // Market List takes precedence over charts: their ticks are kept but greyed out.
+  for (const c of checks) c.disabled = showListBox.checked || (!c.checked && nChecked >= max);
   addMarketBtn.disabled = rows.length >= MAX_MARKETS;
   refreshWidthLabels();
   // Explore's "+" buttons show while there's room.
@@ -1002,6 +1009,8 @@ function syncExploreView(): void {
     opt.disabled = opt.value !== 'list' && Number(opt.value) > max;
   }
   if (exploreViewSel.selectedOptions[0]?.disabled) exploreViewSel.value = String(max);
+  // Market List takes precedence over Explore's layout, which is kept but greyed out.
+  exploreViewSel.disabled = showListBox.checked;
 }
 
 /** Show the Watchlist or Explore tab; which is selected is the `explore` setting. */
@@ -1111,6 +1120,7 @@ function fillForm(s: Settings): void {
   eventStyleSel.value = s.eventTextChart ? 'text' : 'image';
   syncExploreView();
   fontSel.value = s.font;
+  showListBox.checked = s.showList;
   textListBox.checked = s.textList;
   syncMarketControls();
   renderExplore();
@@ -1160,6 +1170,7 @@ function readForm(): Settings {
     exploreView: exploreViewSel.value as ExploreView,
     candleWidth: candleWidthSel.value as CandleWidth,
     font: fontSel.value as ChartFont,
+    showList: showListBox.checked,
     textList: textListBox.checked,
     showIndex: showIndexBox.checked,
     manualOnly,
@@ -1228,7 +1239,7 @@ async function applyForm(): Promise<boolean> {
   // schedule, re-timed if the refresh rate changed.
   const chartChanged = next.source !== prev.source || next.currency !== prev.currency || next.interval !== prev.interval
     || next.candleWidth !== prev.candleWidth || shownCharts(next).join() !== shownCharts(prev).join()
-    || next.showIndex !== prev.showIndex || next.textList !== prev.textList
+    || next.showIndex !== prev.showIndex || next.showList !== prev.showList || next.textList !== prev.textList
     || JSON.stringify(next.events) !== JSON.stringify(prev.events) || JSON.stringify(next.eventCharts) !== JSON.stringify(prev.eventCharts)
     || next.eventInterval !== prev.eventInterval || next.eventTextChart !== prev.eventTextChart
     || next.explore !== prev.explore || next.exploreBy !== prev.exploreBy || next.exploreView !== prev.exploreView;
@@ -1290,13 +1301,13 @@ function toggleChart(): void {
 
 /**
  * A swipe on the glasses, as if on the phone: up switches Watchlist / Explore,
- * down flips Market list as text. If the form refuses the change, the control
+ * down flips Market List. If the form refuses the change, the control
  * goes back and the glasses say so briefly, then return to what they showed.
  */
 async function onSwipe(dir: 'up' | 'down'): Promise<void> {
   const flip = (): void => {
     if (dir === 'up') selectTab(tabExplore.getAttribute('aria-selected') !== 'true');
-    else textListBox.checked = !textListBox.checked;
+    else showListBox.checked = !showListBox.checked;
   };
   await changeFromGlasses(flip, flip);
 }
@@ -1544,7 +1555,7 @@ async function boot(): Promise<void> {
   glasses?.onTap(toggleChart);
   // Even Hub's exit gesture on the root page: the glasses ask to confirm.
   glasses?.onDoubleTap(() => void glasses!.exit().catch(() => {}));
-  // Swipes act as if on the phone: up switches Watchlist / Explore, down flips Market list as text.
+  // Swipes act as if on the phone: up switches Watchlist / Explore, down flips Market List.
   glasses?.onSwipe((dir) => void onSwipe(dir));
   // A long press goes on to the next favorite data source.
   glasses?.onLongPress(() => void onLongPress());

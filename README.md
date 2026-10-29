@@ -32,8 +32,8 @@ refreshes every 2m, chart shown for 12s, narrow candles.
   or with none ticked, the full-screen list (each event's title, its
   likeliest outcome's probability and name, its 24h volume where the source
   gives one (Polymarket US doesn't), and a line plot of its top outcomes; or
-  as text with **Market list as text**, which takes precedence
-  over charts as for markets). A link is kept as its slug
+  as text with **Market List as text**; **Market List** shows the list
+  even with events ticked, as for markets). A link is kept as its slug
   (`https://polymarket.com/event/balance-of-power-2026-midterms` is
   `balance-of-power-2026-midterms`). Polymarket (polymarket.com) and
   Polymarket US (polymarket.us, the US exchange) are separate exchanges with
@@ -108,7 +108,7 @@ refreshes every 2m, chart shown for 12s, narrow candles.
   and name, the 24h volume, and a line plot of the event's top
   (up to 4) outcomes over the period one chart shows, in the charts' line
   styles, each row scaled to its own lines; or the top 1, 2 or 4 charted,
-  the rest listed under them. With **Market list as text**, the List goes as
+  the rest listed under them. With **Market List as text**, the List goes as
   text: each event's title, its likeliest outcome's probability, that
   outcome's name, and its 24h volume, from just the events request (no
   history). Only markets quoted in
@@ -143,11 +143,14 @@ refreshes every 2m, chart shown for 12s, narrow candles.
   books), one request. Polymarket US by the money at the top of each of its
   12 most traded events' leading market (a quote each), kept 10 minutes.
   Explore's tab shows it beside each ("$1.2M bid/ask", "$74.6M book").
-- **Market list as text**: the glasses draw the full-screen market list in
-  their own font (name, price and 24h volume, no line graphs) instead of any
-  charts. It takes precedence: chart ticks are greyed out but kept, so
-  turning it off brings the charts back. It goes up in one step, and only
-  the ticker is fetched.
+- **Market List**: the glasses show the full-screen market list instead of
+  any charts, in the Watchlist or Explore. It takes precedence: chart ticks
+  (and Explore's Show) are greyed out but kept, so turning it off brings the
+  charts back.
+- **Market List as text** (in its own Market List section): whenever the
+  full-screen market list is shown, the glasses draw it in their own font
+  (name, price and 24h volume, no line graphs). It goes up in one step, and
+  only the ticker is fetched.
 - **Candle size**: whatever the source offers. Kraken has 1m to 15d, OKX 1m
   to 1w, Coinbase 1m to 1d, Gate 1m to 1w, Binance.US 1m to 1w, Bitget
   1m to 1w, Hyperliquid 1m to 1w, and Aster 1m to 1w. Switching source keeps the size
@@ -273,7 +276,7 @@ the bundle. Upload stats are still logged to the console.
 On the glasses, a tap while the chart is up dismisses it early (with
 **Display always on**, it refreshes it instead). A tap while the display is
 dark fetches and shows a fresh chart. A swipe up switches between
-**Watchlist** and **Explore**; a swipe down turns **Market list as text** on
+**Watchlist** and **Explore**; a swipe down turns **Market List** on
 or off. A long press goes on to the next **Favorite** data source (with none
 other, the glasses say so for two seconds). A swipe or long press the settings can't take (an empty watchlist, or a refresh too
 short for the requests it needs) changes nothing: the glasses show "No change:

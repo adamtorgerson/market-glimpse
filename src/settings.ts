@@ -87,9 +87,13 @@ export interface Settings {
   /** Font for the text in chart images (not text candles, which use the glasses' font). */
   font: ChartFont;
   /**
-   * Send the full-screen market list as text. Takes precedence over charts:
-   * any ticked are kept but not drawn. (With none ticked and this off, the
-   * list is an image with a line graph per market, one candle request each.)
+   * Show the full-screen market list instead of charts. Takes precedence over
+   * them: any ticked (or Explore's charted layout) are kept but not drawn.
+   */
+  showList: boolean;
+  /**
+   * Send the full-screen market list, whenever it's shown, as text. (Off,
+   * it's an image with a line graph per market, one candle request each.)
    */
   textList: boolean;
   /** Show CoinGecko's index price in each chart header (one extra request per update). */
@@ -124,6 +128,7 @@ export const DEFAULT_SETTINGS: Settings = {
   exploreView: 'list',
   candleWidth: 'narrow',
   font: 'atkinson',
+  showList: false,
   textList: false,
   showIndex: true,
   manualOnly: false,
@@ -188,6 +193,8 @@ export function sanitize(input: Partial<Settings>): Settings {
   const displaySec = Math.min(clampInt(input.displaySec, 1, 3600, d.displaySec), refreshSec - 1);
 
   const textList = typeof input.textList === 'boolean' ? input.textList : d.textList;
+  // Before Market List, the text list took precedence over the watchlist's charts.
+  const showList = typeof input.showList === 'boolean' ? input.showList : textList && !input.explore;
   const showIndex = typeof input.showIndex === 'boolean' ? input.showIndex : d.showIndex;
   const manualOnly = typeof input.manualOnly === 'boolean' ? input.manualOnly : d.manualOnly;
   const lookUpUpdate = typeof input.lookUpUpdate === 'boolean' ? input.lookUpUpdate : d.lookUpUpdate;
@@ -200,7 +207,7 @@ export function sanitize(input: Partial<Settings>): Settings {
   const exploreBy = !rankings || rankings.includes(wantBy) ? wantBy : rankings[0]!;
   const exploreView = (EXPLORE_VIEWS as readonly string[]).includes(input.exploreView as string) ? input.exploreView! : d.exploreView;
 
-  return { source, favorites, currency, markets, charts, interval, events, eventCharts, eventInterval, eventTextChart, explore, exploreBy, exploreView, candleWidth, font, textList, showIndex, manualOnly, lookUpUpdate, lookUpCal, refreshSec, displaySec, alwaysOn };
+  return { source, favorites, currency, markets, charts, interval, events, eventCharts, eventInterval, eventTextChart, explore, exploreBy, exploreView, candleWidth, font, showList, textList, showIndex, manualOnly, lookUpUpdate, lookUpCal, refreshSec, displaySec, alwaysOn };
 }
 
 /** `minutes` if supported, else the supported size closest to it (by ratio). */
