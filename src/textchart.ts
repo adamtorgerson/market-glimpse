@@ -103,11 +103,13 @@ const TIME_KEY_GAP = 80;
 
 /** Advance widths of the firmware font, measured in the simulator; other characters are estimated. '1' and '2' are 1px narrower before another of themselves. */
 const WIDTHS: Record<string, number> = {
-  '1': 8, ':': 4, '.': 5, ',': 5, ' ': 5, '·': 5, "'": 4, '|': 4, '-': 10, '↑': 11, '↓': 11,
+  '1': 8, ':': 4, '.': 5, ',': 5, ' ': 5, '·': 5, "'": 4, '|': 4, '-': 10, '↑': 11, '↓': 11, '%': 13,
   A: 13, B: 12, C: 11, D: 12, E: 10, F: 10, G: 12, H: 12, I: 5, J: 8, K: 12, L: 9, M: 16,
   N: 12, O: 12, P: 12, Q: 12, R: 12, S: 11, T: 10, U: 12, V: 13, W: 16, X: 13, Y: 13, Z: 12,
   a: 11, b: 11, c: 10, e: 10, g: 11, h: 11, i: 5, k: 9, l: 4, m: 16, n: 11, o: 10, p: 11,
   q: 11, r: 7, s: 10, t: 6, u: 11, v: 11, w: 15, x: 11, y: 11, z: 9,
+  // The blank spacers (see SKIP_1 and SKIP_5).
+  'Ա': 4, '　': 20,
 };
 
 /** One text container: brightness 0–4 and its lines, from `y` down. */
@@ -323,6 +325,327 @@ export function buildEventTextList(m: EventTextListModel): TextBox[] {
   if (m.name) footer.lines[0]!.texts.push({ x: SCREEN_W - 4 - textWidth(m.name), text: m.name });
   return m.twoBoxes ? [bright, mid, header, footer] : [bright, mid, names, volumes, header, footer];
 }
+
+export interface EventTextChartModel {
+  event: PredictionData;
+  /** Spacing of the history, in minutes. */
+  interval: number;
+  /** When the data was fetched: the right edge of the chart. */
+  updated: Date;
+  source: string;
+  /** Events not charted, listed under the legend: title, likeliest outcome and its probability. */
+  ticker?: PredictionData[];
+  /** Shown in the bottom-right corner, e.g. the app's name. */
+  name?: string;
+}
+
+/**
+ * Each outcome's line, in the event's order, as on the image charts: bright
+ * then dim, each solid (a stroke every column) then dotted (every other).
+ */
+const EVENT_LINES = [
+  { bright: true, every: 1 },
+  { bright: true, every: 2 },
+  { bright: false, every: 1 },
+  { bright: false, every: 2 },
+];
+/**
+ * Where the plot and its keys go, with `rows` lines of text along the bottom
+ * (the legend, then the other events): the more lines, the further up the
+ * plot's 0% goes, and the time keys with it, on the first line clear of it.
+ * 100% and 0% are two of the grid's dot rows, with three more evenly between
+ * them for 75, 50 and 25% (each within a px of where its share falls; no
+ * other 0% rows between these allow that).
+ */
+interface EventLayout {
+  top: number;
+  bottom: number;
+  keys: { p: number; dot: Place; label: Place }[];
+  time: Place;
+  /** The lines under the time keys, top to bottom. */
+  rows: Place[];
+}
+type Place = { phase: number; line: number };
+/** Lines of text from the bottom up, ink rows 263–278, 242–257, 222–237, 202–217, 182–197 and 161–176: 4–5 rows apart. */
+const BOTTOM_PLACES: Place[] = [FOOTER_PLACE, TIME_PLACE, { phase: 0, line: 8 }, { phase: 1, line: 7 }, { phase: 2, line: 6 }, { phase: 3, line: 5 }];
+/**
+ * Rows of 0% with 1–6 lines along the bottom: 100% is 47, 40.5, 33.75, 27, 27
+ * or 20.25px above each of the others. With 5, the time keys fit between
+ * 0% at 149.5 and the lines as they do with 4.
+ */
+const EVENT_BOTTOMS = [230.5, 203.5, 176.5, 149.5, 149.5, 122.5];
+/** Lines of the legend, and of the other events, at most. */
+const LEGEND_ROWS = 2;
+const LIST_ROWS = 4;
+function eventLayout(rows: number): EventLayout {
+  const top = 41.5, bottom = EVENT_BOTTOMS[rows - 1]!;
+  const keys = [1, 0.75, 0.5, 0.25, 0].map((p) => {
+    const dot = placeAt(top + (1 - p) * (bottom - top), 7.5);
+    return { p, dot, label: placeAt(dot.mid, 13.5) };
+  });
+  // The time keys' digits (ink from 6 rows down their line) at least 10 rows under 0%.
+  const time = PHASES.flatMap((dy, phase) => Array.from({ length: Math.floor((SCREEN_H - dy) / LINE_H) }, (_, line) => ({ phase, line, top: dy + line * LINE_H })))
+    .filter((p) => p.top + 6 >= bottom + 10)
+    .reduce((a, b) => (b.top < a.top ? b : a));
+  return { top, bottom, keys, time, rows: BOTTOM_PLACES.slice(0, rows).reverse() };
+}
+const EVENT_LAYOUTS = Array.from({ length: LEGEND_ROWS + LIST_ROWS }, (_, i) => eventLayout(i + 1));
+/** The percentages' right edge; the plot starts two columns after it. */
+const EVENT_AXIS_R = 4 + textWidth('100%');
+const EVENT_FIRST_COL = Math.ceil(EVENT_AXIS_R / CELL) + 2;
+/** The plot's rightmost column, the current price, with a 4px margin on the right. */
+const EVENT_LAST_COL = Math.floor((SCREEN_W - 4) / CELL) - 1;
+/** A legend sample: how a flat line looks, a `'` every column, or every other. */
+const SAMPLE_COLS = 5;
+
+/** History points that fit across the text chart, for `PredictionRequest.points`. */
+export function eventTextPoints(): number {
+  return EVENT_LAST_COL - EVENT_FIRST_COL + 1;
+}
+
+/**
+ * A prediction market's chart as text, like text candles: each outcome's
+ * probability over time on a fixed 0–100% scale, a column (4px) per history
+ * point, ending at its current price. Each column of a line is a stroke (or a
+ * few) from the last point's row to this one's. Up to four lines, told apart
+ * by brightness and by solid or dotted. The percentages sit in a margin to
+ * the left, so the lines aren't broken around them. The question, time and
+ * source are along the top, and a legend along the bottom: each line's
+ * sample, probability and name, then the outcomes left out; on two lines if
+ * one would cut a name short. Under it, the other events, two to a line, on
+ * up to four lines.
+ */
+export function buildEventTextChart(m: EventTextChartModel): TextBox[] {
+  const boxes: TextBox[] = [BRIGHT, DIM].flatMap((color) => PHASES.map((y) => ({
+    y,
+    color,
+    lines: Array.from({ length: Math.floor((SCREEN_H - y) / LINE_H) }, () => ({ strokes: new Map<number, string>(), texts: [] })),
+  })));
+  const { event } = m;
+  addEventHeader(boxes[0]!.lines[0]!, dimLine(boxes, { phase: 0, line: 0 }), m);
+  if (event.error || event.outcomes.length === 0) {
+    boxes[0]!.lines[4]!.texts.push({ x: 0, text: event.error ?? 'no data' });
+    return boxes;
+  }
+  // The name has the bottom line's last place: the list's last cell, or with
+  // no list, the end of the legend if there's room, else a line of its own.
+  const name = m.name ?? '';
+  const legend = legendRows(event);
+  const list = listRows(m.ticker ?? [], LIST_ROWS, !!name);
+  if (name) {
+    const x = SCREEN_W - 4 - textWidth(name);
+    const last = list.at(-1) ?? legend.at(-1)!;
+    const end = Math.max(...last.map((c) => c.x + textWidth(c.text)));
+    if (list.length || end + HEADER_GAP <= x) last.push({ x, text: name, bright: false });
+    else list.push([{ x, text: name, bright: false }]);
+  }
+  const layout = EVENT_LAYOUTS[legend.length + list.length - 1]!;
+  [...legend, ...list].forEach((row, r) => {
+    const place = layout.rows[r]!;
+    for (const c of row) boxes[(c.bright ? 0 : 4) + place.phase]!.lines[place.line]!.texts.push({ x: c.x, text: c.text });
+  });
+  for (const key of layout.keys) {
+    const text = `${key.p * 100}%`;
+    dimLine(boxes, key.label).texts.push({ x: EVENT_AXIS_R - textWidth(text), text });
+  }
+  // Drop the oldest points if a container would run over its byte limit.
+  let max = Infinity;
+  for (;;) {
+    const out = structuredClone(boxes);
+    const drawn = drawLines(out, m, layout, max);
+    if (drawn <= 0 || out.every((b) => utf8Length(serializeBox(b)) <= MAX_BYTES)) return out;
+    max = drawn - 4;
+  }
+}
+
+/** The top line: the time (dim), the question (bright), then its 24h volume and the source (dim) on the right. */
+function addEventHeader(bright: TextLine, dim: TextLine, m: EventTextChartModel): void {
+  const stamp = m.updated.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  dim.texts.push({ x: 4, text: stamp });
+  const left = 4 + textWidth(stamp) + HEADER_GAP;
+  const vol = m.event.dayVolume === undefined || m.event.error ? '' : `$${formatVolume(m.event.dayVolume)}`;
+  const right = [m.source, vol].filter(Boolean).join('  ');
+  if (right) dim.texts.push({ x: SCREEN_W - 4 - textWidth(right), text: right });
+  bright.texts.push({ x: left, text: cut(m.event.title, SCREEN_W - 4 - (right ? textWidth(right) + HEADER_GAP : 0) - left) });
+}
+
+/**
+ * Space before an outcome's name, after its probability: wider than elsewhere,
+ * as the two are in different containers, each placed by estimated widths.
+ */
+const NAME_GAP = 11;
+
+/** A line of text under the chart: each piece bright or dim, at `x` px. */
+type Row = { x: number; text: string; bright: boolean }[];
+
+/**
+ * The legend: each line's sample and probability in its brightness, and its
+ * name dim, then the outcomes left out. On one line if it fits, else two
+ * (`LEGEND_ROWS`), with names cut short as needed, the longest first.
+ */
+function legendRows(event: PredictionData): Row[] {
+  const items = event.outcomes.map((o, i) => ({ style: EVENT_LINES[i]!, pct: formatPct(o.price), name: o.name, trend: o.trend }));
+  const other = event.other && (event.other.price === undefined
+    ? `${event.other.count} more`
+    : `${formatPct(event.other.price)} other${event.other.count === 1 ? '' : 's'}`);
+  const sampleW = SAMPLE_COLS * CELL;
+  type Item = (typeof items)[number];
+  /** Each row's names, cut to fit, and whether any had to be. */
+  const fit = (row: Item[], withOther: boolean) => {
+    const fixed = row.reduce((w, it) => w + sampleW + 6 + textWidth(it.pct) + (it.trend ? ARROW_W : 0) + NAME_GAP + HEADER_GAP, 0)
+      + (withOther && other ? textWidth(other) : -HEADER_GAP);
+    const names = row.map((it) => it.name);
+    const room = SCREEN_W - 8 - fixed;
+    while (names.reduce((w, n) => w + textWidth(n), 0) > room) {
+      const i = names.reduce((a, n, k) => (textWidth(n) > textWidth(names[a]!) ? k : a), 0);
+      const shorter = cut(row[i]!.name, textWidth(names[i]!) - 1);
+      // Down to a letter and "...", it can't be cut any more.
+      if (textWidth(shorter) >= textWidth(names[i]!)) break;
+      names[i] = shorter;
+    }
+    return { row, names, withOther, cut: names.some((n, i) => n !== row[i]!.name) };
+  };
+  const one = fit(items, true);
+  const half = Math.ceil(items.length / 2);
+  const rows = one.cut ? [fit(items.slice(0, half), false), fit(items.slice(half), true)] : [one];
+
+  return rows.map(({ row, names, withOther }) => {
+    const out: Row = [];
+    let x = 4;
+    row.forEach((it, i) => {
+      const sample = Array.from({ length: SAMPLE_COLS }, (_, k) => (k % it.style.every ? SKIP_1 : "'")).join('');
+      out.push({ x, text: sample, bright: it.style.bright });
+      x += sampleW + 6;
+      out.push({ x, text: it.pct, bright: it.style.bright });
+      x += textWidth(it.pct);
+      if (it.trend) {
+        out.push({ x: x + 4, text: arrow(it.trend), bright: it.style.bright });
+        x += ARROW_W;
+      }
+      x += NAME_GAP;
+      out.push({ x, text: names[i]!, bright: false });
+      x += textWidth(names[i]!) + HEADER_GAP;
+    });
+    if (withOther && other) out.push({ x, text: other, bright: false });
+    return out;
+  });
+}
+
+/** The list's two columns: their width, and the space between them, in px. */
+const LIST_GAP = 24;
+const LIST_COL_W = (SCREEN_W - 8 - LIST_GAP) / 2;
+
+/**
+ * The events not charted, two to a line on at most `maxRows` lines: each
+ * one's title (dim), its likeliest outcome's probability (bright, with an
+ * arrow if it moved since the last update) and name (dim), as in the text
+ * list, cut short to fit its column, the name to at most 40% of what's left.
+ * Those that don't fit are the last one's place, as "+N more". With `named`,
+ * the last cell is left empty for the name in the corner.
+ */
+function listRows(ticker: PredictionData[], maxRows: number, named: boolean): Row[] {
+  if (ticker.length === 0) return [];
+  const free = maxRows * 2 - (named ? 1 : 0);
+  const cells = ticker.length > free ? free - 1 : ticker.length;
+  const items: Row[] = ticker.slice(0, cells).map((d) => {
+    const leader = d.error ? undefined : [...d.outcomes].sort((a, b) => b.price - a.price)[0];
+    if (!leader) {
+      const title = cut(d.title, LIST_COL_W * 0.55);
+      return [{ x: 0, text: title, bright: false }, { x: textWidth(title) + 8, text: cut(d.error ?? 'no data', LIST_COL_W * 0.45 - 8), bright: false }];
+    }
+    const pct = formatPct(leader.price);
+    const pctW = textWidth(pct) + (leader.trend ? ARROW_W : 0);
+    const room = LIST_COL_W - pctW - 8 - NAME_GAP;
+    const name = cut(leader.name, Math.min(textWidth(leader.name), Math.floor(room * 0.4)));
+    const title = cut(d.title, room - textWidth(name));
+    let x = textWidth(title) + 8;
+    const out: Row = [{ x: 0, text: title, bright: false }, { x, text: pct, bright: true }];
+    x += textWidth(pct);
+    if (leader.trend) {
+      out.push({ x: x + 4, text: arrow(leader.trend), bright: true });
+      x += ARROW_W;
+    }
+    return [...out, { x: x + NAME_GAP, text: name, bright: false }];
+  });
+  if (cells < ticker.length) items.push([{ x: 0, text: `+${ticker.length - cells} more`, bright: false }]);
+  return Array.from({ length: Math.ceil((items.length + (named ? 1 : 0)) / 2) }, (_, r) =>
+    items.slice(r * 2, r * 2 + 2).flatMap((item, c) => item.map((cell) => ({ ...cell, x: 4 + c * (LIST_COL_W + LIST_GAP) + cell.x }))));
+}
+
+/** Draws up to `max` points of each outcome's line, newest at the right; returns how many columns it drew. */
+function drawLines(boxes: TextBox[], m: EventTextChartModel, layout: EventLayout, max: number): number {
+  const intervalSec = m.interval * 60;
+  const end = m.updated.getTime() / 1000;
+  const count = Math.min(max, eventTextPoints());
+  const firstCol = EVENT_LAST_COL - count + 1;
+  const y = (p: number) => Math.round(layout.top + (1 - Math.min(1, Math.max(0, p))) * (layout.bottom - layout.top));
+
+  // Where the lines are drawn, by column, to keep the grid's dots clear of them.
+  const drawn: { col: number; top: number; bottom: number }[] = [];
+  m.event.outcomes.forEach((o, i) => {
+    const style = EVENT_LINES[i]!;
+    const group = style.bright ? boxes.slice(0, 4) : boxes.slice(4);
+    // The newest point in each column, the current price last; columns
+    // between points (their times jitter, so one can be skipped) are filled
+    // in along the straight line between them.
+    const points = new Map<number, number>();
+    for (const h of [...o.history.filter((h) => h.time < end), { time: end, p: o.price }]) {
+      points.set(EVENT_LAST_COL - Math.round((end - h.time) / intervalSec), h.p);
+    }
+    const cols = [...points.keys()].sort((a, b) => a - b);
+    const rows = new Map<number, number>();
+    cols.forEach((c1, k) => {
+      const c0 = cols[k - 1] ?? c1 - 1, p0 = points.get(cols[k - 1] ?? c1)!, p1 = points.get(c1)!;
+      for (let col = Math.max(c0 + 1, firstCol); col <= c1; col++) rows.set(col, y(p0 + (p1 - p0) * (col - c0) / (c1 - c0)));
+    });
+    // Each column covers the rows from the last one drawn to its own: a
+    // dotted line skips every other column (counted from the right, so it
+    // always ends on the current price), and joins across the gap.
+    let prev: number | undefined;
+    for (const col of [...rows.keys()].sort((a, b) => a - b)) {
+      if ((EVENT_LAST_COL - col) % style.every) continue;
+      const row = rows.get(col)!;
+      const a = Math.min(row, prev ?? row), b = Math.max(row, prev ?? row);
+      stroke(group, col, a, b, [], LINE_OVERSHOOT);
+      drawn.push({ col, top: a, bottom: b });
+      prev = row;
+    }
+  });
+
+  // Time keys under the plot, centred on their columns, dropping any that would overlap.
+  const lastSlot = Math.floor(end / intervalSec) * intervalSec;
+  const ticks = timeTicks(lastSlot, count, intervalSec, CELL, TIME_KEY_GAP);
+  const step = ticks.length > 1 ? ticks[1]! - ticks[0]! : intervalSec;
+  const times = dimLine(boxes, layout.time).texts;
+  let right = -Infinity;
+  for (const t of ticks) {
+    const col = EVENT_LAST_COL - Math.round((end - t) / intervalSec);
+    if (col < firstCol) continue;
+    const text = formatTime(t, step, intervalSec >= 86400);
+    const w = textWidth(text);
+    const x = Math.min(SCREEN_W - w, Math.max(0, Math.round(col * CELL - w / 2)));
+    if (x < right + 8) continue;
+    times.push({ x, text });
+    right = x + w;
+    // The grid: a dot where each percentage's row crosses the time key's
+    // column, unless that's by a line.
+    for (const key of layout.keys) {
+      const dots = dimLine(boxes, key.dot);
+      const top = PHASES[key.dot.phase]! + key.dot.line * LINE_H + DOT.top, bottom = top + DOT.bottom - DOT.top;
+      const near = drawn.some((d) => Math.abs(d.col - col) <= TICK_CLEAR_COLS && top <= d.bottom + TICK_CLEAR && bottom >= d.top - TICK_CLEAR);
+      if (!near && free(dots, col, 1)) dots.strokes.set(col, "'");
+    }
+  }
+  return count;
+}
+
+/**
+ * Rows a line's stroke may run past its ends: a `'` on a flat line runs 3, or
+ * up to 6 on rows between two (their tops are 6–7 rows apart). Where lines
+ * meet, the stroke that fits may be taken; rather than a long one in its
+ * place, which would show as a bar, the column is left out.
+ */
+const LINE_OVERSHOOT = 6;
 
 /** "49%", or "<1%" and ">99%" at the ends, as on the charts. */
 function formatPct(p: number): string {
@@ -555,9 +878,10 @@ const PLACES = PHASES.flatMap((dy, phase) =>
  * Cover rows a–b (inclusive) of column `col` with strokes from the four
  * containers of `group`, working down from the top: each step takes the
  * stroke that covers the most of what's left while overshooting the ends least.
- * Lines with text and the `blocks` take no strokes.
+ * Lines with text and the `blocks` take no strokes, nor do places that run
+ * more than `maxOvershoot` rows past a–b.
  */
-function stroke(group: TextBox[], col: number, a: number, b: number, blocks: Block[]): void {
+function stroke(group: TextBox[], col: number, a: number, b: number, blocks: Block[], maxOvershoot = Infinity): void {
   let cur = a;
   for (let first = true; cur <= b; first = false) {
     let best: (typeof PLACES)[number] | null = null;
@@ -568,6 +892,7 @@ function stroke(group: TextBox[], col: number, a: number, b: number, blocks: Blo
       if (blocks.some((k) => col <= k.right && p.top <= k.bottom && p.bottom >= k.top)) continue;
       const covered = Math.min(p.bottom, b) - Math.max(p.top, cur) + 1;
       const overshoot = Math.max(0, a - p.top) + Math.max(0, p.bottom - b);
+      if (overshoot > maxOvershoot) continue;
       const score = covered - 2 * overshoot - Math.max(0, p.top - cur);
       if (score > bestScore) { best = p; bestScore = score; }
     }

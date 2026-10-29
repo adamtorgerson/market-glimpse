@@ -39,6 +39,27 @@ refreshes every 2m, chart shown for 12s, narrow candles.
   becomes **History spacing** (1m to 1d, each labelled with the span the
   chart covers), and the exchange-only options (candle width, index price,
   currency type) are hidden.
+- **Chart style** (prediction markets): **Image, up to 4 charts** (default),
+  or **Text, 1 chart**: the one charted event drawn by the glasses in their
+  own font, like text candles, so it goes up all at once as a few KB of
+  text. Each of the top (up to 4) outcomes is a line of 1px strokes, one
+  per 4px column (a history point each, about 130), on a fixed 0–100% scale
+  with the percentages in a margin on the left and a few time keys under
+  it: bright solid, bright dotted (every other column), dim solid and dim
+  dotted, in the outcomes' order. A column with no point of its own (their
+  times jitter) is filled in between its neighbours; where lines meet, a
+  column is left out rather than drawn as a bar. The question, time, source
+  and 24h volume are along the top, and a legend along the bottom: each
+  line's sample (how a flat line of its style looks), probability and name,
+  then the outcomes left out. If one line would cut a name short, the
+  legend takes two. Under it, the other events are listed two to a line,
+  on up to four lines (all 7 others of 8 fit): each one's title, its
+  likeliest outcome's probability (bright, with its trend arrow) and name,
+  cut short to fit. MarketGlimpse is in the bottom-right corner, as on the
+  other text screens: in the list's last place, or with no list, after the
+  legend if there's room, else on a line of its own. Each line moves the plot up (keeping
+  its gridlines on the font's rows), and the time keys with it. Explore
+  offers List or 1 chart, with its other top events listed.
 - **Currency type**: USD (default), EUR or AUD, the fiat currencies most of
   the sources quote in. It's the quote for markets entered without one.
 - **Stocks and bare names**: a name with no quote (`TSLA`, `BTC`) is first a

@@ -18,10 +18,9 @@ export const MAX_CHARTS = 4;
 export const EXPLORE_VIEWS = ['list', '1', '2', '4'] as const;
 export type ExploreView = (typeof EXPLORE_VIEWS)[number];
 
-/** Markets (or events) Explore charts with `view`: none for the list, and no more than `width` allows. */
-export function exploreCharts(view: ExploreView, width: CandleWidth, events: boolean): number {
-  if (view === 'list') return 0;
-  return events ? Number(view) : Math.min(Number(view), maxCharts(width));
+/** Markets (or events) Explore charts with `view`: none for the list, and no more than `max`. */
+export function exploreCharts(view: ExploreView, max: number): number {
+  return view === 'list' ? 0 : Math.min(Number(view), max);
 }
 export const MAX_MARKETS = 8;
 
@@ -33,6 +32,11 @@ export function isTextWidth(width: CandleWidth): width is TextWidth {
 /** Charts a candle width allows: text candles fill the glasses with one. */
 export function maxCharts(width: CandleWidth): number {
   return isTextWidth(width) ? 1 : MAX_CHARTS;
+}
+
+/** Events charted at most: the text chart fills the glasses with one. */
+export function maxEventCharts(textChart: boolean): number {
+  return textChart ? 1 : MAX_CHARTS;
 }
 
 export interface Settings {
@@ -58,6 +62,8 @@ export interface Settings {
   eventCharts: Record<string, string[]>;
   /** Spacing of the events' history, in minutes (`EVENT_INTERVALS`). */
   eventInterval: number;
+  /** Draw an event's chart in the glasses' font rather than send it as images (one chart only). */
+  eventTextChart: boolean;
   /**
    * Monitor the source's top markets (Explore) instead of the watchlist
    * (`markets`, or for a prediction market, its `events`).
@@ -109,6 +115,7 @@ export const DEFAULT_SETTINGS: Settings = {
   events: {},
   eventCharts: {},
   eventInterval: 5,
+  eventTextChart: false,
   explore: false,
   exploreBy: 'volume',
   exploreView: 'list',
@@ -144,10 +151,11 @@ export function sanitize(input: Partial<Settings>): Settings {
   const rawEvents: Record<string, unknown> = Array.isArray(input.events) ? { polymarket: input.events } : input.events ?? d.events;
   const slugs = (raw: unknown) => (Array.isArray(raw) ? dedupe(raw.filter((e): e is string => typeof e === 'string').map(eventSlug).filter(Boolean)) : []);
   const events = Object.fromEntries(PREDICTION_SOURCES.map((src) => [src.id, slugs(rawEvents[src.id]).slice(0, MAX_MARKETS)]));
+  const eventTextChart = typeof input.eventTextChart === 'boolean' ? input.eventTextChart : d.eventTextChart;
   // Before events could be listed, every one was charted.
   const rawCharts: Record<string, unknown> = input.eventCharts ?? events;
   const eventCharts = Object.fromEntries(PREDICTION_SOURCES.map((src) =>
-    [src.id, slugs(rawCharts[src.id]).filter((e) => events[src.id]!.includes(e)).slice(0, MAX_CHARTS)]));
+    [src.id, slugs(rawCharts[src.id]).filter((e) => events[src.id]!.includes(e)).slice(0, maxEventCharts(eventTextChart))]));
   const eventInterval = nearestInterval(EVENT_INTERVALS, Number(input.eventInterval) || d.eventInterval);
 
   // 'text' was the only text width before there were three.
@@ -177,7 +185,7 @@ export function sanitize(input: Partial<Settings>): Settings {
   const exploreBy = !rankings || rankings.includes(wantBy) ? wantBy : rankings[0]!;
   const exploreView = (EXPLORE_VIEWS as readonly string[]).includes(input.exploreView as string) ? input.exploreView! : d.exploreView;
 
-  return { source, currency, markets, charts, interval, events, eventCharts, eventInterval, explore, exploreBy, exploreView, candleWidth, font, textList, showIndex, manualOnly, lookUpUpdate, lookUpCal, refreshSec, displaySec, alwaysOn };
+  return { source, currency, markets, charts, interval, events, eventCharts, eventInterval, eventTextChart, explore, exploreBy, exploreView, candleWidth, font, textList, showIndex, manualOnly, lookUpUpdate, lookUpCal, refreshSec, displaySec, alwaysOn };
 }
 
 /** `minutes` if supported, else the supported size closest to it (by ratio). */
