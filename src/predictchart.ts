@@ -6,7 +6,7 @@
  * least of the lines, gives each line's price and name beside a sample of its
  * style. Outcomes left out are one more row, "Other", with no line.
  */
-import { DIM, drawLogo, FAINT, FG, formatStamp, formatTime, layout, LOGO_INK, MID, SCREEN_H, SCREEN_W, timeTicks } from './chart';
+import { arrowWidth, DIM, drawArrow, LIST_ARROW, drawLogo, FAINT, FG, formatStamp, formatTime, layout, LOGO_INK, MID, SCREEN_H, SCREEN_W, timeTicks } from './chart';
 import { cssFont, digitMid, digitTop } from './fonts';
 import type { ChartFont } from './settings';
 import type { PredictionData } from './sources/prediction';
@@ -123,7 +123,12 @@ export function renderPrediction(ctx: CanvasRenderingContext2D, model: Predictio
         ctx.fillStyle = c.color;
         ctx.textAlign = 'left';
         ctx.fillText(c.text, x, y);
-        x += ctx.measureText(c.text).width + CELL_GAP;
+        x += ctx.measureText(c.text).width;
+        if (c.trend) {
+          drawArrow(ctx, x + ARROW_GAP, y - digitMid(listFont), LIST_PX, c.trend, c.color, LIST_ARROW);
+          x += ARROW_GAP + arrowWidth(LIST_PX, LIST_ARROW);
+        }
+        x += CELL_GAP;
       }
       x += ITEM_GAP - CELL_GAP;
     }
@@ -362,7 +367,9 @@ function emptiest(ctx: CanvasRenderingContext2D, plot: Rect, w: number, h: numbe
   return { x: px + best.x, y: py + best.y, covered: best.n > 0 };
 }
 
-type Cell = { text: string; color: string; bold?: boolean };
+/** A cell of text; `trend` adds an arrow after it, up or down. */
+type Cell = { text: string; color: string; bold?: boolean; trend?: number };
+const ARROW_GAP = 5;
 
 /** An event under the charts: its title, then its likeliest outcome's probability and name, and its 24h volume; or its error. */
 function eventCells(ctx: CanvasRenderingContext2D, d: PredictionData, font: (px: number, bold?: boolean) => string): Cell[] {
@@ -371,7 +378,7 @@ function eventCells(ctx: CanvasRenderingContext2D, d: PredictionData, font: (px:
   const title: Cell = { text: fit(ctx, d.title, 90), color: MID };
   const leader = d.error ? undefined : [...d.outcomes].sort((a, b) => b.price - a.price)[0];
   if (!leader) return [title, { text: d.error ?? 'no data', color: DIM }];
-  const cells: Cell[] = [title, { text: formatPct(leader.price), color: FG, bold: true }, { text: fit(ctx, leader.name, 64), color: MID }];
+  const cells: Cell[] = [title, { text: formatPct(leader.price), color: FG, bold: true, trend: leader.trend }, { text: fit(ctx, leader.name, 64), color: MID }];
   if (d.dayVolume !== undefined) cells.push({ text: `$${compact(d.dayVolume)}`, color: DIM });
   return cells;
 }
@@ -384,7 +391,7 @@ function flowEvents(ctx: CanvasRenderingContext2D, items: PredictionData[], widt
     const cells = eventCells(ctx, d, font);
     const w = cells.reduce((sum, c, i) => {
       ctx.font = font(LIST_PX, c.bold);
-      return sum + ctx.measureText(c.text).width + (i ? CELL_GAP : 0);
+      return sum + ctx.measureText(c.text).width + (c.trend ? ARROW_GAP + arrowWidth(LIST_PX, LIST_ARROW) : 0) + (i ? CELL_GAP : 0);
     }, 0);
     if (lines.length && lineW + ITEM_GAP + w <= width) {
       lines.at(-1)!.push(cells);
@@ -423,8 +430,8 @@ const LIST_ROWS = 8;
 
 /**
  * Prediction markets as a full-screen list, like the exchanges' market list:
- * one event per row, its title, its likeliest outcome (probability and name,
- * as in the text list),
+ * one event per row, its title, its likeliest outcome (probability, with an
+ * arrow if it moved since the last update, and name, as in the text list),
  * its 24h volume, and a line plot of its top (up to 4)
  * outcomes over the period one chart would show, in the charts' line styles.
  * Each row is scaled to its own lines, as the market list's line graphs are,
@@ -459,7 +466,9 @@ export function renderPredictionList(ctx: CanvasRenderingContext2D, model: Omit<
   const titleW = 170, leaderW = 90;
   ctx.font = pct;
   const pctR = pad + titleW + 10 + Math.ceil(ctx.measureText('>99%').width);
-  const leaderX = pctR + 6;
+  // Room after the probabilities for an arrow, if any moved since the last update.
+  const arrowW = model.items.some((d) => d.outcomes.some((o) => o.trend)) ? ARROW_GAP + arrowWidth(14) : 0;
+  const leaderX = pctR + arrowW + 6;
   ctx.font = small;
   const volR = leaderX + leaderW + 6 + Math.ceil(ctx.measureText('$888.8M').width);
   const plotX = volR + 10, plotW = SCREEN_W - pad - plotX;
@@ -485,6 +494,7 @@ export function renderPredictionList(ctx: CanvasRenderingContext2D, model: Omit<
     ctx.fillStyle = FG;
     ctx.textAlign = 'right';
     ctx.fillText(formatPct(leader.price), pctR, Math.round(cy + digitMid(pct)));
+    if (leader.trend) drawArrow(ctx, pctR + ARROW_GAP, cy, 14, leader.trend, FG);
     ctx.font = leaderFont;
     ctx.fillStyle = MID;
     ctx.textAlign = 'left';

@@ -21,6 +21,8 @@ export interface MarketData {
   dayVolume?: number;
   /** 24h change, as a fraction (0.05 is +5%); shown in place of the volume for Explore's biggest movers. */
   dayChange?: number;
+  /** Which way the price moved since the last update: 1 up, -1 down; 0 or missing, not at all, or no last update. */
+  trend?: number;
   error?: string;
 }
 

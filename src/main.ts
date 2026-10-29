@@ -7,7 +7,7 @@ import { onTraffic, tapBridge, traffic, type Counter } from './traffic';
 import { predictionCapacity, renderPrediction, renderPredictionList } from './predictchart';
 import { calibrate, LookUpDetector, type Vec } from './lookup';
 import { encodeTiles } from './png';
-import { buildEventTextList, buildLoadingList, buildTextChart, buildTextList, drawTextChart, serializeBox, textCandles, type TextBox } from './textchart';
+import { buildEventLoadingList, buildEventTextList, buildLoadingList, buildTextChart, buildTextList, drawTextChart, serializeBox, textCandles, type TextBox } from './textchart';
 import { average, describeError, isAbort, MIN_GAP_MS } from './sources/http';
 import { CURRENCIES, DOLLARS, type Currency } from './sources/symbols';
 import { getPredictionSource, getSource, isPredictionSource, PREDICTION_SOURCES, sourceLabel, SOURCES } from './sources';
@@ -171,6 +171,21 @@ function exploredMarkets(s: Settings): string[] {
   return explored?.key === exploreKey(s) ? explored.items.map((i) => i.market) : [];
 }
 
+/** Each market's (and outcome's) price at its last update, to show which way it's moved since. */
+const lastPrices = new Map<string, number>();
+
+/**
+ * Which way `price` moved since `key`'s last update (0 if it didn't; none
+ * the first time), remembering it for the next unless `peek` (the loading
+ * screen's prices so far, before the update's done).
+ */
+function trend(key: string, price: number | undefined, peek = false): number | undefined {
+  if (price === undefined || !Number.isFinite(price)) return undefined;
+  const prev = lastPrices.get(key);
+  if (!peek) lastPrices.set(key, price);
+  return prev === undefined ? undefined : Math.sign(price - prev);
+}
+
 /** The last update's data, if it was fetched for what `s` would fetch. */
 function reusable(s: Settings): MarketData[] | null {
   return lastFetch?.key === fetchKey(s) ? lastFetch.data : null;
@@ -245,6 +260,7 @@ async function update({ cancel = false, manual = false, showAt = 0, reuse = fals
     const cached = reuse && canReuse(settings);
     inFlightEta = Math.max(Date.now() + (cached ? drawMs + (glasses ? uploadMs : 0) : estimateUpdateMs()), showAt);
     progress = (cached && reusable(settings)) || [];
+    eventProgress = (cached && isPredictionSource(settings.source) && lastEvents?.data) || [];
     clearTimeout(dueTimer);
     dueAt = showAt;
     // Not drawn by its time: the loading screen goes up, unless a chart is still showing.
@@ -314,6 +330,32 @@ function estimateUpdateMs(): number {
 let loading = false;
 /** The update in progress's results so far, for the loading screen's market list. */
 let progress: MarketData[] = [];
+/** Likewise for a prediction market: its events with their current prices, once they're in. */
+let eventProgress: PredictionData[] = [];
+
+/** The loading screen's list: the markets (or events) so far, each with which way it's moved since the last update. */
+function loadingList(): NonNullable<Parameters<Glasses['updateLoadingList']>[0]> {
+  return isPredictionSource(settings.source) ? buildEventLoadingList(loadingEvents()) : buildLoadingList(loadingItems());
+}
+
+/** Every event of the update, with its outcomes once they're in, as `loadingItems` is for markets. */
+function loadingEvents(): PredictionData[] {
+  const titles = new Map(lastEvents?.data.map((d) => [d.market, d.title]));
+  const markets = eventProgress.length ? eventProgress.map((d) => d.market) : eventRequest(settings).markets;
+  return markets.map((m): PredictionData => {
+    const d = eventProgress.find((p) => p.market === m);
+    if (!d) return { market: m, title: titles.get(m) ?? m, outcomes: [] };
+    return { ...d, outcomes: d.outcomes.map((o) => ({ ...o, trend: o.trend ?? trend(`${settings.source}:${d.market}:${o.name}`, o.price, true) })) };
+  });
+}
+
+/** A prediction market's events with their current prices: fill in the loading screen's list. */
+function onEventProgress(ctrl: AbortController, partial: PredictionData[]): void {
+  if (inFlight !== ctrl) return;
+  eventProgress = partial;
+  if (loading) glasses?.updateLoadingList(loadingList()).catch(() => {});
+}
+
 /** Every monitored market, with what's been fetched of it so far. */
 function loadingItems(): MarketData[] {
   if (isPredictionSource(settings.source)) {
@@ -324,7 +366,12 @@ function loadingItems(): MarketData[] {
   }
   // Exploring: the markets found so far this update, else last time's.
   const markets = settings.explore ? (progress.length ? progress.map((d) => d.market) : exploredMarkets(settings)) : settings.markets;
-  return markets.map((m) => progress.find((d) => d.market === m) ?? { market: m, candles: [] });
+  // With which way each price so far moved since the last update, as the finished list will have.
+  const key = (m: string) => `${settings.source}:${settings.currency}:${m}`;
+  return markets.map((m) => {
+    const d = progress.find((p) => p.market === m) ?? { market: m, candles: [] };
+    return { ...d, trend: d.trend ?? trend(key(m), d.error ? undefined : d.last ?? d.candles.at(-1)?.close, true) };
+  });
 }
 
 function shorten(text: string, max: number): string {
@@ -343,7 +390,7 @@ function showLoading(etaSec: number): void {
     topRight: sourceLabel(settings.source),
     bottomLeft: '',
     bottomRight: APP_NAME,
-    list: buildLoadingList(loadingItems()),
+    list: loadingList(),
   }).catch((e) => setStatus(`Glasses error: ${(e as Error).message}`));
 }
 
@@ -351,7 +398,7 @@ function showLoading(etaSec: number): void {
 function onProgress(ctrl: AbortController, partial: MarketData[]): void {
   if (inFlight !== ctrl) return;
   progress = partial;
-  if (loading) glasses?.updateLoadingList(buildLoadingList(loadingItems())).catch(() => {});
+  if (loading) glasses?.updateLoadingList(loadingList()).catch(() => {});
 }
 
 async function runUpdate(ctrl: AbortController, showAt: number, reuse: boolean): Promise<void> {
@@ -365,6 +412,7 @@ async function runUpdate(ctrl: AbortController, showAt: number, reuse: boolean):
     showFetching();
     try {
       data = s.explore ? await exploreMarkets(s, ctrl) : await watchlistMarkets(s, ctrl);
+      data = data.map((d) => ({ ...d, trend: trend(`${s.source}:${s.currency}:${d.market}`, d.error ? undefined : d.last ?? d.candles.at(-1)?.close) }));
     } catch {
       return; // superseded by a newer update
     }
@@ -511,7 +559,8 @@ async function runEventsUpdate(ctrl: AbortController, showAt: number, reuse: boo
   } else {
     showFetching();
     try {
-      data = s.explore ? await exploreEvents(s, ctrl) : await getPredictionSource(s.source).fetch(eventRequest(s), ctrl.signal);
+      data = s.explore ? await exploreEvents(s, ctrl) : await getPredictionSource(s.source).fetch(eventRequest(s), ctrl.signal, (partial) => onEventProgress(ctrl, partial));
+      data = data.map((d) => ({ ...d, outcomes: d.outcomes.map((o) => ({ ...o, trend: trend(`${s.source}:${d.market}:${o.name}`, o.price) })) }));
     } catch {
       return; // superseded by a newer update
     }
@@ -565,7 +614,7 @@ async function exploreEvents(s: Settings, ctrl: AbortController): Promise<Predic
   // The list on the phone as soon as they're found, by the titles the ranking gave.
   setExplored(s, found.map((f) => ({ market: f.market, label: f.title ?? f.market, value: value(f) })));
   // History for the charted ones, or the list's line plots (none as text).
-  const data = await src.fetch(eventRequest(s, found.map((f) => f.market)), ctrl.signal);
+  const data = await src.fetch(eventRequest(s, found.map((f) => f.market)), ctrl.signal, (partial) => onEventProgress(ctrl, partial));
   setExplored(s, found.map((f, i) => ({
     market: f.market,
     label: data[i]?.title ?? f.title ?? f.market,

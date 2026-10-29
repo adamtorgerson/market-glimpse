@@ -94,6 +94,13 @@ refreshes every 2m, chart shown for 12s, narrow candles.
   publishes no 24h volume or price changes, but orders its events by volume
   (all time, it appears): it offers Highest volume only, by that, with no
   figure to show.
+- **Trend arrows**: in every market list (under the charts, the full-screen
+  list, and as text), a market's price is followed by ↑ or ↓ if it's higher
+  or lower than at the last update; for a prediction market, its leading
+  outcome's probability; and on the loading screen, each price as it comes
+  (for a prediction market, each event's leading outcome once the events are
+  in, before their history).
+  None the first time a market is shown, or if it didn't move.
 - **Most liquid** (a third Explore ranking): the money at the best bid and
   best ask (price × size, each), the top of the book rather than its depth,
   among the 100 most traded (a big order on a dead market isn't liquidity);

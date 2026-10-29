@@ -103,7 +103,7 @@ const TIME_KEY_GAP = 80;
 
 /** Advance widths of the firmware font, measured in the simulator; other characters are estimated. '1' and '2' are 1px narrower before another of themselves. */
 const WIDTHS: Record<string, number> = {
-  '1': 8, ':': 4, '.': 5, ',': 5, ' ': 5, '·': 5, "'": 4, '|': 4, '-': 10,
+  '1': 8, ':': 4, '.': 5, ',': 5, ' ': 5, '·': 5, "'": 4, '|': 4, '-': 10, '↑': 11, '↓': 11,
   A: 13, B: 12, C: 11, D: 12, E: 10, F: 10, G: 12, H: 12, I: 5, J: 8, K: 12, L: 9, M: 16,
   N: 12, O: 12, P: 12, Q: 12, R: 12, S: 11, T: 10, U: 12, V: 13, W: 16, X: 13, Y: 13, Z: 12,
   a: 11, b: 11, c: 10, e: 10, g: 11, h: 11, i: 5, k: 9, l: 4, m: 16, n: 11, o: 10, p: 11,
@@ -193,10 +193,14 @@ export interface TextListModel {
 /** Brightness of the market list's names, volumes and errors. */
 const MID = 2;
 
+/** The glasses' font has plain arrows, about a letter wide: room for one after a price, with a space. */
+const ARROW_W = 16;
+const arrow = (trend: number) => (trend > 0 ? '↑' : '↓');
+
 /**
  * The market list (nothing charted) as text: one market per line, with the
  * name and 24h volume (or change, if given) mid-bright and the price bright
- * and right-aligned.
+ * and right-aligned, followed by an arrow if it moved since the last update.
  * Corners as on the other screens: the time top-left, the source top-right,
  * and `name` bottom-right. Columns are lined up by the font's measured widths,
  * so they may be off by a px or two.
@@ -218,6 +222,7 @@ export function buildTextList(m: TextListModel): TextBox[] {
     return d.error || last === undefined ? null : formatPrice(last);
   });
   const nameR = 4 + Math.max(...m.items.map((d) => textWidth(d.market)));
+  const arrows = m.items.some((d) => d.trend);
   const priceR = nameR + 24 + Math.max(0, ...prices.map((p) => (p ? textWidth(p) : 0)));
   m.items.forEach((d, i) => {
     mid.lines[i]!.texts.push({ x: 4, text: d.market });
@@ -227,8 +232,10 @@ export function buildTextList(m: TextListModel): TextBox[] {
       return;
     }
     bright.lines[i]!.texts.push({ x: priceR - textWidth(price), text: price });
+    // Which way it moved since the last update, right after the price.
+    if (d.trend) bright.lines[i]!.texts.push({ x: priceR + 4, text: arrow(d.trend) });
     const after = d.dayChange !== undefined ? formatChange(d.dayChange) : d.dayVolume !== undefined ? formatVolume(d.dayVolume) : null;
-    if (after) mid.lines[i]!.texts.push({ x: priceR + 16, text: after });
+    if (after) mid.lines[i]!.texts.push({ x: priceR + 16 + (arrows ? ARROW_W : 0), text: after });
   });
   if (m.right) {
     // Shift the whole block so its widest row ends 4px from the right edge.
@@ -249,6 +256,14 @@ export interface EventTextListModel {
   source: string;
   /** Shown in the bottom-right corner, e.g. the app's name. */
   name?: string;
+  /** Still fetching: an event with no outcomes yet shows '...' rather than 'no data'. */
+  pending?: boolean;
+  /**
+   * In two containers, the bright and the mid-bright, the names and volumes
+   * in with the titles (placed by estimated widths, so a px or two off): the
+   * loading screen has room for no more.
+   */
+  twoBoxes?: boolean;
 }
 
 /** The widest an event's title is shown in the text list, in px; the rest is its leader. */
@@ -257,7 +272,8 @@ const TITLE_W = 300;
 /**
  * Prediction markets' list as text, like the market list: one event per
  * line, its title mid-bright, then its leading outcome's probability bright
- * and right-aligned, the outcome's name mid-bright, and the event's 24h
+ * and right-aligned (with an arrow if it moved since the last update), the
+ * outcome's name mid-bright, and the event's 24h
  * volume dim against the right edge. Titles too long are
  * cut short with "..." (the glasses' font may lack "…").
  */
@@ -271,10 +287,10 @@ export function buildEventTextList(m: EventTextListModel): TextBox[] {
   const mid = box(MID, y, rows);
   // The leaders' names in their own container, placed from the left edge: in
   // a title's, they'd be placed after it, by its estimated width.
-  const names = box(MID, y, rows);
+  const names = m.twoBoxes ? mid : box(MID, y, rows);
   // The volumes against the right edge, in theirs: placed from the left, as
   // the names are, rather than after the names' estimated widths.
-  const volumes = box(DIM, y, rows);
+  const volumes = m.twoBoxes ? mid : box(DIM, y, rows);
   const header = box(DIM, 0, 1);
   const footer = box(DIM, footerY, 1);
 
@@ -286,23 +302,26 @@ export function buildEventTextList(m: EventTextListModel): TextBox[] {
   const pcts = leaders.map((o) => (o ? formatPct(o.price) : null));
   const titleR = 4 + Math.max(...titles.map(textWidth));
   const pctR = titleR + 16 + Math.max(0, ...pcts.map((p) => (p ? textWidth(p) : 0)));
+  const arrows = leaders.some((o) => o?.trend);
   m.items.forEach((d, i) => {
     mid.lines[i]!.texts.push({ x: 4, text: titles[i]! });
     const pct = pcts[i];
     if (!pct) {
-      mid.lines[i]!.texts.push({ x: titleR + 16, text: d.error ?? 'no data' });
+      mid.lines[i]!.texts.push({ x: titleR + 16, text: d.error ?? (m.pending ? '...' : 'no data') });
       return;
     }
     bright.lines[i]!.texts.push({ x: pctR - textWidth(pct), text: pct });
+    if (leaders[i]!.trend) bright.lines[i]!.texts.push({ x: pctR + 4, text: arrow(leaders[i]!.trend!) });
     // Clear of the percentages, whose signs ("<", ">", "%") are estimated widths.
-    names.lines[i]!.texts.push({ x: pctR + 16, text: cut(leaders[i]!.name, SCREEN_W - 4 - pctR - 16 - (volW ? volW + 16 : 0)) });
+    const nameX = pctR + 16 + (arrows ? ARROW_W : 0);
+    names.lines[i]!.texts.push({ x: nameX, text: cut(leaders[i]!.name, SCREEN_W - 4 - nameX - (volW ? volW + 16 : 0)) });
     if (vols[i]) volumes.lines[i]!.texts.push({ x: SCREEN_W - 4 - textWidth(vols[i]!), text: vols[i]! });
   });
 
   const stamp = m.updated.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   header.lines[0]!.texts.push({ x: 4, text: stamp }, { x: SCREEN_W - 4 - textWidth(m.source), text: m.source });
   if (m.name) footer.lines[0]!.texts.push({ x: SCREEN_W - 4 - textWidth(m.name), text: m.name });
-  return [bright, mid, names, volumes, header, footer];
+  return m.twoBoxes ? [bright, mid, header, footer] : [bright, mid, names, volumes, header, footer];
 }
 
 /** "49%", or "<1%" and ">99%" at the ends, as on the charts. */
@@ -317,6 +336,15 @@ function cut(text: string, max: number): string {
   let s = text;
   while (s.length > 1 && textWidth(`${s}...`) > max) s = s.slice(0, -1);
   return `${s.trimEnd()}...`;
+}
+
+/**
+ * The loading screen's list for prediction markets: each event's title and,
+ * once in, its leading outcome, laid out like the text list.
+ */
+export function buildEventLoadingList(items: PredictionData[]): { y: number; h: number; color: number; content: string }[] {
+  const [bright, mid] = buildEventTextList({ items, updated: new Date(), source: '', pending: true, twoBoxes: true });
+  return [bright!, mid!].map((b) => ({ y: b.y, h: b.lines.length * LINE_H, color: b.color, content: serializeBox(b) }));
 }
 
 /**

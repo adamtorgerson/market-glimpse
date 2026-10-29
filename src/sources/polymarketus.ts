@@ -199,7 +199,7 @@ export const polymarketUs: PredictionSource = {
     return found;
   },
 
-  async fetch(req, signal) {
+  async fetch(req, signal, onProgress) {
     const out = new Map<string, PredictionData>(req.markets.map((m) => [m, { market: m, title: m, outcomes: [] }]));
     const result = () => req.markets.map((m) => out.get(m)!);
 
@@ -228,6 +228,9 @@ export const polymarketUs: PredictionSource = {
       for (const d of out.values()) d.error ??= describeError(e);
       return result();
     }
+
+    // The current prices are in: the history follows, a request per market.
+    onProgress?.(result());
 
     // Rule 3: from just far enough back to fill the chart, at the chosen spacing.
     const now = Math.floor(Date.now() / 1000);

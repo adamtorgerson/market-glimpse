@@ -139,7 +139,7 @@ export const polymarket: PredictionSource = {
     return events.slice(0, EXPLORE_COUNT);
   },
 
-  async fetch(req, signal) {
+  async fetch(req, signal, onProgress) {
     const out = new Map<string, PredictionData>(req.markets.map((m) => [m, { market: m, title: m, outcomes: [] }]));
     const result = () => req.markets.map((m) => out.get(m)!);
     const fail = (e: unknown) => {
@@ -172,6 +172,7 @@ export const polymarket: PredictionSource = {
       return result();
     }
     if (charted.length === 0) return result();
+    onProgress?.(result());
 
     // Rule 3: from just far enough back to fill the chart. Rule 2: up to
     // BATCH outcomes per request, the most the CLOB takes.

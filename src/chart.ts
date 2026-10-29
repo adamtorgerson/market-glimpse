@@ -662,13 +662,50 @@ function drawCorner(ctx: CanvasRenderingContext2D, r: Rect, font: string, pad: n
   return side === 'left' ? x + w : x - w;
 }
 
-type Cell = { text: string; color: string; bold?: boolean };
+/** A cell of text; `trend` adds an arrow after it, up or down. */
+type Cell = { text: string; color: string; bold?: boolean; trend?: number };
 
-/** Name, price and 24h volume (unlabelled), or 24h change if given; or name and error. */
+/** Space before a trend arrow, and its width for text `px` tall. */
+const ARROW_GAP = 5;
+export const arrowWidth = (px: number, scale = 1) => Math.round(px * 0.33 * scale);
+/** The lists under the charts' small text takes bigger arrows, to be seen. */
+export const LIST_ARROW = 1.3;
+
+/**
+ * A simple arrow, up (`dir` > 0) or down, `px` tall like the text it follows,
+ * its left edge at `x` and centred on `cy`: a stem with a V head, as the
+ * glasses' own "↑" and "↓".
+ */
+export function drawArrow(ctx: CanvasRenderingContext2D, x: number, cy: number, px: number, dir: number, color: string, scale = 1): void {
+  const h = Math.round(px * 0.42 * scale), w = arrowWidth(px, scale);
+  const mid = x + w / 2, tip = dir > 0 ? cy - h / 2 : cy + h / 2, tail = dir > 0 ? cy + h / 2 : cy - h / 2;
+  const back = dir > 0 ? tip + w / 2 : tip - w / 2;
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = Math.max(1.5, px / 10);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(mid, tail);
+  ctx.lineTo(mid, tip);
+  ctx.moveTo(x, back);
+  ctx.lineTo(mid, tip);
+  ctx.lineTo(x + w, back);
+  ctx.stroke();
+  ctx.restore();
+}
+
+/** Width of a cell's text, and its arrow if any. */
+function cellWidth(ctx: CanvasRenderingContext2D, c: Cell, px: number, scale = 1): number {
+  ctx.font = cellFont(c, px);
+  return ctx.measureText(c.text).width + (c.trend ? ARROW_GAP + arrowWidth(px, scale) : 0);
+}
+
+/** Name, price (with which way it moved since the last update) and 24h volume (unlabelled), or 24h change if given; or name and error. */
 function marketCells(m: MarketData): Cell[] {
   const last = m.last ?? m.candles.at(-1)?.close;
   if (m.error || last === undefined) return [{ text: m.market, color: MID }, { text: m.error ?? 'no data', color: DIM }];
-  const cells: Cell[] = [{ text: m.market, color: MID }, { text: formatPrice(last), color: FG, bold: true }];
+  const cells: Cell[] = [{ text: m.market, color: MID }, { text: formatPrice(last), color: FG, bold: true, trend: m.trend }];
   if (m.dayChange !== undefined) cells.push({ text: formatChange(m.dayChange), color: MID });
   else if (m.dayVolume !== undefined) cells.push({ text: formatVolume(m.dayVolume), color: MID });
   return cells;
@@ -684,10 +721,7 @@ function flowLines(ctx: CanvasRenderingContext2D, items: MarketData[], width: nu
   let lineW = 0;
   for (const m of items) {
     const cells = marketCells(m);
-    const w = cells.reduce((sum, c, i) => {
-      ctx.font = cellFont(c, LIST_PX);
-      return sum + ctx.measureText(c.text).width + (i ? CELL_GAP : 0);
-    }, 0);
+    const w = cells.reduce((sum, c, i) => sum + cellWidth(ctx, c, LIST_PX, LIST_ARROW) + (i ? CELL_GAP : 0), 0);
     if (lines.length && lineW + ITEM_GAP + w <= width) {
       lines.at(-1)!.push(cells);
       lineW += ITEM_GAP + w;
@@ -710,11 +744,14 @@ function drawMarketList(ctx: CanvasRenderingContext2D, items: MarketData[], r: R
   ctx.textBaseline = 'middle';
   ctx.textAlign = 'left';
   const x0 = r.x + 6;
-  const draw = (c: Cell, x: number, cy: number, px: number) => {
+  /** Draws `c` at `x` (its right edge, if right-aligned; the arrow goes after it either way), and returns its width. */
+  const draw = (c: Cell, x: number, cy: number, px: number, scale = 1) => {
     ctx.font = cellFont(c, px);
     ctx.fillStyle = c.color;
     ctx.fillText(c.text, x, cy);
-    return ctx.measureText(c.text).width;
+    const w = ctx.measureText(c.text).width;
+    if (c.trend) drawArrow(ctx, (ctx.textAlign === 'right' ? x : x + w) + ARROW_GAP, cy, px, c.trend, c.color, scale);
+    return w + (c.trend ? ARROW_GAP + arrowWidth(px, scale) : 0);
   };
 
   if (!full) {
@@ -723,7 +760,7 @@ function drawMarketList(ctx: CanvasRenderingContext2D, items: MarketData[], r: R
       const cy = y + LIST_LINE_H / 2 + 1;
       let x = x0;
       for (const cells of line) {
-        for (const c of cells) x += draw(c, x, cy, LIST_PX) + CELL_GAP;
+        for (const c of cells) x += draw(c, x, cy, LIST_PX, LIST_ARROW) + CELL_GAP;
         x += ITEM_GAP - CELL_GAP;
       }
       y += LIST_LINE_H;
@@ -743,7 +780,9 @@ function drawMarketList(ctx: CanvasRenderingContext2D, items: MarketData[], r: R
     return ctx.measureText(row[i]!.text).width;
   }));
   const priceR = x0 + colW(0) + gap + colW(1);
-  const graphX = priceR + gap / 2 + colW(2) + gap;
+  // Room after the prices for their arrows, if any has one.
+  const arrowW = rows.some((row) => row[1]!.trend) ? ARROW_GAP + arrowWidth(px) : 0;
+  const graphX = priceR + arrowW + gap / 2 + colW(2) + gap;
   const graphW = r.x + r.w - 6 - graphX;
   let y = r.y + Math.round((r.h - items.length * lineH) / 2);
   for (const [i, row] of rows.entries()) {
@@ -756,7 +795,7 @@ function drawMarketList(ctx: CanvasRenderingContext2D, items: MarketData[], r: R
       ctx.textAlign = 'right';
       draw(row[1]!, priceR, cy, px);
       ctx.textAlign = 'left';
-      if (row[2]) draw(row[2], priceR + gap / 2, cy, px);
+      if (row[2]) draw(row[2], priceR + arrowW + gap / 2, cy, px);
     }
     y += lineH;
   }

@@ -21,6 +21,8 @@ export interface Outcome {
   history: PricePoint[];
   /** Its market's 24h volume, in dollars, where it has a market of its own (or is the first of one's two sides). */
   dayVolume?: number;
+  /** Which way its probability moved since the last update, as `MarketData.trend`. */
+  trend?: number;
 }
 
 export interface PredictionData {
@@ -58,8 +60,12 @@ export interface PredictionSource {
   requestsPerUpdate(req: PredictionRequest): number;
   /** Rough ms a `fetch` would take if started now (rate limits, recent response times). */
   estimateMs(req: PredictionRequest): number;
-  /** One result per `req.markets` entry, in order. Rejects only with an AbortError. */
-  fetch(req: PredictionRequest, signal: AbortSignal): Promise<PredictionData[]>;
+  /**
+   * One result per `req.markets` entry, in order. Rejects only with an
+   * AbortError. `onProgress` gets the events with their current prices as
+   * soon as they're in, before their history.
+   */
+  fetch(req: PredictionRequest, signal: AbortSignal, onProgress?: (partial: PredictionData[]) => void): Promise<PredictionData[]>;
   /**
    * The top events (up to EXPLORE_COUNT, as many as the list shows) by 24h
    * volume, or by their markets' biggest 1-day move, with what they were
