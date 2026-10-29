@@ -262,7 +262,11 @@ the bundle. Upload stats are still logged to the console.
 
 On the glasses, a tap while the chart is up dismisses it early (with
 **Display always on**, it refreshes it instead). A tap while the display is
-dark fetches and shows a fresh chart. A double tap exits the app: the glasses
+dark fetches and shows a fresh chart. A swipe up switches between
+**Watchlist** and **Explore**; a swipe down turns **Market list as text** on
+or off. A swipe the settings can't take (an empty watchlist, or a refresh too
+short for the requests it needs) changes nothing: the glasses show "No change:
+see phone" for two seconds, and the reason is under the form. A double tap exits the app: the glasses
 ask to confirm (`shutDownPageContainer(1)`, as Even Hub review requires), and
 the Even app then closes the phone page.
 

@@ -140,6 +140,15 @@ export class Glasses {
     });
   }
 
+  /** Touchpad swipe. Every page's event capture is a text container, which reports them. */
+  onSwipe(cb: (dir: 'up' | 'down') => void): () => void {
+    return this.bridge.onEvenHubEvent((e) => {
+      const type = e.textEvent?.eventType;
+      if (type === OsEventTypeList.SCROLL_TOP_EVENT) cb('up');
+      else if (type === OsEventTypeList.SCROLL_BOTTOM_EVENT) cb('down');
+    });
+  }
+
   /**
    * Leave the app. Mode 1 asks the wearer to confirm on the glasses, as Even
    * Hub review requires for a double tap on the root page; the host then

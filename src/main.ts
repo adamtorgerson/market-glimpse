@@ -1169,8 +1169,11 @@ function readForm(): Settings {
   return next;
 }
 
-/** Apply the form as soon as anything changes; no-op if the result is unchanged. */
-async function applyForm(): Promise<void> {
+/**
+ * Apply the form as soon as anything changes; no-op if the result is
+ * unchanged. False if refused (the reason is shown under the form).
+ */
+async function applyForm(): Promise<boolean> {
   syncManualOnlyRows();
   syncKind();
   syncExploreView();
@@ -1181,7 +1184,7 @@ async function applyForm(): Promise<void> {
     next = readForm();
   } catch (err) {
     formError.textContent = (err as Error).message;
-    return;
+    return false;
   }
   formError.textContent = '';
   // Show the normalized values without rebuilding rows (which would steal focus).
@@ -1195,7 +1198,7 @@ async function applyForm(): Promise<void> {
   displayInput.value = formatDuration(next.displaySec);
   syncLookUpControls(next);
 
-  if (JSON.stringify(next) === JSON.stringify(settings)) return;
+  if (JSON.stringify(next) === JSON.stringify(settings)) return true;
   const prev = settings;
   settings = next;
   renderExplore();
@@ -1229,6 +1232,7 @@ async function applyForm(): Promise<void> {
       hideTimer = setTimeout(hideUnlessAlwaysOn, next.displaySec * 1000);
     }
   }
+  return true;
 }
 
 // `change` fires immediately for checkboxes and selects, and on blur/Enter for text.
@@ -1255,6 +1259,32 @@ function toggleChart(): void {
   } else {
     restartSchedule({ manual: true });
   }
+}
+
+/**
+ * A swipe on the glasses, as if on the phone: up switches Watchlist / Explore,
+ * down flips Market list as text. If the form refuses the change, the control
+ * goes back and the glasses say so briefly, then return to what they showed.
+ */
+async function onSwipe(dir: 'up' | 'down'): Promise<void> {
+  const flip = (): void => {
+    if (dir === 'up') selectTab(tabExplore.getAttribute('aria-selected') !== 'true');
+    else textListBox.checked = !textListBox.checked;
+  };
+  flip();
+  if (await applyForm()) return;
+  // Re-applying the unchanged form re-syncs the controls but clears the error: keep the swipe's.
+  const reason = formError.textContent;
+  flip();
+  await applyForm();
+  formError.textContent = reason;
+  if (!glasses || exited) return;
+  const wasShowing = showing;
+  clearTimeout(hideTimer);
+  setShowing(true);
+  await glasses.message('No change: see phone').catch(() => {});
+  // The last chart, redrawn from its data, or dark again.
+  hideTimer = setTimeout(() => void (wasShowing ? update({ manual: true, reuse: true }) : hide()), 2000);
 }
 
 function parseDuration(raw: string, label: string): number {
@@ -1459,6 +1489,8 @@ async function boot(): Promise<void> {
   glasses?.onTap(toggleChart);
   // Even Hub's exit gesture on the root page: the glasses ask to confirm.
   glasses?.onDoubleTap(() => void glasses!.exit().catch(() => {}));
+  // Swipes act as if on the phone: up switches Watchlist / Explore, down flips Market list as text.
+  glasses?.onSwipe((dir) => void onSwipe(dir));
   glasses?.onImu(onImuReading);
   glasses?.onExit(stop);
   settings = await loadSettings();
