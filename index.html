@@ -25,6 +25,7 @@
       </label>
       <div class="actions">
         <button id="show-now" type="button">Show now</button>
+        <button id="next-favorite" type="button" class="secondary" disabled>No favorites saved</button>
       </div>
 
       <form id="settings" autocomplete="off">
@@ -107,6 +108,9 @@
           <label>Data source
             <select name="source" id="source"></select>
           </label>
+          <label class="sub">Favorite (long press cycles)
+            <input type="checkbox" name="favorite" id="favorite" />
+          </label>
           <label data-exchange>Currency type
             <select name="currency" id="currency"></select>
           </label>
@@ -129,6 +133,7 @@
         <p id="form-error" class="error" role="alert"></p>
         <div class="actions">
           <button id="reset" type="button" class="secondary">Restore defaults</button>
+          <button id="clear-favorites" type="button" class="secondary">Clear favorites</button>
         </div>
       </form>
     </main>

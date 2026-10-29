@@ -26,6 +26,7 @@ import {
   maxCharts,
   maxEventCharts,
   nearestInterval,
+  nextFavorite,
   normalizeMarket,
   sanitize,
   type CandleWidth,
@@ -53,6 +54,8 @@ const updatedEl = $('updated');
 $('logo').innerHTML = LOGO_SVG;
 const scheduleEl = $('schedule');
 const showNowBtn = $<HTMLButtonElement>('show-now');
+const nextFavoriteBtn = $<HTMLButtonElement>('next-favorite');
+const clearFavoritesBtn = $<HTMLButtonElement>('clear-favorites');
 const alwaysOnBox = $<HTMLInputElement>('always-on');
 
 let glasses: Glasses | null = null;
@@ -824,6 +827,7 @@ document.addEventListener('visibilitychange', syncCountdown);
 
 const form = $<HTMLFormElement>('settings');
 const sourceSel = $<HTMLSelectElement>('source');
+const favoriteBox = $<HTMLInputElement>('favorite');
 const currencySel = $<HTMLSelectElement>('currency');
 const marketList = $<HTMLUListElement>('markets');
 const addMarketBtn = $<HTMLButtonElement>('add-market');
@@ -1082,8 +1086,20 @@ function renderExplore(): void {
   }));
 }
 
+/**
+ * Tick Favorite for the chosen source. The box is the source's it was last
+ * synced for, so a new source shows its own, as saved.
+ */
+function syncFavorite(s: Settings = settings): void {
+  if (favoriteBox.dataset.source === sourceSel.value) return;
+  favoriteBox.dataset.source = sourceSel.value;
+  favoriteBox.checked = s.favorites.includes(sourceSel.value);
+}
+
 function fillForm(s: Settings): void {
   sourceSel.value = s.source;
+  favoriteBox.dataset.source = '';
+  syncFavorite(s);
   selectTab(s.explore);
   exploreBySel.value = s.exploreBy;
   exploreViewSel.value = s.exploreView;
@@ -1130,6 +1146,7 @@ function readForm(): Settings {
 
   const next = sanitize({
     source: sourceSel.value,
+    favorites: [...settings.favorites.filter((id) => id !== sourceSel.value), ...(favoriteBox.checked ? [sourceSel.value] : [])],
     currency: currencySel.value as Currency,
     markets: events || !watchlist ? settings.markets : watchlist.map((r) => r.market),
     charts: events || !watchlist ? settings.charts : watchlist.filter((r) => r.charted).map((r) => r.market),
@@ -1175,6 +1192,7 @@ function readForm(): Settings {
  */
 async function applyForm(): Promise<boolean> {
   syncManualOnlyRows();
+  syncFavorite();
   syncKind();
   syncExploreView();
   syncIntervalOptions();
@@ -1201,6 +1219,7 @@ async function applyForm(): Promise<boolean> {
   if (JSON.stringify(next) === JSON.stringify(settings)) return true;
   const prev = settings;
   settings = next;
+  syncNextFavorite();
   renderExplore();
   await saveSettings(settings);
   syncLookUp();
@@ -1245,8 +1264,16 @@ form.addEventListener('submit', (e) => {
 });
 
 $('reset').addEventListener('click', () => {
-  fillForm(DEFAULT_SETTINGS);
+  // Favorites are kept, like the look-up calibration.
+  fillForm({ ...DEFAULT_SETTINGS, favorites: settings.favorites });
   void applyForm();
+});
+// Nothing charted changes, so this saves without going through the form.
+clearFavoritesBtn.addEventListener('click', () => {
+  settings = { ...settings, favorites: [] };
+  favoriteBox.checked = false;
+  void saveSettings(settings);
+  syncNextFavorite();
 });
 // Toggles: fetch fresh data and show it, or take the current chart down early.
 showNowBtn.addEventListener('click', toggleChart);
@@ -1271,18 +1298,46 @@ async function onSwipe(dir: 'up' | 'down'): Promise<void> {
     if (dir === 'up') selectTab(tabExplore.getAttribute('aria-selected') !== 'true');
     else textListBox.checked = !textListBox.checked;
   };
-  flip();
+  await changeFromGlasses(flip, flip);
+}
+
+/** Name the source Next favorite goes to; disabled without another favorite (and Clear favorites without any). */
+function syncNextFavorite(): void {
+  clearFavoritesBtn.disabled = settings.favorites.length === 0;
+  const next = nextFavorite(settings);
+  nextFavoriteBtn.disabled = !next;
+  nextFavoriteBtn.textContent = next ? `Next: ${sourceLabel(next)}` : 'No favorites saved';
+}
+// As a long press on the glasses does.
+nextFavoriteBtn.addEventListener('click', () => void onLongPress());
+
+/** A long press on the glasses (or Next favorite): on to the next favorite data source. */
+async function onLongPress(): Promise<void> {
+  const next = nextFavorite(settings);
+  if (!next) return void glassesNotice('No other favorite source');
+  const prev = sourceSel.value;
+  await changeFromGlasses(() => (sourceSel.value = next), () => (sourceSel.value = prev));
+}
+
+/** Make a change on the glasses' behalf; if the form refuses it, `undo` it and say so on the glasses. */
+async function changeFromGlasses(change: () => void, undo: () => void): Promise<void> {
+  change();
   if (await applyForm()) return;
-  // Re-applying the unchanged form re-syncs the controls but clears the error: keep the swipe's.
+  // Re-applying the unchanged form re-syncs the controls but clears the error: keep the change's.
   const reason = formError.textContent;
-  flip();
+  undo();
   await applyForm();
   formError.textContent = reason;
+  await glassesNotice('No change: see phone');
+}
+
+/** Show `text` on the glasses for two seconds, then what they showed before. */
+async function glassesNotice(text: string): Promise<void> {
   if (!glasses || exited) return;
   const wasShowing = showing;
   clearTimeout(hideTimer);
   setShowing(true);
-  await glasses.message('No change: see phone').catch(() => {});
+  await glasses.message(text).catch(() => {});
   // The last chart, redrawn from its data, or dark again.
   hideTimer = setTimeout(() => void (wasShowing ? update({ manual: true, reuse: true }) : hide()), 2000);
 }
@@ -1491,11 +1546,14 @@ async function boot(): Promise<void> {
   glasses?.onDoubleTap(() => void glasses!.exit().catch(() => {}));
   // Swipes act as if on the phone: up switches Watchlist / Explore, down flips Market list as text.
   glasses?.onSwipe((dir) => void onSwipe(dir));
+  // A long press goes on to the next favorite data source.
+  glasses?.onLongPress(() => void onLongPress());
   glasses?.onImu(onImuReading);
   glasses?.onExit(stop);
   settings = await loadSettings();
   void loadFont(settings.font).catch(() => {});
   fillForm(settings);
+  syncNextFavorite();
   setShowing(showing); // Label the button for the saved settings.
   // The motion sensor only starts once the glasses have a page, and in
   // manual-only mode nothing else puts one up until the first chart.

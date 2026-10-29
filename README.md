@@ -21,6 +21,9 @@ refreshes every 2m, chart shown for 12s, narrow candles.
   Coinbase has `BTC-USD` but no `BTC-USDC`. A market the exchange doesn't
   have shows "unknown pair". The list also offers **prediction markets**
   (Polymarket, Polymarket US); see below.
+  - **Favorite**: a long press on the glasses goes on to the next favorite
+    source, in the list's order. So does the button beside **Show now**,
+    which names that source ("Next: OKX").
 - **Prediction markets** (Polymarket or Polymarket US as the data source):
   the market list becomes up to 8 events, entered as a link or the event's
   slug, with the same Chart ticks as markets: up to 4 charted, the rest
@@ -271,7 +274,8 @@ On the glasses, a tap while the chart is up dismisses it early (with
 **Display always on**, it refreshes it instead). A tap while the display is
 dark fetches and shows a fresh chart. A swipe up switches between
 **Watchlist** and **Explore**; a swipe down turns **Market list as text** on
-or off. A swipe the settings can't take (an empty watchlist, or a refresh too
+or off. A long press goes on to the next **Favorite** data source (with none
+other, the glasses say so for two seconds). A swipe or long press the settings can't take (an empty watchlist, or a refresh too
 short for the requests it needs) changes nothing: the glasses show "No change:
 see phone" for two seconds, and the reason is under the form. A double tap exits the app: the glasses
 ask to confirm (`shutDownPageContainer(1)`, as Even Hub review requires), and

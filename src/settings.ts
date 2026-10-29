@@ -42,6 +42,8 @@ export function maxEventCharts(textChart: boolean): number {
 export interface Settings {
   /** Data source id: an exchange ("kraken") or a prediction market ("polymarket"). */
   source: string;
+  /** Source ids a long press on the glasses cycles through, in the source list's order. */
+  favorites: string[];
   /** Quote currency for markets typed without one ("TSLA", "BTC"). */
   currency: Currency;
   /** Markets to monitor, e.g. "BTC-USDC", or "TSLA" with no quote. */
@@ -108,6 +110,7 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = {
   source: DEFAULT_SOURCE,
+  favorites: [],
   currency: DEFAULT_CURRENCY,
   markets: ['BTC-USDC', 'ETH-USDC'],
   charts: ['BTC-USDC'],
@@ -135,10 +138,22 @@ export function normalizeMarket(raw: string): string {
   return raw.trim().toUpperCase().replace(/[\s/_:]+/g, '-');
 }
 
+/** Every source id, exchanges then prediction markets, as the source list shows them. */
+export const ALL_SOURCE_IDS: readonly string[] = [...SOURCES, ...PREDICTION_SOURCES].map((s) => s.id);
+
+/** The favorite after `source` in the source list, wrapping; null without another. */
+export function nextFavorite(s: Settings): string | null {
+  const at = ALL_SOURCE_IDS.indexOf(s.source);
+  const after = (id: string) => (ALL_SOURCE_IDS.indexOf(id) - at + ALL_SOURCE_IDS.length) % ALL_SOURCE_IDS.length;
+  const next = s.favorites.filter((id) => id !== s.source).sort((a, b) => after(a) - after(b))[0];
+  return next ?? null;
+}
+
 /** Coerce arbitrary (possibly stale or hand-edited) input into valid settings. */
 export function sanitize(input: Partial<Settings>): Settings {
   const d = DEFAULT_SETTINGS;
   const source = SOURCES.some((s) => s.id === input.source) || isPredictionSource(input.source ?? '') ? input.source! : d.source;
+  const favorites = Array.isArray(input.favorites) ? ALL_SOURCE_IDS.filter((id) => input.favorites!.includes(id)) : d.favorites;
   const currency = (CURRENCIES as readonly string[]).includes(input.currency as string) ? input.currency! : d.currency;
   const markets = dedupe((input.markets ?? d.markets).map(normalizeMarket).filter(Boolean)).slice(0, MAX_MARKETS);
   if (markets.length === 0) markets.push(...d.markets);
@@ -185,7 +200,7 @@ export function sanitize(input: Partial<Settings>): Settings {
   const exploreBy = !rankings || rankings.includes(wantBy) ? wantBy : rankings[0]!;
   const exploreView = (EXPLORE_VIEWS as readonly string[]).includes(input.exploreView as string) ? input.exploreView! : d.exploreView;
 
-  return { source, currency, markets, charts, interval, events, eventCharts, eventInterval, eventTextChart, explore, exploreBy, exploreView, candleWidth, font, textList, showIndex, manualOnly, lookUpUpdate, lookUpCal, refreshSec, displaySec, alwaysOn };
+  return { source, favorites, currency, markets, charts, interval, events, eventCharts, eventInterval, eventTextChart, explore, exploreBy, exploreView, candleWidth, font, textList, showIndex, manualOnly, lookUpUpdate, lookUpCal, refreshSec, displaySec, alwaysOn };
 }
 
 /** `minutes` if supported, else the supported size closest to it (by ratio). */

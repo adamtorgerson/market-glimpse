@@ -140,6 +140,14 @@ export class Glasses {
     });
   }
 
+  /** Touchpad long press, as it starts (not on release). */
+  onLongPress(cb: () => void): () => void {
+    return this.bridge.onEvenHubEvent((e) => {
+      const ev = e.textEvent ?? e.sysEvent ?? e.listEvent;
+      if (ev?.eventType === OsEventTypeList.LONG_PRESS_EVENT) cb();
+    });
+  }
+
   /** Touchpad swipe. Every page's event capture is a text container, which reports them. */
   onSwipe(cb: (dir: 'up' | 'down') => void): () => void {
     return this.bridge.onEvenHubEvent((e) => {
