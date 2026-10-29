@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { TextBox } from '../src/textchart';
-import { buildEventLoadingList, buildEventTextChart, buildEventTextList, buildLoadingList, buildTextList, eventTextPoints, serializeBox, utf8Length } from '../src/textchart';
+import { buildEventLoadingList, buildEventTextChart, buildEventTextList, buildLoadingList, buildTextChart, buildTextList, eventTextPoints, serializeBox, textWidth, utf8Length } from '../src/textchart';
 import type { PredictionData } from '../src/sources/prediction';
+import type { MarketData } from '../src/sources/types';
 
 const event = (title: string, outcomes: [string, number][], error?: string): PredictionData =>
   ({ market: title, title, outcomes: outcomes.map(([name, price]) => ({ name, price, history: [] })), error });
@@ -202,6 +203,58 @@ describe('the prediction text chart\'s list', () => {
     expect(dimText(ten).match(/Q\d+:/g)).toHaveLength(7);
     expect(dimText(ten)).toMatch(/\+3 more/);
     for (const b of [...seven, ...ten]) expect(utf8Length(serializeBox(b))).toBeLessThanOrEqual(999);
+  });
+
+  it('lines up each column\'s probabilities and names from line to line', () => {
+    const boxes = build(['Q1?', 'A much longer question?', 'Q3: medium?', 'Short?'].map((t, i) => yesNo(t, [0.4, 0.05, 0.993, 0.5][i]!)));
+    // Where each match on a line ends, or starts, in px: the blanks before it place it.
+    const at = (box: TextBox, line: number, re: RegExp, end: boolean) => {
+      const raw = serializeBox(box).split('\n')[line]!;
+      return [...raw.matchAll(re)].map((m) => textWidth(raw.slice(0, m.index! + (end ? m[0].length : 0))));
+    };
+    // List lines at offset 20, line 8 and offset 14, line 9: percentages bright, names dim.
+    expect(at(boxes[3]!, 8, /\d+%/g, true)).toEqual(at(boxes[2]!, 9, /\d+%/g, true));
+    // The names follow text placed by estimated widths, so to within the 4px grid.
+    const [top, bottom] = [at(boxes[7]!, 8, /\b(Yes|No)\b/g, false), at(boxes[6]!, 9, /\b(Yes|No)\b/g, false)];
+    expect(top).toHaveLength(2);
+    top.forEach((x, i) => expect(Math.abs(x - bottom[i]!)).toBeLessThanOrEqual(2));
+  });
+});
+
+describe('the text chart\'s market list', () => {
+  const updated = new Date(2026, 9, 28, 14, 0, 0);
+  const read = (s: string) => s.replace(/[^\x20-\x7e·↑↓]+/g, ' ').trim();
+  const market = (name: string, price: number): MarketData =>
+    ({ market: name, candles: [{ time: 0, open: price, high: price * 1.01, low: price * 0.99, close: price, volume: 1 }] });
+  const build = (n: number) => buildTextChart({
+    chart: market('BTC-USDC', 80_000), width: 'text-narrow', interval: 5, updated, source: 'Kraken', name: 'MarketGlimpse',
+    ticker: Array.from({ length: n }, (_, i) => market(`COIN${i + 1}-USD`, 1234.5)),
+  });
+  const dim = (boxes: TextBox[], phase: number, line: number) => read(serializeBox(boxes[4 + phase]!).split('\n')[line] ?? '');
+
+  it('has one line along the bottom when the markets fit beside the name', () => {
+    const boxes = build(2);
+    expect(dim(boxes, 2, 9)).toMatch(/^COIN1-USD .* +· +COIN2-USD .* MarketGlimpse$/);
+    expect(dim(boxes, 3, 8)).toMatch(/\d\d:\d\d/);
+  });
+
+  it('follows a price with an arrow if it moved since the last update', () => {
+    const boxes = buildTextChart({
+      chart: market('BTC-USDC', 80_000), width: 'text-narrow', interval: 5, updated, source: 'Kraken',
+      ticker: [{ ...market('ETH-USD', 2_355), trend: 1 }, market('SOL-USD', 101.89), { ...market('XRP-USD', 1.3), trend: -1 }],
+    });
+    expect(dim(boxes, 2, 9).match(/\S+-USD [\d.,]+( [↑↓])?/g)).toEqual(['ETH-USD 2,355.00 ↑', 'SOL-USD 101.89', 'XRP-USD 1.300 ↓']);
+  });
+
+  it('goes on to a second line, under a shorter plot, when they don\'t', () => {
+    const boxes = build(8);
+    const top = dim(boxes, 3, 8), bottom = dim(boxes, 2, 9);
+    expect(top).toMatch(/^COIN1-USD/);
+    expect(bottom).toMatch(/^COIN\d-USD .* MarketGlimpse$/);
+    // The time keys move up a line.
+    expect(dim(boxes, 0, 8)).toMatch(/\d\d:\d\d/);
+    expect(`${top} ${bottom}`.match(/COIN\d/g)!.length).toBeGreaterThan(3);
+    for (const b of boxes) expect(utf8Length(serializeBox(b))).toBeLessThanOrEqual(999);
   });
 });
 

@@ -37,6 +37,7 @@ const SHOTS = {
   'text-list': { markets: M6, charts: [], textList: true },
   'text-chart': { markets: M3, charts: ['BTC-USDC'], candleWidth: 'text-narrow' },
   'text-blocks-chart': { markets: M3, charts: ['BTC-USDC'], candleWidth: 'text-blocks' },
+  'text-chart-listed': { markets: ALL, charts: ['BTC-USDC'], candleWidth: 'text-narrow' },
   'explore-volume': { explore: true, exploreBy: 'volume' },
   'explore-movers': { explore: true, exploreBy: 'movers' },
   'explore-one-chart': { explore: true, exploreView: '1' },

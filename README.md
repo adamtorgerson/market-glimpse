@@ -55,7 +55,7 @@ refreshes every 2m, chart shown for 12s, narrow candles.
   legend takes two. Under it, the other events are listed two to a line,
   on up to four lines (all 7 others of 8 fit): each one's title, its
   likeliest outcome's probability (bright, with its trend arrow) and name,
-  cut short to fit. MarketGlimpse is in the bottom-right corner, as on the
+  cut short to fit, in columns lined up from line to line. MarketGlimpse is in the bottom-right corner, as on the
   other text screens: in the list's last place, or with no list, after the
   legend if there's room, else on a line of its own. Each line moves the plot up (keeping
   its gridlines on the font's rows), and the time keys with it. Explore
@@ -169,7 +169,9 @@ refreshes every 2m, chart shown for 12s, narrow candles.
     under). Dots keep 12px above and below any candle and two columns (8px)
     to either side, so they stay well clear of them; with Text thin's
     closely packed candles, 20px and four columns (16px). Only one market can be
-    charted; the other markets' prices go on the bottom line if they fit.
+    charted; the other markets' prices go along the bottom, on a second
+    line (with the plot a line shorter, and three price keys) if they don't
+    fit on one.
     With no market ticked, the market list is drawn as usual.
 - **Font**: for the text in chart images. Atkinson Hyperlegible (the
   default), B612, DejaVu Sans Mono, Hack or Terminus. The phone's own font is
@@ -415,7 +417,7 @@ shares these corners: the time top-left, the source top-right and the logo
 bottom-right (MarketGlimpse in text on the text screens, which can't draw
 it). The full-screen market lists sit between them. Text candles lay their
 top line out like the image header (price and time, Index, source, market
-and candle size), with the other markets' prices on the bottom line.
+and candle size), with the other markets' prices on the bottom line or two.
 
 "Display off" means switching to a page with one empty text container. With no
 pixels lit, the display is dark, but the app keeps running so the timer

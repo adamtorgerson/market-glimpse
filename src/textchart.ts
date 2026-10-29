@@ -86,14 +86,9 @@ interface Style {
   clear?: number;
   clearCols?: number;
 }
-/** Rows the candles may use: below the header line, above the footer line. */
+/** Rows the candles may use: below the header line, above the time keys (at most). */
 const PLOT_TOP = 30;
 const PLOT_BOTTOM = 240;
-/**
- * Rows of the price keys, each marked by a dotted line through the candle
- * gaps. Each row's dots land in a different container, as dots cost bytes.
- */
-const KEY_ROWS = [42, 102, 162, 224];
 /** Time keys: offset 20, line 8, ink rows 242–257, just under the plot. */
 const TIME_PLACE = { phase: 3, line: 8 };
 /** Footer: offset 14, line 9, ink rows 261–281, the lowest line that fits. */
@@ -154,17 +149,30 @@ export function buildTextChart(m: TextChartModel): TextBox[] {
   const last = chart.last ?? chart.candles.at(-1)?.close;
   addHeader(boxes[0]!.lines[0]!, dimLine(boxes, { phase: 0, line: 0 }), m, last === undefined ? '' : formatPrice(last));
 
-  // Bottom line: the other markets' prices on the left, as many as fit, and the name on the right.
+  // Along the bottom: the other markets' prices on the left (each with an
+  // arrow if it moved since the last update), as many as fit on up to two
+  // lines, and the name on the right of the last.
   const name = m.name ?? '';
+  const nameW = name ? HEADER_GAP + textWidth(name) : 0;
   const others = m.ticker.flatMap((t) => {
     const price = t.last ?? t.candles.at(-1)?.close;
-    return price === undefined ? [] : [`${t.market} ${formatPrice(price)}`];
+    return price === undefined ? [] : [`${t.market} ${formatPrice(price)}${t.trend ? ` ${arrow(t.trend)}` : ''}`];
   });
   const sep = '  ·  ';
-  while (others.length && textWidth(others.join(sep)) + (name ? HEADER_GAP + textWidth(name) : 0) > SCREEN_W - 8) others.pop();
-  const footer = dimLine(boxes, FOOTER_PLACE).texts;
-  if (others.length) footer.push({ x: 4, text: others.join(sep) });
-  if (name) footer.push({ x: SCREEN_W - 4 - textWidth(name), text: name });
+  const fits = (items: string[], room: number) => textWidth(items.join(sep)) <= SCREEN_W - 8 - room;
+  let rows = [others];
+  if (!fits(others, nameW)) {
+    const first = others.slice();
+    while (!fits(first, 0)) first.pop();
+    const rest = others.slice(first.length);
+    while (rest.length && !fits(rest, nameW)) rest.pop();
+    rows = [first, rest];
+  }
+  const layout = CANDLE_LAYOUTS[rows.length - 1]!;
+  rows.forEach((row, r) => {
+    if (row.length) dimLine(boxes, layout.rows[r]!).texts.push({ x: 4, text: row.join(sep) });
+  });
+  if (name) dimLine(boxes, layout.rows.at(-1)!).texts.push({ x: SCREEN_W - 4 - textWidth(name), text: name });
 
   if (chart.error || chart.candles.length === 0) {
     boxes[0]!.lines[4]!.texts.push({ x: 0, text: chart.error ?? 'no data' });
@@ -174,7 +182,7 @@ export function buildTextChart(m: TextChartModel): TextBox[] {
   let max = Infinity;
   for (;;) {
     const out = structuredClone(boxes);
-    const drawn = drawCandles(out, chart, m.interval, STYLES[m.width], max);
+    const drawn = drawCandles(out, chart, m.interval, STYLES[m.width], layout, max);
     if (drawn <= 0 || out.every((b) => utf8Length(serializeBox(b)) <= MAX_BYTES)) return out;
     max = drawn - 4;
   }
@@ -537,35 +545,35 @@ const LIST_COL_W = (SCREEN_W - 8 - LIST_GAP) / 2;
 
 /**
  * The events not charted, two to a line on at most `maxRows` lines: each
- * one's title (dim), its likeliest outcome's probability (bright, with an
- * arrow if it moved since the last update) and name (dim), as in the text
- * list, cut short to fit its column, the name to at most 40% of what's left.
- * Those that don't fit are the last one's place, as "+N more". With `named`,
- * the last cell is left empty for the name in the corner.
+ * one's title (dim), its likeliest outcome's probability (bright,
+ * right-aligned, with an arrow if it moved since the last update) and name
+ * (dim), as in the text list, in columns lined up from line to line. Names
+ * are cut to at most 40% of the room after the probabilities, and titles to
+ * the rest. Those that don't fit are the last one's place, as "+N more". With
+ * `named`, the last cell is left empty for the name in the corner.
  */
 function listRows(ticker: PredictionData[], maxRows: number, named: boolean): Row[] {
   if (ticker.length === 0) return [];
   const free = maxRows * 2 - (named ? 1 : 0);
   const cells = ticker.length > free ? free - 1 : ticker.length;
-  const items: Row[] = ticker.slice(0, cells).map((d) => {
-    const leader = d.error ? undefined : [...d.outcomes].sort((a, b) => b.price - a.price)[0];
-    if (!leader) {
-      const title = cut(d.title, LIST_COL_W * 0.55);
-      return [{ x: 0, text: title, bright: false }, { x: textWidth(title) + 8, text: cut(d.error ?? 'no data', LIST_COL_W * 0.45 - 8), bright: false }];
-    }
-    const pct = formatPct(leader.price);
-    const pctW = textWidth(pct) + (leader.trend ? ARROW_W : 0);
-    const room = LIST_COL_W - pctW - 8 - NAME_GAP;
-    const name = cut(leader.name, Math.min(textWidth(leader.name), Math.floor(room * 0.4)));
-    const title = cut(d.title, room - textWidth(name));
-    let x = textWidth(title) + 8;
-    const out: Row = [{ x: 0, text: title, bright: false }, { x, text: pct, bright: true }];
-    x += textWidth(pct);
-    if (leader.trend) {
-      out.push({ x: x + 4, text: arrow(leader.trend), bright: true });
-      x += ARROW_W;
-    }
-    return [...out, { x: x + NAME_GAP, text: name, bright: false }];
+  const shown = ticker.slice(0, cells);
+  const leaders = shown.map((d) => (d.error ? undefined : [...d.outcomes].sort((a, b) => b.price - a.price)[0]));
+  const pcts = leaders.map((o) => (o ? formatPct(o.price) : ''));
+  const pctW = Math.max(0, ...pcts.map(textWidth));
+  const arrowW = leaders.some((o) => o?.trend) ? ARROW_W : 0;
+  const room = LIST_COL_W - 8 - pctW - arrowW - NAME_GAP;
+  const names = leaders.map((o) => (o ? cut(o.name, Math.min(textWidth(o.name), Math.floor(room * 0.4))) : ''));
+  const titles = shown.map((d) => cut(d.title, room - Math.max(0, ...names.map(textWidth))));
+  // Every row's probability ends at `pctR`, and its name starts at `nameX`.
+  const pctR = Math.max(...titles.map(textWidth)) + 8 + pctW;
+  const nameX = pctR + arrowW + NAME_GAP;
+  const items: Row[] = shown.map((d, i) => {
+    const title = { x: 0, text: titles[i]!, bright: false };
+    const leader = leaders[i];
+    if (!leader) return [title, { x: pctR - pctW, text: cut(d.error ?? 'no data', LIST_COL_W - (pctR - pctW)), bright: false }];
+    const out: Row = [title, { x: pctR - textWidth(pcts[i]!), text: pcts[i]!, bright: true }];
+    if (leader.trend) out.push({ x: pctR + 4, text: arrow(leader.trend), bright: true });
+    return [...out, { x: nameX, text: names[i]!, bright: false }];
   });
   if (cells < ticker.length) items.push([{ x: 0, text: `+${ticker.length - cells} more`, bright: false }]);
   return Array.from({ length: Math.ceil((items.length + (named ? 1 : 0)) / 2) }, (_, r) =>
@@ -728,7 +736,7 @@ export function utf8Length(s: string): number {
 }
 
 /** Draws up to `max` candles, newest at the right; returns how many it drew. */
-function drawCandles(boxes: TextBox[], data: MarketData, interval: number, style: Style, max: number): number {
+function drawCandles(boxes: TextBox[], data: MarketData, interval: number, style: Style, layout: CandleLayout, max: number): number {
   const intervalSec = interval * 60;
   const lastTime = data.candles.at(-1)!.time;
   const { pitch, span } = style;
@@ -737,18 +745,20 @@ function drawCandles(boxes: TextBox[], data: MarketData, interval: number, style
   let lo = Math.min(...visible.map((c) => c.low));
   let hi = Math.max(...visible.map((c) => c.high));
   if (hi === lo) { hi += hi * 0.001 || 1; lo -= lo * 0.001 || 1; }
-  const y = (p: number) => Math.round(PLOT_TOP + (hi - p) / (hi - lo) * (PLOT_BOTTOM - PLOT_TOP));
+  const y = (p: number) => Math.round(PLOT_TOP + (hi - p) / (hi - lo) * (layout.bottom - PLOT_TOP));
   const firstCol = rightmostCol(style);
 
   // Price keys sit at the left edge, over the oldest candles, which leave a
   // clear box around each label. A label's own line takes no strokes (see
   // `stroke`), so no stroke depends on how wide the font draws the label.
-  const blocks: Block[] = KEYS.map((key) => {
-    const text = formatPrice(priceAt(key.row, lo, hi));
+  const blocks: Block[] = layout.keys.map((key) => {
+    const text = formatPrice(priceAt(key.row, lo, hi, layout.bottom));
     dimLine(boxes, key.label).texts.push({ x: 0, text });
     const top = PHASES[key.label.phase]! + key.label.line * LINE_H;
     return { right: Math.ceil((textWidth(text) + 2) / CELL), top: top + 4, bottom: top + 23 };
   });
+  // Under the plot, clear across: the time keys' line and the list's.
+  blocks.push({ right: Infinity, top: layout.bottom + 1, bottom: SCREEN_H });
   // Cover rows a–b of a column, around the labels.
   const draw = (group: TextBox[], col: number, a: number, b: number) => {
     let segments = [[a, b] as const];
@@ -809,7 +819,7 @@ function drawCandles(boxes: TextBox[], data: MarketData, interval: number, style
   // Time keys: centred under their candles, dropping any that would overlap.
   const ticks = timeTicks(lastTime, count, intervalSec, pitch * CELL, TIME_KEY_GAP);
   const step = ticks.length > 1 ? ticks[1]! - ticks[0]! : intervalSec;
-  const times = dimLine(boxes, TIME_PLACE).texts;
+  const times = dimLine(boxes, layout.time).texts;
   let end = -Infinity;
   for (const t of ticks) {
     const text = formatTime(t, step, intervalSec >= 86400);
@@ -822,7 +832,7 @@ function drawCandles(boxes: TextBox[], data: MarketData, interval: number, style
     // The grid: a dot where each price key's row crosses the time key's
     // column (its candle's middle one), unless that's by a candle or a label.
     const col = firstCol - Math.round((lastTime - t) / intervalSec) * pitch + Math.floor(span / 2);
-    KEYS.forEach((key, i) => {
+    layout.keys.forEach((key, i) => {
       const dots = dimLine(boxes, key.dot);
       const top = PHASES[key.dot.phase]! + key.dot.line * LINE_H + DOT.top;
       // A block's 20px advance can run over the column.
@@ -852,13 +862,35 @@ function placeAt(row: number, inkMid: number): { phase: number; line: number; mi
 }
 
 /** Each price key: a `'` dot (ink rows 6–9) at the key's row and its label (digits rows 6–21) level with it. */
-const KEYS = KEY_ROWS.map((r) => {
-  const dot = placeAt(r, 7.5);
-  return { row: dot.mid, dot, label: placeAt(dot.mid, 13.5) };
-});
+function keysAt(rows: number[]): CandleLayout['keys'] {
+  return rows.map((r) => {
+    const dot = placeAt(r, 7.5);
+    return { row: dot.mid, dot, label: placeAt(dot.mid, 13.5) };
+  });
+}
 
-function priceAt(row: number, lo: number, hi: number): number {
-  return hi - (row - PLOT_TOP) / (PLOT_BOTTOM - PLOT_TOP) * (hi - lo);
+/**
+ * Where the plot and its keys go, with one or two lines of other markets
+ * along the bottom: the plot's bottom row, the price keys (each marked by a
+ * dotted line through the candle gaps), the time keys' line, and the
+ * markets' lines, top to bottom. Each key's dots land in a different
+ * container, as dots cost bytes; on the shorter plot, that leaves room for
+ * three, evenly apart.
+ */
+interface CandleLayout {
+  bottom: number;
+  keys: { row: number; dot: Place; label: Place }[];
+  time: Place;
+  rows: Place[];
+}
+const CANDLE_LAYOUTS: CandleLayout[] = [
+  { bottom: PLOT_BOTTOM, keys: keysAt([42, 102, 162, 224]), time: TIME_PLACE, rows: [FOOTER_PLACE] },
+  // Time keys at offset 0, line 8, ink rows 222–237, then the markets as the prediction chart's legend.
+  { bottom: 218, keys: keysAt([42, 116, 190]), time: { phase: 0, line: 8 }, rows: [TIME_PLACE, FOOTER_PLACE] },
+];
+
+function priceAt(row: number, lo: number, hi: number, bottom: number): number {
+  return hi - (row - PLOT_TOP) / (bottom - PLOT_TOP) * (hi - lo);
 }
 
 /** The `'` stroke, the grid's dots. */
