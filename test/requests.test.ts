@@ -9,6 +9,8 @@ const HOSTS: Record<string, string> = {
   gate: 'api.gateio.ws',
   binanceus: 'api.binance.us',
   bitget: 'api.bitget.com',
+  hyperliquid: 'api.hyperliquid.xyz',
+  aster: 'sapi.asterdex.com',
 };
 
 /** Record every request's host, answering each as if offline. */

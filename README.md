@@ -1,7 +1,7 @@
 # MarketGlimpse for Even G2
 
 Even Hub app that shows candlestick charts from an exchange's public API
-(Kraken, OKX, Coinbase, Gate, Binance.US or Bitget) on the G2 glasses. On a fixed schedule it
+(Kraken, OKX, Coinbase, Gate, Binance.US, Bitget, Hyperliquid or Aster) on the G2 glasses. On a fixed schedule it
 fetches, shows the chart for a few seconds, then blanks the display.
 
 Defaults: monitors BTC-USDC and ETH-USDC, charts BTC-USDC, 5m candles,
@@ -15,7 +15,8 @@ refreshes every 2m, chart shown for 12s, narrow candles.
   is dark; turning it off lets the current one come down after the show-for
   time. Off by default: a lit display costs battery.
 - **Data source**: the exchange whose public API supplies prices and candles:
-  Kraken, OKX, Coinbase, Gate, Binance.US or Bitget. Market names use `BASE-QUOTE` on all of
+  Kraken, OKX, Coinbase, Gate, Binance.US or Bitget, or the order-book DEXes
+  Hyperliquid and Aster (spot markets only). Market names use `BASE-QUOTE` on all of
   them (`BTC-USDT`). Each exchange lists different markets. For example,
   Coinbase has `BTC-USD` but no `BTC-USDC`. A market the exchange doesn't
   have shows "unknown pair". The list also offers **prediction markets**
@@ -66,15 +67,21 @@ refreshes every 2m, chart shown for 12s, narrow candles.
   tokenized stock, then a coin quoted in the currency type. Stocks are
   xStocks, on Gate, Ondo tokens where it has no xStock (`MSFT` is
   `MSFTON`), and on Bitget, its own tokens (`rTSLA`, about 3,000 stocks and
-  ETFs, RKLB included). Stocks
+  ETFs, RKLB included), on Hyperliquid, the xStocks that trade there (its
+  `TSLAX` and `AAPLX` have no book), and on Aster, its own tokens (`NVDAB`).
+  Hyperliquid leaves out tokens anyone can deploy under a stock's ticker
+  (one named `MSFT` traded far from Microsoft's price): a known stock's name is only its
+  xStock, or "unknown pair". Stocks
   only trade in dollars, so with EUR or AUD a bare name is always a coin. A
   dollar quote, typed or chosen, takes another dollar where the exchange has
   no market in it (USD, then USDT, then USDC): OKX and Gate quote almost
   nothing in USD itself, so `BTC-USD` there is `BTC-USDT`. Each exchange's own stock spelling
-  works on all of them (`TSLAX`, `XTSLA-USDT`, `TSLA-USD`). Kraken, OKX, Gate
-  and Bitget have stocks; Coinbase and Binance.US don't, so there a bare name
-  is always a coin (on Coinbase, `META` is the META coin). Gate and Binance.US
-  quote nothing in EUR or AUD.
+  works on all of them (`TSLAX`, `XTSLA-USDT`, `TSLA-USD`). Kraken, OKX, Gate,
+  Bitget, Hyperliquid and Aster have stocks; Coinbase and Binance.US don't, so there a bare name
+  is always a coin (on Coinbase, `META` is the META coin). Gate, Binance.US,
+  Hyperliquid and Aster quote nothing in EUR or AUD. Hyperliquid's bridged
+  coins go by their common codes (Unit's `UBTC` is `BTC`, `USDT0` is `USDT`),
+  and its markets with no trades in 24h are left out.
 - **Markets**: up to 8 (`BTC-USDC`, `SOL-USD`, …). Tick up to 4 to chart (1
   with any Text width). Any market that isn't charted is listed under the charts
   with its price and 24h volume (unlabelled, in the base currency, e.g.
@@ -125,9 +132,9 @@ refreshes every 2m, chart shown for 12s, narrow candles.
 - **Most liquid** (a third Explore ranking): the money at the best bid and
   best ask (price × size, each), the top of the book rather than its depth,
   among the 100 most traded (a big order on a dead market isn't liquidity);
-  no order books are fetched. Kraken, OKX, Binance.US and Bitget give the
+  no order books are fetched. Kraken, OKX, Binance.US, Bitget and Aster give the
   sizes in the tickers already fetched. Coinbase's tickers have no bid or
-  ask, and Gate's all-market tickers no sizes: they look up their 12 most
+  ask, and Gate's all-market tickers and Hyperliquid's no sizes: they look up their 12 most
   traded markets' best bid and ask, a request each, and keep the ranking 10
   minutes. Polymarket ranks events by its own liquidity (the money on their
   books), one request. Polymarket US by the money at the top of each of its
@@ -139,8 +146,8 @@ refreshes every 2m, chart shown for 12s, narrow candles.
   turning it off brings the charts back. It goes up in one step, and only
   the ticker is fetched.
 - **Candle size**: whatever the source offers. Kraken has 1m to 15d, OKX 1m
-  to 1w, Coinbase 1m to 1d, Gate 1m to 1w, Binance.US 1m to 1w, and Bitget
-  1m to 1w. Switching source keeps the size
+  to 1w, Coinbase 1m to 1d, Gate 1m to 1w, Binance.US 1m to 1w, Bitget
+  1m to 1w, Hyperliquid 1m to 1w, and Aster 1m to 1w. Switching source keeps the size
   if the new source has it, or else picks the nearest.
 - **Candle width**: Wide (6px, or 4px in quadrants), Narrow (3px, the default)
   or Thin (2px). Narrower candles fit more history. At 2px, down candles are
@@ -295,9 +302,12 @@ requests to wait between, the charts are the freshest data.
 | Gate | 1: `spot/tickers?currency_pair=`; 2+: `spot/tickers` | `spot/candlesticks` with `limit` |
 | Binance.US | 1: `ticker/24hr?symbol=`; 2+: `ticker/24hr?symbols=[…]` (just those markets) | `klines` with `limit` |
 | Bitget | 1: `market/tickers?symbol=`; 2+: `market/tickers` | `market/candles` with `limit` |
+| Hyperliquid | `spotMetaAndAssetCtxs` (all markets, POST `info`) | `candleSnapshot` with `startTime` |
+| Aster | 1: `ticker/24hr?symbol=`; 2+: `ticker/24hr` | `klines` with `limit` |
 
-OKX, Coinbase, Gate and Bitget can't return tickers for a chosen list of markets, only
-for one market or for all of them. For 2 or more listed markets, the app
+OKX, Coinbase, Gate, Bitget and Aster can't return tickers for a chosen list of markets, only
+for one market or for all of them, and Hyperliquid only for all of them
+(about 350KB, with the market list). For 2 or more listed markets, the app
 makes one all-markets request (30–120KB compressed) rather than one per
 market. With nothing listed, no ticker request is made at all. A default
 update (1 chart, 1 listed market) is 2 requests and takes about 2s. 4
@@ -309,7 +319,7 @@ doesn't have shows "unknown pair" without a request. (Kraken's Ticker fails
 outright if any pair in it is unknown, as does Binance.US's list, and Gate's
 and Binance.US's errors have no CORS headers, so asking would fail anyway.)
 The lists are large (Bitget 1.7MB, OKX and Gate about 1MB, Binance.US 0.5MB,
-Coinbase 350KB) but load once. Kraken's takes two requests, as it
+Coinbase and Hyperliquid 350KB, Aster 100KB) but load once. Kraken's takes two requests, as it
 lists stocks separately, and it prices crypto and stocks in a request each.
 
 KuCoin is implemented (`src/sources/kucoin.ts`) but not offered. Its API
@@ -373,8 +383,8 @@ with its top level with theirs. It's always shown: in a crowded header it
 drops its "Index" label, then the fetch time and source make way. One
 `simple/price` request covers every chart, looked up by what the market is on
 the exchange rather than by what was typed: a stock by its xStock symbol
-(Kraken's `TSLAx`, OKX's `XTSLA`, Gate's `TSLAX` and Bitget's `rTSLA` are
-all `tslax`), a coin by
+(Kraken's `TSLAx`, OKX's `XTSLA`, Gate's and Hyperliquid's `TSLAX` and
+Bitget's `rTSLA` are all `tslax`; Aster's `NVDAB` is `nvdax`), a coin by
 its common code (`XBT` and `XDG` are `btc` and `doge`), an Ondo token by its
 own (`msfton`). Stablecoin quotes such
 as USDC and USDT are priced in USD. It's asked for alongside the exchange's

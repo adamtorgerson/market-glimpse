@@ -14,10 +14,12 @@ const HOSTS: Record<string, string> = {
   gate: 'api.gateio.ws',
   binanceus: 'api.binance.us',
   bitget: 'api.bitget.com',
+  hyperliquid: 'api.hyperliquid.xyz',
+  aster: 'sapi.asterdex.com',
 };
 
 /** A path that asks for candles, on each source. */
-const CANDLES = /\/OHLC\?|\/market\/candles\?|\/candles\?|\/candlesticks\?|\/klines\?/;
+const CANDLES = /\/OHLC\?|\/market\/candles\?|\/candles\?|\/candlesticks\?|\/klines\?|"candleSnapshot"/;
 
 /** Every request made, by host, in order; "last request" marks the source's signal. */
 const log: { host: string; path: string }[] = [];
@@ -26,7 +28,8 @@ beforeAll(() => {
   const real = globalThis.fetch;
   vi.stubGlobal('fetch', (url: string, init?: RequestInit) => {
     const u = new URL(url);
-    log.push({ host: u.host, path: u.pathname + u.search });
+    // A POST (Hyperliquid's) says what it asks for in its body.
+    log.push({ host: u.host, path: u.pathname + u.search + (typeof init?.body === 'string' ? ` ${init.body}` : '') });
     return real(url, init);
   });
 });

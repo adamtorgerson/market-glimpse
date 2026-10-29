@@ -17,6 +17,9 @@ const EQUITIES = ['TSLA', 'AAPL', 'NVDA', 'MSFT', 'GOOGL', 'AMZN', 'META', 'SPY'
  * on Gate, Ondo tokens where there's no xStock (MSFT, AMD), and on Bitget,
  * its own "r" tokens. Only OKX and Bitget have RKLB; Gate has just 3x
  * leveraged RKLB tokens, which aren't the stock. Binance.US has no stocks.
+ * Hyperliquid has the xStocks that trade there (its TSLAX and AAPLX have no
+ * book), and leaves out others' tokens named after stocks; Aster has its own
+ * "B" tokens ("NVDAB").
  */
 const LISTED: Record<string, string[]> = {
   kraken: EQUITIES.filter((e) => e !== 'RKLB'),
@@ -25,6 +28,8 @@ const LISTED: Record<string, string[]> = {
   coinbase: [],
   binanceus: [],
   bitget: EQUITIES,
+  hyperliquid: ['NVDA', 'SPY', 'QQQ'],
+  aster: ['NVDA', 'MSTR'],
 };
 
 /** Stocks CoinGecko has no price for, so their index stays blank. */
@@ -38,6 +43,8 @@ const NAMESAKES: Record<string, string[]> = {
   coinbase: ['META'],
   binanceus: [],
   bitget: [],
+  hyperliquid: [],
+  aster: [],
 };
 
 /** Tesla, as each exchange or a user might write it. */
@@ -84,8 +91,8 @@ describe.concurrent.each(SOURCES.map((s) => [s.id, s] as const))('%s', (id, sour
     expect(usd['BTC-USD']!.last).toBeGreaterThan(1000);
 
     const eur = byMarket(await source.fetch(request(['BTC'], 'EUR'), signal()));
-    // Gate and Binance.US quote nothing in EUR.
-    if (id === 'gate' || id === 'binanceus') expect(eur.BTC!.error).toBe('unknown pair');
+    // Gate, Binance.US, Hyperliquid and Aster quote nothing in EUR.
+    if (['gate', 'binanceus', 'hyperliquid', 'aster'].includes(id)) expect(eur.BTC!.error).toBe('unknown pair');
     else expect(eur.BTC!.last).toBeGreaterThan(1000);
   });
 

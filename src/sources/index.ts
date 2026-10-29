@@ -1,7 +1,9 @@
+import { aster } from './aster';
 import { binanceus } from './binanceus';
 import { bitget } from './bitget';
 import { coinbase } from './coinbase';
 import { gate } from './gate';
+import { hyperliquid } from './hyperliquid';
 import { kraken } from './kraken';
 import { okx } from './okx';
 import { polymarket } from './polymarket';
@@ -11,7 +13,7 @@ import type { MarketSource } from './types';
 
 // KuCoin (./kucoin.ts) is left out: its API sends no CORS headers, so the
 // WebView blocks every request. Add it here if that changes.
-export const SOURCES: readonly MarketSource[] = [kraken, okx, coinbase, gate, binanceus, bitget];
+export const SOURCES: readonly MarketSource[] = [kraken, okx, coinbase, gate, binanceus, bitget, hyperliquid, aster];
 export const DEFAULT_SOURCE = kraken.id;
 
 export function getSource(id: string): MarketSource {
