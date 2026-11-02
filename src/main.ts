@@ -36,10 +36,10 @@ import {
 } from './settings';
 
 /**
- * The Diagnostics section on the phone page. TEMP: on in the package build
- * too; set back to `import.meta.env.DEV` to drop it (and src/speedtest.ts).
+ * The Diagnostics section on the phone page, in development builds only; the
+ * package build drops it (and src/speedtest.ts).
  */
-const DIAGNOSTICS: boolean = true;
+const DIAGNOSTICS: boolean = import.meta.env.DEV;
 
 const STORAGE_KEY = 'kraken-candles.settings';
 const APP_NAME = 'MarketGlimpse';
