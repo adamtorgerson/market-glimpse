@@ -3,7 +3,7 @@
  * event. The prices and titles are from real events (October 2026).
  */
 import { describe, expect, it } from 'vitest';
-import { pickUs, type UsEvent, type UsMarket } from '../src/sources/polymarketus';
+import { pickUs, type UsEvent, type UsMarket } from '../../src/sources/polymarketus';
 
 /** A market whose long side is "Yes" (or the first of `sides`), with its bid and ask. */
 function market(title: string, bid: number, ask: number, extra: Partial<UsMarket> & { sides?: [string, string] } = {}): UsMarket {

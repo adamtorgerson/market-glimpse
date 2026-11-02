@@ -4,8 +4,8 @@
  * fetched alongside it. Against the live APIs.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { SOURCES } from '../src/sources';
-import type { MarketRequest } from '../src/sources/types';
+import { SOURCES } from '../../src/sources';
+import type { MarketRequest } from '../../src/sources/types';
 
 const HOSTS: Record<string, string> = {
   kraken: 'api.kraken.com',

@@ -3,7 +3,9 @@
 // stores its settings, then loads the app and saves the glasses display once
 // the first image is uploaded. The PNGs are the simulator's own: green, with
 // brightness in alpha and a transparent background. Run with
-// `npm run screenshots`, optionally naming the shots to take.
+// `npm run screenshots`, optionally naming the shots to take, or
+// `npm run store-screenshots` for just the Even Hub store's (STORE), written
+// to screenshots/store/.
 //
 // Vite runs on its own port so the seeded settings don't replace those of the
 // dev server on :5173 (the simulator stores them per origin).
@@ -14,7 +16,6 @@ import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
-const OUT = new URL('../screenshots/', import.meta.url);
 const VITE_PORT = 5199;
 const AUTOMATION = 'http://localhost:9898';
 const STORAGE_KEY = 'kraken-candles.settings'; // src/main.ts
@@ -32,6 +33,7 @@ const US_EVENTS = ['nfl-champ-2027-02-14-w', 'btc-hitprice-high-yr-12-31-2026', 
 const ALL = [...M8.slice(0, 5), ...STOCKS];
 const SHOTS = {
   'one-chart': { markets: ALL, charts: ['BTC-USDC'] },
+  'two-charts': { markets: ALL, charts: M8.slice(0, 2) },
   'four-charts': { markets: ALL, charts: [...M8.slice(0, 3), STOCKS[0]] },
   'market-list': { markets: ALL, charts: [] },
   'text-list': { markets: M6, charts: [], textList: true },
@@ -61,7 +63,13 @@ const SHOTS = {
   'prediction-us-four-charts': { source: 'polymarketus', events: { polymarketus: US_EVENTS }, eventInterval: 60 },
 };
 
-const names = process.argv.slice(2);
+// The Even Hub store listing: Kraken (the default source) and one prediction market.
+const STORE = ['one-chart', 'two-charts', 'four-charts', 'market-list', 'text-blocks-chart', 'prediction-two-charts'];
+
+const args = process.argv.slice(2);
+const store = args.includes('--store');
+const names = store ? STORE : args;
+const OUT = new URL(store ? '../screenshots/store/' : '../screenshots/', import.meta.url);
 const unknown = names.filter((n) => !(n in SHOTS));
 if (unknown.length) throw new Error(`Unknown shots: ${unknown.join(' ')} (have ${Object.keys(SHOTS).join(' ')})`);
 
@@ -122,7 +130,7 @@ try {
       }
       await sleep(1500); // Let the display settle.
       writeFileSync(new URL(`${name}.png`, OUT), Buffer.from(await (await automation('/api/screenshot/glasses')).arrayBuffer()));
-      console.log(`screenshots/${name}.png`);
+      console.log(`screenshots/${store ? 'store/' : ''}${name}.png`);
     } finally {
       process.kill(-sim.pid, 'SIGTERM');
       await sleep(2000); // Free the automation port.

@@ -11,7 +11,9 @@
     "pack": "npm run build && evenhub pack app.json dist -o market-glimpse.ehpk",
     "icon": "node scripts/icon-png.mjs",
     "screenshots": "node scripts/screenshots.mjs",
-    "test": "vitest run"
+    "store-screenshots": "node scripts/screenshots.mjs --store",
+    "test": "vitest run",
+    "test:offline": "vitest run --exclude '**/*.live.test.ts'"
   },
   "dependencies": {
     "@evenrealities/even_hub_sdk": "^0.0.16",

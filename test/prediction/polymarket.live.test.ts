@@ -4,8 +4,8 @@
  * until well after 2026.
  */
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
-import { polymarket } from '../src/sources/polymarket';
-import { eventSlug, MAX_OUTCOMES } from '../src/sources/prediction';
+import { polymarket } from '../../src/sources/polymarket';
+import { eventSlug, MAX_OUTCOMES } from '../../src/sources/prediction';
 
 const log: { host: string; method: string }[] = [];
 

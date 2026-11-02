@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ALL_SOURCE_IDS, DEFAULT_SETTINGS, nextFavorite, sanitize } from '../src/settings';
+import { ALL_SOURCE_IDS, DEFAULT_SETTINGS, nextFavorite, sanitize } from '../../src/settings';
 
 describe('favorites', () => {
   const s = (source: string, favorites: string[]) => sanitize({ ...DEFAULT_SETTINGS, source, favorites });

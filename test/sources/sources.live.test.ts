@@ -4,11 +4,11 @@
  * listed or delisted, update LISTED.
  */
 import { describe, expect, it } from 'vitest';
-import { normalizeMarket } from '../src/settings';
-import { SOURCES } from '../src/sources';
-import { fetchIndexPrices } from '../src/sources/coingecko';
-import type { Instrument } from '../src/sources/symbols';
-import type { MarketData, MarketRequest } from '../src/sources/types';
+import { normalizeMarket } from '../../src/settings';
+import { SOURCES } from '../../src/sources';
+import { fetchIndexPrices } from '../../src/sources/coingecko';
+import type { Instrument } from '../../src/sources/symbols';
+import type { MarketData, MarketRequest } from '../../src/sources/types';
 
 const EQUITIES = ['TSLA', 'AAPL', 'NVDA', 'MSFT', 'GOOGL', 'AMZN', 'META', 'SPY', 'QQQ', 'COIN', 'HOOD', 'MSTR', 'NFLX', 'AMD', 'RKLB'];
 

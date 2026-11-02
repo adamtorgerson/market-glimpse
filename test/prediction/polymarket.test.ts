@@ -3,7 +3,7 @@
  * The prices and titles are from real events (October 2026).
  */
 import { describe, expect, it } from 'vitest';
-import { pick, type GammaEvent, type GammaMarket } from '../src/sources/polymarket';
+import { pick, type GammaEvent, type GammaMarket } from '../../src/sources/polymarket';
 
 let token = 0;
 

@@ -3,11 +3,11 @@
  * markets by volume and by 24h change, and that each can be monitored.
  */
 import { describe, expect, it } from 'vitest';
-import { SOURCES } from '../src/sources';
-import { polymarket } from '../src/sources/polymarket';
-import { polymarketUs } from '../src/sources/polymarketus';
-import { DOLLARS } from '../src/sources/symbols';
-import { EXPLORE_COUNT } from '../src/sources/types';
+import { SOURCES } from '../../src/sources';
+import { polymarket } from '../../src/sources/polymarket';
+import { polymarketUs } from '../../src/sources/polymarketus';
+import { DOLLARS } from '../../src/sources/symbols';
+import { EXPLORE_COUNT } from '../../src/sources/types';
 
 const signal = () => AbortSignal.timeout(90_000);
 

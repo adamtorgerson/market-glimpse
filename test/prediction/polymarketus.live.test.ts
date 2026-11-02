@@ -3,8 +3,8 @@
  * event (they're dated, so it's looked up first), and one that doesn't exist.
  */
 import { expect, it } from 'vitest';
-import { PublicApi } from '../src/sources/http';
-import { polymarketUs } from '../src/sources/polymarketus';
+import { PublicApi } from '../../src/sources/http';
+import { polymarketUs } from '../../src/sources/polymarketus';
 
 it('charts an event\'s outcomes with their history, and says which events don\'t exist', async () => {
   const lookup = new PublicApi('https://gateway.polymarket.us');

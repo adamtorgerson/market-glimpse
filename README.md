@@ -1,8 +1,12 @@
 # MarketGlimpse for Even G2
 
 Even Hub app that shows candlestick charts from an exchange's public API
-(Kraken, OKX, Coinbase, Gate, Binance.US, Bitget, Hyperliquid or Aster) on the G2 glasses. On a fixed schedule it
-fetches, shows the chart for a few seconds, then blanks the display.
+(Kraken, OKX, Coinbase, Gate, Binance.US, Bitget, Hyperliquid or Aster), or
+outcome probabilities from a prediction market (Polymarket, Polymarket US),
+on the G2 glasses. On a fixed schedule it fetches, shows the chart for a few
+seconds, then blanks the display.
+
+Release notes are in [CHANGELOG.md](CHANGELOG.md).
 
 Defaults: monitors BTC-USDC and ETH-USDC, charts BTC-USDC, 5m candles,
 refreshes every 2m, chart shown for 12s, narrow candles.
@@ -11,7 +15,8 @@ refreshes every 2m, chart shown for 12s, narrow candles.
 
 - **Display always on** (above **Show now**): the chart stays up instead of
   blanking after the show-for time, and each update replaces it. **Show now**
-  becomes **Refresh now**, and it and a tap fetch a fresh chart. Turning it on puts a chart up if the display
+  becomes **Refresh now** (otherwise it reads **Hide now** while a chart is
+  up), and it and a tap fetch a fresh chart. Turning it on puts a chart up if the display
   is dark; turning it off lets the current one come down after the show-for
   time. Off by default: a lit display costs battery.
 - **Data source**: the exchange whose public API supplies prices and candles:
@@ -215,11 +220,14 @@ refreshes every 2m, chart shown for 12s, narrow candles.
   per request beyond that (1 + one per chart or line graph; at most 10
   with 8 markets, so 15s always fits).
 
-Changes apply as you make them. Ticking or unticking a chart, or changing the
-candle size, candle width, index price or data source (or the text list
-with nothing ticked), updates the glasses at once, like
-**Show now**. Other changes (markets in the list, refresh rate, show-for time)
-wait for the next scheduled update. A new refresh rate re-times that update.
+Changes apply as you make them. Changing what's charted or how updates the
+glasses at once, like **Show now**: ticking or unticking a chart, the data
+source, currency type, candle size or history spacing, candle width, chart
+style, index price, **Market List** or **Market List as text**, the events
+entered, or Explore's tab, ranking and Show. A font change redraws the last
+data without fetching. Other changes (markets in the list, refresh rate,
+show-for time) wait for the next scheduled update. A new refresh rate
+re-times that update.
 
 The phone page's "Next update in…" countdown only ticks while the page is
 visible, so it doesn't wake the phone every second in the background.
@@ -244,7 +252,7 @@ edge, like the text market list: "..." until its price arrives, filled in as
 each request comes back. The list is rewritten in place, without a page rebuild.
 The number is estimated once when "Loading…" goes up, and doesn't count
 down. It covers the rate limit's current wait, the update's actual requests
-(including Kraken's one-time pair list), each API's recent response times,
+(including the source's one-time market list), each API's recent response times,
 and recent draw and upload times. If an update is already running, it shows
 that update's remaining time.
 Either way the chart (unless drawn as Text) goes up as up to four tiles of at most 288×144, each
@@ -454,8 +462,16 @@ npm run qr                                    # QR code to load the dev server i
 npm run pack                                  # build + market-glimpse.ehpk
 npm run icon                                  # assets/icon-24.png (store icon) from assets/icon.svg
 npm run screenshots                           # screenshots/*.png from the simulator, live data
-npm test                                      # name resolution, and every source against its live API
+npm run store-screenshots                     # screenshots/store/*.png: just the Even Hub store's six
+npm test                                      # every test, including each source against its live API
+npm run test:offline                          # only the tests that don't call an API
+npm test -- --project charting                # one group: sources, prediction, charting, explore, settings
 ```
+
+Tests are grouped by directory under `test/`: `sources` (exchange name
+resolution and requests), `prediction` (Polymarket and Polymarket US),
+`charting` (the glasses' text charts and lists), `explore` (ranking the top
+markets) and `settings`. Files ending `.live.test.ts` call the live APIs.
 
 The store icon is `assets/icon-24.png`. The upload validates it: 24×24,
 every pixel `#F4F4F4` at full opacity or fully transparent, and every lit
@@ -464,4 +480,7 @@ pixel part of a 2×2 block of lit pixels (so no stroke thinner than 2px).
 it.
 
 The package ID is `com.bcsw.marketglimpse` (in `app.json`). Network access is
-whitelisted to the four exchanges' API hosts and `https://api.coingecko.com`.
+whitelisted to the eight exchanges' API hosts, Polymarket's two
+(`gamma-api.polymarket.com`, `clob.polymarket.com`), Polymarket US's
+gateway (`gateway.polymarket.us`) and `https://api.coingecko.com`. A new
+source's host must be added there too.
