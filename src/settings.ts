@@ -1,3 +1,4 @@
+import { ANALYSES, BOLLINGER_K, BOLLINGER_PERIOD, EMA_PERIOD, MAX_K, MAX_PERIOD, MIN_K, MIN_PERIOD, RSI_PERIOD, type Analysis, type AnalysisSpec } from './analysis';
 import { isCalibration, type LookUpCalibration } from './lookup';
 import { DEFAULT_SOURCE, getPredictionSource, getSource, isPredictionSource, PREDICTION_SOURCES, SOURCES } from './sources';
 import { EVENT_INTERVALS, eventSlug } from './sources/prediction';
@@ -96,6 +97,16 @@ export interface Settings {
    * it's an image with a line graph per market, one candle request each.)
    */
   textList: boolean;
+  /** Draw `analysisKind` on the image candle charts (not text candles or prediction markets). */
+  analysis: boolean;
+  /** The indicator drawn when `analysis` is on. */
+  analysisKind: Analysis;
+  /** Candles each indicator averages over. */
+  emaPeriod: number;
+  rsiPeriod: number;
+  bollingerPeriod: number;
+  /** Bollinger band width, in standard deviations either side. */
+  bollingerK: number;
   /** Show CoinGecko's index price in each chart header (one extra request per update). */
   showIndex: boolean;
   /** No scheduled updates: fetch and show only on Show now or a tap. */
@@ -131,6 +142,12 @@ export const DEFAULT_SETTINGS: Settings = {
   showList: false,
   textList: false,
   showIndex: true,
+  analysis: false,
+  analysisKind: 'ema',
+  emaPeriod: EMA_PERIOD,
+  rsiPeriod: RSI_PERIOD,
+  bollingerPeriod: BOLLINGER_PERIOD,
+  bollingerK: BOLLINGER_K,
   manualOnly: false,
   lookUpUpdate: false,
   lookUpCal: null,
@@ -196,6 +213,14 @@ export function sanitize(input: Partial<Settings>): Settings {
   // Before Market List, the text list took precedence over the watchlist's charts.
   const showList = typeof input.showList === 'boolean' ? input.showList : textList && !input.explore;
   const showIndex = typeof input.showIndex === 'boolean' ? input.showIndex : d.showIndex;
+  const analysis = typeof input.analysis === 'boolean' ? input.analysis : d.analysis;
+  const analysisKind = (ANALYSES as readonly string[]).includes(input.analysisKind as string) ? input.analysisKind! : d.analysisKind;
+  const emaPeriod = clampInt(input.emaPeriod, MIN_PERIOD, MAX_PERIOD, d.emaPeriod);
+  const rsiPeriod = clampInt(input.rsiPeriod, MIN_PERIOD, MAX_PERIOD, d.rsiPeriod);
+  const bollingerPeriod = clampInt(input.bollingerPeriod, MIN_PERIOD, MAX_PERIOD, d.bollingerPeriod);
+  const k = Number(input.bollingerK);
+  const bollingerK = Number.isFinite(k) && input.bollingerK !== null && input.bollingerK !== undefined
+    ? Math.round(Math.min(MAX_K, Math.max(MIN_K, k)) * 10) / 10 : d.bollingerK;
   const manualOnly = typeof input.manualOnly === 'boolean' ? input.manualOnly : d.manualOnly;
   const lookUpUpdate = typeof input.lookUpUpdate === 'boolean' ? input.lookUpUpdate : d.lookUpUpdate;
   const lookUpCal = isCalibration(input.lookUpCal) ? input.lookUpCal : null;
@@ -207,7 +232,14 @@ export function sanitize(input: Partial<Settings>): Settings {
   const exploreBy = !rankings || rankings.includes(wantBy) ? wantBy : rankings[0]!;
   const exploreView = (EXPLORE_VIEWS as readonly string[]).includes(input.exploreView as string) ? input.exploreView! : d.exploreView;
 
-  return { source, favorites, currency, markets, charts, interval, events, eventCharts, eventInterval, eventTextChart, explore, exploreBy, exploreView, candleWidth, font, showList, textList, showIndex, manualOnly, lookUpUpdate, lookUpCal, refreshSec, displaySec, alwaysOn };
+  return { source, favorites, currency, markets, charts, interval, events, eventCharts, eventInterval, eventTextChart, explore, exploreBy, exploreView, candleWidth, font, showList, textList, showIndex, analysis, analysisKind, emaPeriod, rsiPeriod, bollingerPeriod, bollingerK, manualOnly, lookUpUpdate, lookUpCal, refreshSec, displaySec, alwaysOn };
+}
+
+/** The indicator to draw with `s`, if analysis is on. */
+export function analysisSpec(s: Settings): AnalysisSpec | null {
+  if (!s.analysis) return null;
+  const period = { ema: s.emaPeriod, rsi: s.rsiPeriod, bollinger: s.bollingerPeriod }[s.analysisKind];
+  return { kind: s.analysisKind, period, k: s.bollingerK };
 }
 
 /** `minutes` if supported, else the supported size closest to it (by ratio). */

@@ -2,6 +2,14 @@
 
 Notable changes to MarketGlimpse, by release tag.
 
+## [Unreleased]
+
+### Added
+- An Analysis section: **Show analysis** draws an EMA, RSI in a pane under
+  the volume strip, or Bollinger Bands on the image charts, from the
+  candles shown, with no extra requests. Each indicator's period (and the
+  bands' width) is a setting.
+
 ## [0.4.3] - 2026-11-02
 
 ### Changed

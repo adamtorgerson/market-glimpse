@@ -204,6 +204,22 @@ refreshes every 2m, chart shown for 12s, narrow candles.
   Terminus is shipped unmodified, as its license requires to keep the name.
 - **Show index price (CoinGecko)**: on by default. Turn it off to skip the
   CoinGecko request on each update.
+- **Analysis** (its own section; exchanges only): **Show analysis** draws
+  the chosen **Indicator** on the image charts (not text candles), computed
+  from the closes of the candles shown, so it needs no extra requests. Each
+  has its own settings, kept when you switch between them:
+  - **EMA**: an exponential moving average, a line over the candles.
+    **Period** 2–200 candles (20 by default).
+  - **RSI**: Wilder's relative strength index in a pane under the volume
+    strip, on a 0–100 scale with dashed lines at 30 and 70 and the latest
+    value top-left. **Period** 2–200 candles (14 by default).
+  - **Bollinger Bands**: the average over **Period** candles (2–200, 20 by
+    default), dotted, with bands **Band width** standard deviations either
+    side (0.1–5, 2 by default), behind the candles; the price scale
+    stretches to fit them.
+
+  Each starts once its period has filled (that many candles in from the
+  left), since only the candles shown are fetched.
 - **Manual only**: no scheduled updates. Nothing is fetched and the glasses
   stay dark until you press **Show now** or tap the glasses, which saves
   battery on both devices. The refresh rate is ignored while this is on.
@@ -224,8 +240,8 @@ Changes apply as you make them. Changing what's charted or how updates the
 glasses at once, like **Show now**: ticking or unticking a chart, the data
 source, currency type, candle size or history spacing, candle width, chart
 style, index price, **Market List** or **Market List as text**, the events
-entered, or Explore's tab, ranking and Show. A font change redraws the last
-data without fetching. Other changes (markets in the list, refresh rate,
+entered, or Explore's tab, ranking and Show. A font or analysis change redraws
+the last data without fetching. Other changes (markets in the list, refresh rate,
 show-for time) wait for the next scheduled update. A new refresh rate
 re-times that update.
 

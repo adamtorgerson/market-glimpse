@@ -1,5 +1,6 @@
 import './style.css';
 import LOGO_SVG from '../assets/icon.svg?raw';
+import { ANALYSES, ANALYSIS_LABELS, type Analysis } from './analysis';
 import { candleCapacity, DEFAULT_AXIS_W, formatChange, formatVolume, renderScreen, SCREEN_H, SCREEN_W, type ScreenModel } from './chart';
 import { FONTS, loadFont } from './fonts';
 import { Glasses, type UploadStats } from './glasses';
@@ -18,6 +19,7 @@ import {
   CANDLE_WIDTHS,
   CHART_FONTS,
   DEFAULT_SETTINGS,
+  analysisSpec,
   exploreCharts,
   formatInterval,
   isTextWidth,
@@ -459,7 +461,7 @@ async function runUpdate(ctrl: AbortController, showAt: number, reuse: boolean):
   if (textBoxes) {
     drawTextChart(ctx, textBoxes);
   } else {
-    const model = { charts, ticker, interval: s.interval, candleWidth: s.candleWidth, updated, source, font: s.font };
+    const model = { charts, ticker, interval: s.interval, candleWidth: s.candleWidth, updated, source, font: s.font, analysis: analysisSpec(s) };
     lastAxisW = DIAGNOSTICS && supersample ? renderSupersampled(ctx, model) : renderScreen(ctx, model);
   }
   refreshWidthLabels();
@@ -841,6 +843,12 @@ const intervalSel = $<HTMLSelectElement>('interval');
 const candleWidthSel = $<HTMLSelectElement>('candle-width');
 const fontSel = $<HTMLSelectElement>('font');
 const showIndexBox = $<HTMLInputElement>('show-index');
+const analysisBox = $<HTMLInputElement>('analysis');
+const analysisSel = $<HTMLSelectElement>('analysis-kind');
+const emaPeriodInput = $<HTMLInputElement>('ema-period');
+const rsiPeriodInput = $<HTMLInputElement>('rsi-period');
+const bollingerPeriodInput = $<HTMLInputElement>('bollinger-period');
+const bollingerKInput = $<HTMLInputElement>('bollinger-k');
 const showListBox = $<HTMLInputElement>('show-list');
 const textListBox = $<HTMLInputElement>('text-list');
 const eventStyleSel = $<HTMLSelectElement>('event-style');
@@ -872,6 +880,7 @@ for (const [label, sources] of [['Exchanges', SOURCES], ['Prediction markets', P
 for (const c of CURRENCIES) currencySel.add(new Option(c, c));
 const CANDLE_WIDTH_LABELS: Record<CandleWidth, string> = { wide: 'Wide', narrow: 'Narrow', thin: 'Thin', 'text-blocks': 'Text blocks, 1 chart', 'text-wide': 'Text wide, 1 chart', 'text-narrow': 'Text narrow, 1 chart', 'text-thin': 'Text thin, 1 chart' };
 for (const w of CANDLE_WIDTHS) candleWidthSel.add(new Option(CANDLE_WIDTH_LABELS[w], w));
+for (const a of ANALYSES) analysisSel.add(new Option(ANALYSIS_LABELS[a], a));
 for (const f of CHART_FONTS) fontSel.add(new Option(FONTS[f].label, f));
 let lastAxisW = DEFAULT_AXIS_W;
 
@@ -1125,6 +1134,13 @@ function fillForm(s: Settings): void {
   syncMarketControls();
   renderExplore();
   showIndexBox.checked = s.showIndex;
+  analysisBox.checked = s.analysis;
+  analysisSel.value = s.analysisKind;
+  emaPeriodInput.value = String(s.emaPeriod);
+  rsiPeriodInput.value = String(s.rsiPeriod);
+  bollingerPeriodInput.value = String(s.bollingerPeriod);
+  bollingerKInput.value = String(s.bollingerK);
+  syncAnalysisControls(s);
   manualOnlyBox.checked = s.manualOnly;
   lookUpBox.checked = s.lookUpUpdate;
   syncLookUpControls(s);
@@ -1134,6 +1150,15 @@ function fillForm(s: Settings): void {
   displayInput.disabled = s.alwaysOn;
   displayInput.value = formatDuration(s.displaySec);
   formError.textContent = '';
+}
+
+/** Show the chosen indicator's parameters only, and grey out the section's controls while analysis is off. */
+function syncAnalysisControls(s: Settings): void {
+  for (const el of document.querySelectorAll<HTMLElement>('[data-analysis]')) {
+    el.hidden = el.dataset.analysis !== s.analysisKind;
+    el.querySelector('input')!.disabled = !s.analysis;
+  }
+  analysisSel.disabled = !s.analysis;
 }
 
 function readForm(): Settings {
@@ -1173,6 +1198,13 @@ function readForm(): Settings {
     showList: showListBox.checked,
     textList: textListBox.checked,
     showIndex: showIndexBox.checked,
+    analysis: analysisBox.checked,
+    analysisKind: analysisSel.value as Analysis,
+    // An emptied box keeps the saved value.
+    emaPeriod: Number(emaPeriodInput.value || settings.emaPeriod),
+    rsiPeriod: Number(rsiPeriodInput.value || settings.rsiPeriod),
+    bollingerPeriod: Number(bollingerPeriodInput.value || settings.bollingerPeriod),
+    bollingerK: Number(bollingerKInput.value || settings.bollingerK),
     manualOnly,
     lookUpUpdate: lookUpBox.checked,
     lookUpCal: settings.lookUpCal,
@@ -1224,6 +1256,12 @@ async function applyForm(): Promise<boolean> {
   refreshInput.value = formatDuration(next.refreshSec);
   refreshInput.disabled = next.manualOnly;
   displayInput.disabled = next.alwaysOn;
+  // Show the clamped values.
+  emaPeriodInput.value = String(next.emaPeriod);
+  rsiPeriodInput.value = String(next.rsiPeriod);
+  bollingerPeriodInput.value = String(next.bollingerPeriod);
+  bollingerKInput.value = String(next.bollingerK);
+  syncAnalysisControls(next);
   displayInput.value = formatDuration(next.displaySec);
   syncLookUpControls(next);
 
@@ -1244,9 +1282,9 @@ async function applyForm(): Promise<boolean> {
     || next.eventInterval !== prev.eventInterval || next.eventTextChart !== prev.eventTextChart
     || next.explore !== prev.explore || next.exploreBy !== prev.exploreBy || next.exploreView !== prev.exploreView;
   if (chartChanged) restartSchedule({ cancel: true, manual: true });
-  // A new font needs no new data: redraw the last, sparing the APIs (CoinGecko
-  // drops the index when asked too often). Without data to reuse, this fetches.
-  else if (next.font !== prev.font) void update({ cancel: true, manual: true, reuse: true });
+  // A new font or analysis needs no new data: redraw the last, sparing the APIs
+  // (CoinGecko drops the index when asked too often). Without data to reuse, this fetches.
+  else if (next.font !== prev.font || JSON.stringify(analysisSpec(next)) !== JSON.stringify(analysisSpec(prev))) void update({ cancel: true, manual: true, reuse: true });
   // Leaving manual-only: fetch in the background now and start the schedule.
   else if (prev.manualOnly && !next.manualOnly) restartSchedule();
   else scheduleAt(nextAt - prev.refreshSec * 1000 + next.refreshSec * 1000);

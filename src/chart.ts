@@ -1,6 +1,7 @@
 import type { Candle, MarketData } from './sources/types';
 import { cssFont, digitBottom, digitMid, digitTop } from './fonts';
 import { formatInterval, type CandleWidth, type ChartFont } from './settings';
+import { bollinger, ema, rsi, type AnalysisSpec } from './analysis';
 import LOGO_SVG from '../assets/icon.svg?raw';
 
 export const SCREEN_W = 576;
@@ -14,6 +15,9 @@ export const FAINT = '#282828';
 // Volume bars sit a step below the candles so they read as background context.
 const VOL_UP = '#686868';
 const VOL_DOWN = '#404040';
+/** Analysis lines: the EMA over the candles, a shade under up candles; Bollinger Bands, behind them, dimmer. */
+const EMA_COLOR = '#c0c0c0';
+const BAND_COLOR = '#787878';
 /** Line height of the market list under the charts. */
 const LIST_LINE_H = 18;
 const LIST_PX = 13;
@@ -24,6 +28,8 @@ export const TIME_AXIS_H = 14;
 
 /** The font of the render in progress; `renderScreen` sets it, so helpers needn't pass it along. */
 let chartFont: ChartFont = 'atkinson';
+/** The indicator drawn on each chart in the render in progress, if any; also set by `renderScreen`. */
+let chartAnalysis: AnalysisSpec | null = null;
 
 /** `px` is the size in SF Pro / Roboto terms; each font is scaled to match its digit height. */
 function font(px: number, bold = false): string {
@@ -45,6 +51,8 @@ export interface ScreenModel {
   source: string;
   /** Must be loaded (`loadFont`) before rendering. */
   font: ChartFont;
+  /** Indicator to draw on each chart, if any. */
+  analysis?: AnalysisSpec | null;
 }
 
 interface PanelStyle {
@@ -58,6 +66,8 @@ interface PanelStyle {
 interface Geometry {
   plot: Rect;
   vol: Rect;
+  /** The RSI pane under the volume strip, when RSI is drawn. */
+  osc: Rect | null;
   /** Slot width (body + gap) and candle body width, in px. */
   pitch: number;
   body: number;
@@ -82,6 +92,7 @@ export const DEFAULT_AXIS_W = 52;
 /** Returns the measured price-axis width, for `candleCapacity`. */
 export function renderScreen(ctx: CanvasRenderingContext2D, model: ScreenModel): number {
   chartFont = model.font;
+  chartAnalysis = model.analysis ?? null;
   ctx.save();
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, SCREEN_W, SCREEN_H);
@@ -117,7 +128,7 @@ export function renderScreen(ctx: CanvasRenderingContext2D, model: ScreenModel):
     ctx.measureText('000.0K').width,
     ...model.charts.map((m) => m.candles.length ? ctx.measureText(formatPrice(m.candles.at(-1)!.close)).width : 0),
   )) + 8;
-  const geoms = rects.map((r) => panelGeometry(r, style, axisW, model.candleWidth));
+  const geoms = rects.map((r) => panelGeometry(r, style, axisW, model.candleWidth, chartAnalysis?.kind === 'rsi'));
 
   const intervalSec = model.interval * 60;
   const latest = Math.max(...model.charts.map((m) => m.candles.at(-1)?.time ?? -Infinity));
@@ -202,8 +213,12 @@ function panelStyle(compact: boolean): PanelStyle {
   };
 }
 
-/** Price plot with a right-hand axis, and a volume strip (~10%) underneath. */
-function panelGeometry(r: Rect, s: PanelStyle, axisW: number, width: CandleWidth): Geometry {
+/**
+ * Price plot with a right-hand axis, and a volume strip (~10%) underneath;
+ * with `osc`, an RSI pane (~20%) under that. The panes share the plot's
+ * width, so candle capacity doesn't depend on it.
+ */
+function panelGeometry(r: Rect, s: PanelStyle, axisW: number, width: CandleWidth, osc = false): Geometry {
   const area: Rect = {
     x: r.x + s.pad,
     y: r.y + s.headerH + 2,
@@ -212,11 +227,14 @@ function panelGeometry(r: Rect, s: PanelStyle, axisW: number, width: CandleWidth
   };
   const volGap = 2;
   const volH = Math.max(6, Math.round(area.h * 0.1));
-  const plot: Rect = { ...area, h: area.h - volH - volGap };
+  const oscGap = 4;
+  const oscH = osc ? Math.max(14, Math.round(area.h * 0.2)) : 0;
+  const plot: Rect = { ...area, h: area.h - volH - volGap - (osc ? oscGap + oscH : 0) };
   const vol: Rect = { ...area, y: plot.y + plot.h + volGap, h: volH };
+  const oscRect: Rect | null = osc ? { ...area, y: vol.y + vol.h + oscGap, h: oscH } : null;
   const body = width === 'wide' ? (plot.w >= 400 ? 6 : 4) : width === 'narrow' ? 3 : 2;
   const pitch = body + (width === 'wide' ? 2 : 1);
-  return { plot, vol, pitch, body, count: Math.max(2, Math.floor(plot.w / pitch)) };
+  return { plot, vol, osc: oscRect, pitch, body, count: Math.max(2, Math.floor(plot.w / pitch)) };
 }
 
 /** Left edge of the candle body in slot k (0 = latest, at the right). */
@@ -324,7 +342,7 @@ function drawPanel(
   const { plot, vol, body } = g;
   // Place candles by time, not index, so every panel shares the time scale.
   const visible = data.candles
-    .map((c) => ({ c, k: Math.round((frame.lastTime - c.time) / frame.intervalSec) }))
+    .map((c, i) => ({ c, i, k: Math.round((frame.lastTime - c.time) / frame.intervalSec) }))
     .filter(({ k }) => k >= 0 && k < g.count);
   if (visible.length === 0) {
     ctx.font = axisFont;
@@ -342,7 +360,26 @@ function drawPanel(
     if (c.high > hi) { hi = c.high; hiK = k; }
   }
   if (hi === lo) { hi += hi * 0.001 || 1; lo -= lo * 0.001 || 1; }
-  const y = (p: number) => Math.round(plot.y + (hi - p) / (hi - lo) * (plot.h - 1));
+
+  // Indicators run over every candle fetched (no more than the chart shows);
+  // the price scale stretches to fit the overlays.
+  const closes = data.candles.map((c) => c.close);
+  const a = chartAnalysis;
+  const emaLine = a?.kind === 'ema' ? ema(closes, a.period) : null;
+  const bands = a?.kind === 'bollinger' ? bollinger(closes, a.period, a.k) : null;
+  const rsiLine = a?.kind === 'rsi' && g.osc ? rsi(closes, a.period) : null;
+  const pointsOf = (values: (number | null)[]) =>
+    visible.flatMap(({ i, k }) => (values[i] == null ? [] : [{ k, v: values[i]! }]));
+  const emaPts = emaLine ? pointsOf(emaLine) : [];
+  const upperPts = bands ? pointsOf(bands.map((b) => b?.upper ?? null)) : [];
+  const midPts = bands ? pointsOf(bands.map((b) => b?.mid ?? null)) : [];
+  const lowerPts = bands ? pointsOf(bands.map((b) => b?.lower ?? null)) : [];
+  let scaleTop = hi, scaleBottom = lo;
+  for (const { v } of [...emaPts, ...upperPts, ...lowerPts]) {
+    scaleTop = Math.max(scaleTop, v);
+    scaleBottom = Math.min(scaleBottom, v);
+  }
+  const y = (p: number) => Math.round(plot.y + (scaleTop - p) / (scaleTop - scaleBottom) * (plot.h - 1));
 
   ctx.font = axisFont;
   ctx.lineWidth = 1;
@@ -360,7 +397,7 @@ function drawPanel(
   // Horizontal grid at nice price steps, running across the axis column to the
   // right edge; the price labels are drawn over the lines after the candles.
   const right = r.x + r.w - pad;
-  const gridPrices = niceTicks(lo, hi, plot.h < 120 ? 4 : 5);
+  const gridPrices = niceTicks(scaleBottom, scaleTop, plot.h < 120 ? 4 : 5);
   for (const p of gridPrices) {
     const py = y(p) + 0.5;
     ctx.beginPath();
@@ -369,6 +406,13 @@ function drawPanel(
     ctx.stroke();
   }
   ctx.setLineDash([]);
+
+  // Bollinger Bands go behind the candles: the bands solid, the average dotted.
+  if (bands) {
+    drawSeries(ctx, g, upperPts, y, BAND_COLOR);
+    drawSeries(ctx, g, lowerPts, y, BAND_COLOR);
+    drawSeries(ctx, g, midPts, y, BAND_COLOR, true);
+  }
 
   // Volume strip.
   let maxVol = 0, maxVolK = 0;
@@ -407,6 +451,10 @@ function drawPanel(
       ctx.strokeRect(left + 0.5, top + 0.5, body - 1, Math.max(1, bottom - top));
     }
   }
+
+  // The EMA goes over the candles, to be seen through them.
+  if (emaLine) drawSeries(ctx, g, emaPts, y, EMA_COLOR);
+  if (rsiLine && g.osc) drawRsi(ctx, g, g.osc, pointsOf(rsiLine), axisFont);
 
   // Price labels sit on their gridlines at the right edge. Skip any that would
   // poke up into the header, or cover the logo (tag's box, plus a row).
@@ -505,6 +553,52 @@ function drawPanel(
     extreme(lo, loK);
   }
 
+  ctx.restore();
+}
+
+/**
+ * A line through `pts` (slot `k`, value `v`) at the slots' centres, drawn
+ * as whole-pixel runs so it stays crisp (no anti-aliased fringe to slow the
+ * upload); `dotted`, every other column.
+ */
+function drawSeries(ctx: CanvasRenderingContext2D, g: Geometry, pts: { k: number; v: number }[], y: (v: number) => number, color: string, dotted = false): void {
+  if (pts.length < 2) return;
+  const xy = pts.map(({ k, v }) => ({ x: slotCenter(g, k), y: y(v) })).sort((a, b) => a.x - b.x);
+  ctx.fillStyle = color;
+  let prevY = xy[0]!.y;
+  for (let x = xy[0]!.x, j = 1; x <= xy.at(-1)!.x; x++) {
+    while (x > xy[j]!.x) j++;
+    const a = xy[j - 1]!, b = xy[j]!;
+    const yy = Math.round(a.y + (b.y - a.y) * (x - a.x) / Math.max(1, b.x - a.x));
+    // Each column runs from just past the last one's row to its own, so steep stretches stay joined.
+    const top = yy > prevY ? prevY + 1 : yy, h = Math.max(1, Math.abs(yy - prevY));
+    if (!dotted || x % 2 === 0) ctx.fillRect(x, top, 1, h);
+    prevY = yy;
+  }
+}
+
+/** RSI on a 0–100 scale in `r`, with dashed lines at 30 and 70 and its latest value top-left. */
+function drawRsi(ctx: CanvasRenderingContext2D, g: Geometry, r: Rect, pts: { k: number; v: number }[], axisFont: string): void {
+  const ry = (v: number) => Math.round(r.y + (100 - v) / 100 * (r.h - 1));
+  ctx.save();
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = FAINT;
+  ctx.setLineDash([2, 3]);
+  for (const level of [30, 70]) {
+    ctx.beginPath();
+    ctx.moveTo(r.x, ry(level) + 0.5);
+    ctx.lineTo(r.x + r.w, ry(level) + 0.5);
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  ctx.fillStyle = FAINT;
+  ctx.fillRect(r.x, r.y + r.h, r.w, 1);
+  drawSeries(ctx, g, pts, ry, FG);
+  ctx.font = axisFont;
+  const ascent = ctx.measureText('0').actualBoundingBoxAscent;
+  // Latest is the smallest slot.
+  const latest = pts.reduce<{ k: number; v: number } | null>((best, p) => (!best || p.k < best.k ? p : best), null);
+  tag(ctx, latest ? `RSI ${Math.round(latest.v)}` : 'RSI', r.x + 2, r.y + Math.ceil(ascent / 2) + 2, 'left', MID);
   ctx.restore();
 }
 
