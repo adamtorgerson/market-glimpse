@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { TextBox } from '../../src/textchart';
-import { buildTextChart, serializeBox, utf8Length } from '../../src/textchart';
+import { buildTextChart, serializeBox, textWidth, utf8Length } from '../../src/textchart';
 import type { MarketData } from '../../src/sources/types';
 
 describe('the text chart\'s market list', () => {
@@ -41,5 +41,29 @@ describe('the text chart\'s market list', () => {
     expect(dim(boxes, 0, 8)).toMatch(/\d\d:\d\d/);
     expect(`${top} ${bottom}`.match(/COIN\d/g)!.length).toBeGreaterThan(3);
     for (const b of boxes) expect(utf8Length(serializeBox(b))).toBeLessThanOrEqual(999);
+  });
+});
+
+describe('the text chart\'s right edge', () => {
+  // A line past the screen's 576px wraps, and its container shows a scrollbar.
+  it('keeps every line inside it, wherever the time keys fall', () => {
+    for (const width of ['text-wide', 'text-narrow', 'text-thin', 'text-blocks'] as const) {
+      for (const interval of [1, 15, 60, 240]) {
+        for (let shift = 0; shift < 12; shift++) {
+          const sec = interval * 60;
+          const end = Math.floor(Date.UTC(2026, 9, 28, 14) / 1000 / sec) * sec - shift * sec;
+          const candles = Array.from({ length: 200 }, (_, i) => {
+            const p = 80_000 + Math.sin(i / 5) * 500;
+            return { time: end - (199 - i) * sec, open: p, high: p + 100, low: p - 100, close: p + (i % 2 ? 50 : -50), volume: 1 };
+          });
+          const boxes = buildTextChart({
+            chart: { market: 'BTC-USD', candles }, width, interval, updated: new Date(end * 1000), source: 'Coinbase', name: 'MarketGlimpse',
+            // Arrows after the prices, which shift the name along with them.
+            ticker: ['ETH-USDC', 'SOL-USD', 'XRP-USD'].slice(0, 1 + (shift % 3)).map((market, i) => ({ market, candles: [{ ...candles[0]!, close: 1234.5 * 10 ** (shift % 4) }], trend: i % 2 ? 1 : -1 })),
+          });
+          for (const b of boxes) for (const line of serializeBox(b).split('\n')) expect(textWidth(line)).toBeLessThanOrEqual(576);
+        }
+      }
+    }
   });
 });

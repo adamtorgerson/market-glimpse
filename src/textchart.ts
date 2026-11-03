@@ -98,11 +98,12 @@ const TIME_KEY_GAP = 80;
 
 /** Advance widths of the firmware font, measured in the simulator; other characters are estimated. '1' and '2' are 1px narrower before another of themselves. */
 const WIDTHS: Record<string, number> = {
-  '1': 8, ':': 4, '.': 5, ',': 5, ' ': 5, '·': 5, "'": 4, '|': 4, '-': 10, '↑': 11, '↓': 11, '%': 13,
+  '1': 8, ':': 4, '.': 5, ',': 5, ' ': 5, '·': 5, "'": 4, '|': 4, '-': 10, '↑': 14, '↓': 14, '%': 13,
   A: 13, B: 12, C: 11, D: 12, E: 10, F: 10, G: 12, H: 12, I: 5, J: 8, K: 12, L: 9, M: 16,
   N: 12, O: 12, P: 12, Q: 12, R: 12, S: 11, T: 10, U: 12, V: 13, W: 16, X: 13, Y: 13, Z: 12,
   a: 11, b: 11, c: 10, e: 10, g: 11, h: 11, i: 5, k: 9, l: 4, m: 16, n: 11, o: 10, p: 11,
   q: 11, r: 7, s: 10, t: 6, u: 11, v: 11, w: 15, x: 11, y: 11, z: 9,
+  d: 11, f: 7, j: 5, '/': 5, $: 12, '+': 10, '−': 10, '<': 10, '>': 10,
   // The blank spacers (see SKIP_1 and SKIP_5).
   'Ա': 4, '　': 20,
 };
@@ -203,7 +204,16 @@ export interface TextListModel {
 /** Brightness of the market list's names, volumes and errors. */
 const MID = 2;
 
-/** The glasses' font has plain arrows, about a letter wide: room for one after a price, with a space. */
+/**
+ * Room kept at the right edge, besides the usual 4px, for text placed after
+ * other text on its line: the widths before it are estimates, and their
+ * errors add up (6px over a title and an outcome's name, in the simulator).
+ * A line that runs past the edge wraps, and its container then shows a
+ * scrollbar.
+ */
+const TRAILING_SLACK = 12;
+
+/** The glasses' font has plain arrows, 14px wide (measured): room for one after a price, with a space. */
 const ARROW_W = 16;
 const arrow = (trend: number) => (trend > 0 ? '↑' : '↓');
 
@@ -248,9 +258,9 @@ export function buildTextList(m: TextListModel): TextBox[] {
     if (after) mid.lines[i]!.texts.push({ x: priceR + 16 + (arrows ? ARROW_W : 0), text: after });
   });
   if (m.right) {
-    // Shift the whole block so its widest row ends 4px from the right edge.
+    // Shift the whole block so its widest row ends near the right edge.
     const end = Math.max(...[bright, mid].flatMap((b) => b.lines.flatMap((l) => l.texts.map((t) => t.x + textWidth(t.text)))));
-    const dx = Math.max(0, SCREEN_W - 4 - end);
+    const dx = Math.max(0, SCREEN_W - 4 - TRAILING_SLACK - end);
     for (const b of [bright, mid]) for (const l of b.lines) for (const t of l.texts) t.x += dx;
   }
 
@@ -270,7 +280,8 @@ export interface EventTextListModel {
   pending?: boolean;
   /**
    * In two containers, the bright and the mid-bright, the names and volumes
-   * in with the titles (placed by estimated widths, so a px or two off): the
+   * in with the titles (placed by estimated widths, so a few px off, and kept
+   * clear of the right edge by `TRAILING_SLACK`): the
    * loading screen has room for no more.
    */
   twoBoxes?: boolean;
@@ -304,6 +315,8 @@ export function buildEventTextList(m: EventTextListModel): TextBox[] {
   const header = box(DIM, 0, 1);
   const footer = box(DIM, footerY, 1);
 
+  // Volumes placed after the names, in their container, can land a little right of where they're meant to.
+  const right = SCREEN_W - 4 - (m.twoBoxes ? TRAILING_SLACK : 0);
   const vols = m.items.map((d) => (d.dayVolume === undefined || d.error ? '' : `$${formatVolume(d.dayVolume)}`));
   const volW = Math.max(0, ...vols.map(textWidth));
   const titles = m.items.map((d) => cut(d.title, TITLE_W - (volW ? volW + 16 : 0)));
@@ -324,8 +337,8 @@ export function buildEventTextList(m: EventTextListModel): TextBox[] {
     if (leaders[i]!.trend) bright.lines[i]!.texts.push({ x: pctR + 4, text: arrow(leaders[i]!.trend!) });
     // Clear of the percentages, whose signs ("<", ">", "%") are estimated widths.
     const nameX = pctR + 16 + (arrows ? ARROW_W : 0);
-    names.lines[i]!.texts.push({ x: nameX, text: cut(leaders[i]!.name, SCREEN_W - 4 - nameX - (volW ? volW + 16 : 0)) });
-    if (vols[i]) volumes.lines[i]!.texts.push({ x: SCREEN_W - 4 - textWidth(vols[i]!), text: vols[i]! });
+    names.lines[i]!.texts.push({ x: nameX, text: cut(leaders[i]!.name, right - nameX - (volW ? volW + 16 : 0)) });
+    if (vols[i]) volumes.lines[i]!.texts.push({ x: right - textWidth(vols[i]!), text: vols[i]! });
   });
 
   const stamp = m.updated.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -631,7 +644,7 @@ function drawLines(boxes: TextBox[], m: EventTextChartModel, layout: EventLayout
     if (col < firstCol) continue;
     const text = formatTime(t, step, intervalSec >= 86400);
     const w = textWidth(text);
-    const x = Math.min(SCREEN_W - w, Math.max(0, Math.round(col * CELL - w / 2)));
+    const x = Math.min(SCREEN_W - 4 - w, Math.max(0, Math.round(col * CELL - w / 2)));
     if (x < right + 8) continue;
     times.push({ x, text });
     right = x + w;
@@ -825,7 +838,7 @@ function drawCandles(boxes: TextBox[], data: MarketData, interval: number, style
     const text = formatTime(t, step, intervalSec >= 86400);
     const w = textWidth(text);
     const center = (firstCol - Math.round((lastTime - t) / intervalSec) * pitch + (span - 1) / 2) * CELL;
-    const x = Math.min(SCREEN_W - w, Math.max(0, Math.round(center - w / 2)));
+    const x = Math.min(SCREEN_W - 4 - w, Math.max(0, Math.round(center - w / 2)));
     if (x < end + 8) continue;
     times.push({ x, text });
     end = x + w;
