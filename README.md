@@ -167,10 +167,10 @@ refreshes every 2m, chart shown for 12s, narrow candles.
     is drawn by the glasses in their own font instead of sent as images, so
     it appears all at once and the upload is a few KB of text. It's coarser:
     candles are made of 1px strokes on a 4px grid, or font blocks.
-    - Text blocks: about 24 candles, 24px apart, with solid 20px bodies built
+    - Text blocks: about 28 candles, 20px apart, with solid 20px bodies built
       from the font's block glyphs (█ and the lower eighths ▁–▇, with ▔ for
-      the bottom end), bright up and dim down. Wicks are 1px strokes, 1.5px
-      left of centre (the 4px grid's nearest).
+      the bottom end), bright up and dim down, side by side with no gap.
+      Wicks are 1px strokes, 1.5px left of centre (the 4px grid's nearest).
     - Text wide: about 36 candles, 16px apart. Up candles are three strokes,
       filled; down candles are two, hollow and dimmer.
     - Text narrow: about 48 candles, 12px apart, of two strokes: the body in

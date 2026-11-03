@@ -68,12 +68,13 @@ const DIM = 0;
 const MAX_BYTES = 999;
 /**
  * Candle shapes, in 4px columns: `span` columns of strokes plus a gap. Blocks
- * are one block wide, wick in the third column. Wide
+ * are one block wide with no gap (every block glyph advances 20px, so bodies
+ * touch: 28 candles rather than 24), wick in the third column. Wide
  * candles are 3 columns, wick in the middle; narrow ones are 2, wick on the
  * right; thin ones are 1.
  */
 const STYLES: Record<TextWidth, Style> = {
-  'text-blocks': { pitch: 6, span: BLOCK_CELLS },
+  'text-blocks': { pitch: 5, span: BLOCK_CELLS },
   'text-wide': { pitch: 4, span: 3 },
   'text-narrow': { pitch: 3, span: 2 },
   // Thin candles are packed close, so the grid keeps further from them.
