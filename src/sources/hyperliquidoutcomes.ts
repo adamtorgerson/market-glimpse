@@ -501,6 +501,10 @@ export const hyperliquidOutcomes: PredictionSource = {
     return (metaFresh() ? 1 : 2) + (by === 'liquidity' ? BOOK_POOL : 0);
   },
 
+  estimateExploreMs(by) {
+    return api.estimateMs(this.exploreRequests!(by));
+  },
+
   async explore(by, signal) {
     if (by === 'liquidity' && liquidFresh()) return liquid!.found;
     const { events } = metaFresh() ? meta! : await loadMeta(signal);

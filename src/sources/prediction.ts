@@ -96,6 +96,8 @@ export interface PredictionSource {
   exploreRankings?: readonly ExploreBy[];
   /** Requests one `explore` by `by` makes, if not 1. */
   exploreRequests?(by: ExploreBy): number;
+  /** Rough ms an `explore` by `by` would take if started now. */
+  estimateExploreMs?(by: ExploreBy): number;
   /** Shown with Explore's list, e.g. what its ranking means for this source. */
   exploreNote?: string;
 }

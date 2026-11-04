@@ -179,18 +179,29 @@ export class Glasses {
   }
 
   /**
-   * Rewrite the loading screen's list in place, without a page rebuild, if
-   * the loading screen is still up and the list keeps its layout. A chart
-   * that goes up afterwards keeps the new list behind its tiles.
+   * Rewrite the loading screen's list, and its message if given, if the
+   * loading screen is still up: in place if it keeps its layout, otherwise (a
+   * different number of rows, as when Explore's first list arrives, or a
+   * message of another width, as the time sits beside it) by rebuilding the
+   * page. A chart that goes up afterwards keeps the new list behind its tiles.
    */
-  updateLoadingList(list: NonNullable<LoadingScreen['list']>): Promise<void> {
+  updateLoadingList(list: NonNullable<LoadingScreen['list']>, message?: string): Promise<void> {
     const prev = this.loadingScreen;
-    if (!prev?.list || list.length !== prev.list.length || list.some((b, i) => b.y !== prev.list![i]!.y || b.h !== prev.list![i]!.h)) {
-      return Promise.resolve();
+    if (!prev) return Promise.resolve();
+    const screen = { ...prev, list, message: message ?? prev.message };
+    this.loadingScreen = screen;
+    if (!prev.list || textWidth(screen.message) !== textWidth(prev.message) || list.length !== prev.list.length || list.some((b, i) => b.y !== prev.list![i]!.y || b.h !== prev.list![i]!.h)) {
+      return this.serial(async () => {
+        if (!this.loadingUp) return;
+        await this.setPage([], screen);
+        this.loadingUp = true;
+      });
     }
-    this.loadingScreen = { ...prev, list };
     return this.serial(async () => {
       if (!this.loadingUp) return;
+      if (screen.message !== prev.message) {
+        await this.bridge.textContainerUpgrade(new TextContainerUpgrade({ containerID: LABEL_ID, containerName: LABEL_NAME, content: screen.message }));
+      }
       await Promise.all(list.map((b, i) => b.content === prev.list![i]!.content ? true : this.bridge.textContainerUpgrade(new TextContainerUpgrade({
         containerID: LIST_ID_BASE + i,
         containerName: `list-${i}`,

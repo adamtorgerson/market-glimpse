@@ -140,6 +140,10 @@ export const polymarket: PredictionSource = {
     return gamma.estimateMs(1) + clob.estimateMs(historyRequests(req));
   },
 
+  estimateExploreMs() {
+    return gamma.estimateMs(1);
+  },
+
   async explore(by, signal) {
     if (by === 'liquidity') {
       // Polymarket sorts events by the money on their books: one request.

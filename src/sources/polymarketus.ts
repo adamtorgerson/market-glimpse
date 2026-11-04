@@ -201,6 +201,10 @@ export const polymarketUs: PredictionSource = {
     return by === 'liquidity' && !liquidFresh() ? 1 + QUOTE_POOL : 1;
   },
 
+  estimateExploreMs(by) {
+    return by === 'liquidity' && liquidFresh() ? 0 : gateway.estimateMs(this.exploreRequests!(by));
+  },
+
   async explore(by, signal) {
     if (by === 'liquidity' && liquidFresh()) return liquid!.found;
     const { events } = await gateway.get<{ events: UsEvent[] }>(

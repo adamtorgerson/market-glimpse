@@ -316,9 +316,11 @@ shows "Loading… ~3s" and the time top-left until
 the chart is ready, with the data source top-right and the app name
 bottom-right. Every monitored market is listed as text against the right
 edge, like the text market list: "..." until its price arrives, filled in as
-each request comes back. The list is rewritten in place, without a page rebuild.
-The number is estimated once when "Loading…" goes up, and doesn't count
-down. It covers the rate limit's current wait, the update's actual requests
+each request comes back. The list is rewritten in place, without a page rebuild,
+unless its number of rows changes, as when Explore's first list arrives.
+The number is estimated when "Loading…" goes up, and doesn't count down, but
+Explore estimates it again once its list is in, from the requests left for those
+markets (before that, a first Explore can't know what they'll need). It covers the rate limit's current wait, the update's actual requests
 (including the source's one-time market list), each API's recent response times,
 and recent draw and upload times. If an update is already running, it shows
 that update's remaining time.

@@ -371,7 +371,7 @@ function loadingEvents(): PredictionData[] {
 function onEventProgress(ctrl: AbortController, partial: PredictionData[]): void {
   if (inFlight !== ctrl) return;
   eventProgress = partial;
-  if (loading) glasses?.updateLoadingList(loadingList()).catch(() => {});
+  updateLoadingScreen();
 }
 
 /** Every monitored market, with what's been fetched of it so far. */
@@ -396,14 +396,19 @@ function shorten(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`;
 }
 
+/** The seconds "Loading…" says are left: estimated as it goes up, and again once Explore's list is in. */
+let loadingEtaSec = 0;
+const loadingMessage = () => `Loading… ~${loadingEtaSec}s`;
+
 function showLoading(etaSec: number): void {
   if (!glasses) return;
   clearTimeout(hideTimer);
   setShowing(true);
   loading = true;
+  loadingEtaSec = etaSec;
   glasses.loading({
     // The time (dim, beside the message) top-left and the source top-right, as on the other screens.
-    message: `Loading… ~${etaSec}s`,
+    message: loadingMessage(),
     topLeft: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
     topRight: sourceLabel(settings.source),
     bottomLeft: '',
@@ -416,7 +421,24 @@ function showLoading(etaSec: number): void {
 function onProgress(ctrl: AbortController, partial: MarketData[]): void {
   if (inFlight !== ctrl) return;
   progress = partial;
-  if (loading) glasses?.updateLoadingList(loadingList()).catch(() => {});
+  updateLoadingScreen();
+}
+
+/** The loading screen with the list and estimate so far. */
+function updateLoadingScreen(): void {
+  if (loading) glasses?.updateLoadingList(loadingList(), loadingMessage()).catch(() => {});
+}
+
+/**
+ * Explore's list is in, so what's left of the update is known: `requestsMs`
+ * for those requests, then drawing and sending. Takes effect on the loading
+ * screen with the list.
+ */
+function expectRest(ctrl: AbortController, requestsMs: number): void {
+  if (inFlight !== ctrl) return;
+  const ms = Math.max(0, requestsMs) + drawMs + (glasses ? uploadMs : 0);
+  inFlightEta = Math.max(Date.now() + ms, dueAt);
+  loadingEtaSec = Math.max(1, Math.round((inFlightEta - Date.now()) / 1000));
 }
 
 async function runUpdate(ctrl: AbortController, showAt: number, reuse: boolean): Promise<void> {
@@ -519,6 +541,9 @@ async function exploreMarkets(s: Settings, ctrl: AbortController): Promise<Marke
       : formatQuoteVolume(f.quoteVolume, f.market),
   })));
   const data = found.map((f): MarketData => ({ market: f.market, candles: [], last: f.last, dayVolume: f.dayVolume, ...(movers ? { dayChange: f.change } : {}) }));
+  // Just the candles left: the ranking's requests are done.
+  const candlesLeft = exploreCandles(s);
+  expectRest(ctrl, candlesLeft ? src.estimateExploreMs(s.exploreBy, candlesLeft) - src.exploreRequests(s.exploreBy) * MIN_GAP_MS : 0);
   onProgress(ctrl, data);
   const n = exploreShown(s, maxCharts(s.candleWidth, s.analysis));
   const markets = (n ? data.slice(0, n) : s.textList ? [] : data).map((d) => d.market);
@@ -634,6 +659,9 @@ async function exploreEvents(s: Settings, ctrl: AbortController): Promise<Predic
   };
   // The list on the phone as soon as they're found, by the titles the ranking gave.
   setExplored(s, found.map((f) => ({ market: f.market, label: f.title ?? f.market, value: value(f) })));
+  // And on the loading screen, before their prices, with what's left now it's known what they are.
+  expectRest(ctrl, src.estimateMs(eventRequest(s, found.map((f) => f.market))));
+  onEventProgress(ctrl, found.map((f) => ({ market: f.market, title: f.title ?? f.market, outcomes: [] })));
   // History for the charted ones, or the list's line plots (none as text).
   const data = await src.fetch(eventRequest(s, found.map((f) => f.market)), ctrl.signal, (partial) => onEventProgress(ctrl, partial));
   setExplored(s, found.map((f, i) => ({
@@ -1056,24 +1084,37 @@ for (const tab of [tabWatchlist, tabExplore]) {
   });
 }
 
+/** Rough ms for the top list of `s` if asked for now, without any charts' history after it. */
+function estimateExploreListMs(s: Settings): number {
+  return isPredictionSource(s.source)
+    ? getPredictionSource(s.source).estimateExploreMs?.(s.exploreBy) ?? MIN_GAP_MS
+    : getSource(s.source).estimateExploreMs(s.exploreBy, 0);
+}
+
 /**
- * "Loading… 4s" on the Explore tab, counting up from when it started waiting
- * for the top list, until the list (or an error) replaces it.
+ * "Loading… 4s" on the Explore tab, counting down to when the top list is
+ * expected, until the list (or an error) replaces it. Estimated once for each
+ * list waited for; past that time it's just "Loading…".
  */
-let exploreLoadingSince = 0;
+let exploreExpectedAt = 0;
+let exploreWaitingFor = '';
 let exploreTimer: ReturnType<typeof setInterval> | undefined;
 function exploreLoadingText(): string {
-  const secs = Math.floor((Date.now() - exploreLoadingSince) / 1000);
+  const secs = Math.ceil((exploreExpectedAt - Date.now()) / 1000);
   return secs > 0 ? `Loading… ${secs}s` : 'Loading…';
 }
 function syncExploreTimer(waiting: boolean): void {
   if (!waiting) {
     clearInterval(exploreTimer);
     exploreTimer = undefined;
-    exploreLoadingSince = 0;
+    exploreWaitingFor = '';
     return;
   }
-  exploreLoadingSince ||= Date.now();
+  const key = exploreKey(settings);
+  if (exploreWaitingFor !== key) {
+    exploreWaitingFor = key;
+    exploreExpectedAt = Date.now() + estimateExploreListMs(settings);
+  }
   exploreTimer ??= setInterval(() => { exploreHint.textContent = exploreLoadingText(); }, 1000);
 }
 

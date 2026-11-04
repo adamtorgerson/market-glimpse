@@ -159,6 +159,10 @@ describe('the source', () => {
     expect(hyperliquidOutcomes.exploreRequests!('liquidity')).toBe(hyperliquidOutcomes.exploreRequests!('volume') + 12);
   });
 
+  it('expects a liquidity ranking to take longer, by its books', () => {
+    expect(hyperliquidOutcomes.estimateExploreMs!('liquidity')).toBeGreaterThan(hyperliquidOutcomes.estimateExploreMs!('volume') + 11 * 1500);
+  });
+
   it('parses times in UTC, and nothing else', () => {
     expect(parseHlTime('20261201-0000')).toBe(Date.UTC(2026, 11, 1) / 1000);
     expect(parseHlTime('soon')).toBeUndefined();
