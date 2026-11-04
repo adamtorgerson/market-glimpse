@@ -9,6 +9,7 @@
 import { arrowWidth, DIM, drawArrow, LIST_ARROW, drawLogo, FAINT, FG, formatStamp, formatTime, layout, LOGO_INK, MID, SCREEN_H, SCREEN_W, timeTicks } from './chart';
 import { cssFont, digitMid, digitTop } from './fonts';
 import type { ChartFont } from './settings';
+import { eventStats } from './predictanalysis';
 import type { PredictionData } from './sources/prediction';
 
 export interface PredictionModel {
@@ -24,6 +25,8 @@ export interface PredictionModel {
   source: string;
   /** Must be loaded (`loadFont`) before rendering. */
   font: ChartFont;
+  /** Show each event's analysis (`eventStats`) in its legend and header. */
+  analysis?: boolean;
 }
 
 /** Each outcome's line, in the event's order: brightest and solid first. */
@@ -51,6 +54,9 @@ const ROW_CY = SCREEN_H - 2 - LOGO_H / 2;
 const CHARTS_H = SCREEN_H - 2 - LOGO_H - 4;
 /** Gridlines are 1px dots every GRID_STEP px: a sixth drawn. */
 const GRID_STEP = 6;
+/** With analysis's columns beside them, a share of the room for names, and the space between columns. */
+const ANALYSIS_NAMES = 0.75;
+const STAT_GAP = 8;
 /** Space kept clear of gridlines on each side of a line. */
 const HALO = 5;
 /** Lit plot pixels: anything brighter than the gridlines. */
@@ -182,7 +188,7 @@ export function renderPrediction(ctx: CanvasRenderingContext2D, model: Predictio
     const top = r.y === 0;
     const corner = [top && r.x === 0 ? time : '', top && r.x + r.w === SCREEN_W ? model.source : ''].filter(Boolean).join('  ');
     const vol = !one && data.dayVolume !== undefined ? `$${compact(data.dayVolume)}` : '';
-    drawPanel(ctx, data, r, plot, s, font, end, intervalSec, vol, corner);
+    drawPanel(ctx, data, r, plot, s, font, end, intervalSec, vol, corner, !!model.analysis);
   });
   ctx.restore();
 }
@@ -199,17 +205,19 @@ function drawPanel(
   /** Right of the title: the 24h volume, if not shown elsewhere, then `corner` (the source and/or time). */
   vol: string,
   corner: string,
+  analysis: boolean,
 ): void {
   const small = font(s.small), title = font(s.title, true), pct = font(s.pct, true);
   ctx.save();
 
-  // Header: the question on the left; the volume (dim) and corner text on the right.
+  const stats = analysis && !data.error && data.outcomes.length ? eventStats(data, end) : null;
+  // Header: the question on the left; the corner text, volume (dim) and analysis's summary on the right.
   const titleY = Math.round(r.y + s.headerH / 2 + digitMid(title));
   const smallY = Math.round(titleY - digitMid(title) + digitMid(small));
   ctx.font = small;
   ctx.textAlign = 'right';
   let right = r.x + r.w - s.pad;
-  for (const [text, color] of [[corner, MID], [vol, DIM]] as const) {
+  for (const [text, color] of [[corner, MID], [vol, DIM], [stats?.summary ?? '', MID]] as const) {
     if (!text) continue;
     ctx.fillStyle = color;
     ctx.fillText(text, right, smallY);
@@ -288,12 +296,21 @@ function drawPanel(
   const pctW = Math.ceil(Math.max(...rows.map((row) => (row.price === undefined ? 0 : ctx.measureText(formatPct(row.price)).width))));
   ctx.font = small;
   const nameX = s.swatch + 5 + pctW + 5;
-  const names = rows.map((row) => fit(ctx, row.name, s.nameMax));
+  const names = rows.map((row) => fit(ctx, row.name, stats ? s.nameMax * ANALYSIS_NAMES : s.nameMax));
   const vols = rows.map((row) => (row.volume === undefined ? '' : `$${compact(row.volume)}`));
   const volW = Math.ceil(Math.max(0, ...vols.map((v) => ctx.measureText(v).width)));
+  // Analysis: a row of headings, and three columns of each outcome's figures, in points.
+  const statColumns = stats ? [
+    { head: stats.changeLabel, cells: stats.rows.map((c) => c.change) },
+    { head: 'vol/d', cells: stats.rows.map((c) => c.volatility) },
+    { head: 'spread', cells: stats.rows.map((c) => c.spread) },
+  ].map((col) => ({ ...col, w: Math.ceil(Math.max(ctx.measureText(col.head).width, ...col.cells.map((cell) => ctx.measureText(cell).width))) })) : [];
+  const statsW = statColumns.reduce((sum, col) => sum + STAT_GAP + col.w, 0);
+  const firstRow = stats ? 1 : 0;
+  const nameW = Math.max(...names.map((name) => ctx.measureText(name).width), stats ? ctx.measureText('pts').width : 0);
   const box = {
-    w: Math.ceil(s.boxPad * 2 + nameX + Math.max(...names.map((name) => ctx.measureText(name).width)) + (volW ? 8 + volW : 0)),
-    h: s.boxPad * 2 + rows.length * s.rowH - 4,
+    w: Math.ceil(s.boxPad * 2 + nameX + nameW + (volW ? 8 + volW : 0) + statsW),
+    h: s.boxPad * 2 + (rows.length + firstRow) * s.rowH - 4,
   };
   const at = emptiest(ctx, plot, box.w, box.h);
 
@@ -306,8 +323,20 @@ function drawPanel(
     ctx.lineWidth = 1;
     ctx.strokeRect(at.x + 0.5, at.y + 0.5, box.w - 1, box.h - 1);
   }
+  // The columns' right edges, the first furthest left.
+  const statRight = (n: number) => at.x + box.w - s.boxPad - statColumns.slice(n + 1).reduce((sum, col) => sum + STAT_GAP + col.w, 0);
+  const rowCy = (k: number) => Math.round(at.y + s.boxPad + (k + firstRow) * s.rowH + (s.rowH - 4) / 2);
+  if (stats) {
+    const y = Math.round(rowCy(-1) + digitMid(small));
+    ctx.font = small;
+    ctx.fillStyle = DIM;
+    ctx.textAlign = 'left';
+    ctx.fillText('pts', at.x + s.boxPad + nameX, y);
+    ctx.textAlign = 'right';
+    statColumns.forEach((col, n) => ctx.fillText(col.head, statRight(n), y));
+  }
   rows.forEach((row, k) => {
-    const x = at.x + s.boxPad, cy = Math.round(at.y + s.boxPad + k * s.rowH + (s.rowH - 4) / 2);
+    const x = at.x + s.boxPad, cy = rowCy(k);
     if (row.style) {
       ctx.strokeStyle = row.style.color;
       ctx.setLineDash(row.style.dash);
@@ -329,8 +358,15 @@ function drawPanel(
     if (vols[k]) {
       ctx.fillStyle = DIM;
       ctx.textAlign = 'right';
-      ctx.fillText(vols[k]!, at.x + box.w - s.boxPad, Math.round(cy + digitMid(small)));
+      ctx.fillText(vols[k]!, at.x + box.w - s.boxPad - statsW, Math.round(cy + digitMid(small)));
     }
+    statColumns.forEach((col, n) => {
+      const cell = col.cells[k];
+      if (!cell) return;
+      ctx.fillStyle = MID;
+      ctx.textAlign = 'right';
+      ctx.fillText(cell, statRight(n), Math.round(cy + digitMid(small)));
+    });
   });
   ctx.restore();
 }

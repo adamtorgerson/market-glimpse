@@ -110,3 +110,49 @@ describe('several markets', () => {
     expect(p.other).toEqual({ count: 3 });
   });
 });
+
+describe('a market quoted on one side, or neither', () => {
+  const lone = (title: string, price: number, quotes: Partial<UsMarket>) => market(title, 0, 0, { outcomePrices: JSON.stringify([String(price)]), ...quotes });
+  const quote = (value: number) => ({ value: String(value) });
+
+  it('is at half its ask with no bid: the lone price is the ask', () => {
+    expect(named(event([lone('A', 0.01, { bestAskQuote: quote(0.01), bestBidQuote: null })]))[0]).toEqual(['Yes', 0.005]);
+  });
+
+  it('is at its bid with no ask: the lone price is the bid', () => {
+    expect(named(event([lone('A', 0.99, { bestBidQuote: quote(0.99), bestAskQuote: null })]))[0]).toEqual(['Yes', 0.99]);
+  });
+
+  it('is at 0 with no bid and a high ask, which says little, like a bid of 0 and an ask of 1', () => {
+    expect(named(event([lone('A', 0.8, { bestAskQuote: quote(0.8) })]))[0]).toEqual(['Yes', 0]);
+    expect(named(event([market('A', 0, 1)]))[0]).toEqual(['Yes', 0]);
+  });
+
+  it('is at a lone price with no quotes to say which side it is', () => {
+    expect(named(event([lone('A', 0.001, {})]))[0]).toEqual(['Yes', 0.001]);
+  });
+
+  it('has no spread unless quoted on both sides', () => {
+    expect(pickUs(event([lone('A', 0.01, { bestAskQuote: quote(0.01) })])).lines[0]!.spread).toBeUndefined();
+    expect(pickUs(event([lone('A', 0.99, { bestBidQuote: quote(0.99) })])).lines[0]!.spread).toBeUndefined();
+  });
+
+  it('counts in the left-out outcomes\' price, and the total, at those prices', () => {
+    const tail = ['C', 'D', 'E', 'F'].map((t) => lone(t, 0.01, { bestAskQuote: quote(0.01) }));
+    const { lines, other, total } = pickUs({ ...event([market('A', 0.6, 0.62), market('B', 0.3, 0.32), ...tail]), tags: [{ slug: 'neg-risk' }] });
+    expect(lines.map((l) => l.name)).toEqual(['A', 'B', 'C', 'D']);
+    expect(other?.price).toBeCloseTo(0.01, 10); // Two of them, at 0.5¢.
+    expect(total).toBeCloseTo(0.61 + 0.31 + 4 * 0.005, 10);
+  });
+
+  it('counts only two-sided quotes towards whether an event looks exclusive', () => {
+    // 20 asks of 1¢ on top of a set that adds up: no bids, so they don't tip it over.
+    const tail = Array.from({ length: 20 }, (_, i) => lone(`T${i}`, 0.01, { bestAskQuote: quote(0.01) }));
+    expect(pickUs(event([market('A', 0.59, 0.61), market('B', 0.39, 0.41), ...tail])).total).toBeDefined();
+  });
+
+  it('prices a total\'s unquoted markets as it charts them, not at 50%', () => {
+    const { total } = pickUs({ ...event([market('A', 0.59, 0.61), lone('B', 0.001, {})]), tags: [{ slug: 'neg-risk' }] });
+    expect(total).toBeCloseTo(0.601, 10);
+  });
+});

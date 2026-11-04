@@ -4,6 +4,11 @@ Notable changes to MarketGlimpse, by release tag.
 
 ## [Unreleased]
 
+### Fixed
+- Polymarket US: a market quoted on just one side was priced wrongly. A lone
+  price with no bid is the ask, not a bid: such a market is now at half of it,
+  which brings down long shots' prices and the "others" in a legend.
+
 ### Added
 - An Analysis section: **Show analysis** draws SMA, EMA, VWAP, Bollinger
   Bands, Donchian Channels or Parabolic SAR over the price, or RSI, MACD or
@@ -13,6 +18,10 @@ Notable changes to MarketGlimpse, by release tag.
 - A **Second indicator** draws two at once. Below the chart, they're overlaid
   in the same area, each on its own scale; over the price, the second's solid
   lines are dotted.
+- Analysis for prediction markets, on image charts, with no extra requests:
+  each outcome's change, typical daily move and spread in the legend, and the
+  event's sum of outcomes and time to its end date in the header. It allows up
+  to 2 charts.
 - Analysis allows up to 2 charts: turning it on keeps the first 2 ticked, and
   Explore's 4 charts becomes 2. With two charts, MACD is its histogram alone.
 

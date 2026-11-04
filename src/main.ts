@@ -220,12 +220,12 @@ function sourceEventCharts(s: Settings): string[] {
  */
 function eventTextList(s: Settings): boolean {
   if (!s.textList) return false;
-  return s.explore ? exploreShown(s, maxEventCharts(s.eventTextChart)) === 0 : s.showList || sourceEventCharts(s).length === 0;
+  return s.explore ? exploreShown(s, maxEventCharts(s.eventTextChart, s.eventAnalysis)) === 0 : s.showList || sourceEventCharts(s).length === 0;
 }
 
 /** The events a prediction-market update charts: the top ones Explore found, or the watchlist's ticked (none for Market List). */
 function chartedEvents(s: Settings, markets: string[]): string[] {
-  if (s.explore) return markets.slice(0, exploreShown(s, maxEventCharts(s.eventTextChart)));
+  if (s.explore) return markets.slice(0, exploreShown(s, maxEventCharts(s.eventTextChart, s.eventAnalysis)));
   return s.showList ? [] : sourceEventCharts(s);
 }
 
@@ -255,7 +255,7 @@ function eventPoints(textChart: boolean, nCharts: number): number {
 let lastEvents: { key: string; data: PredictionData[]; updated: Date } | null = null;
 
 function eventsKey(s: Settings): string {
-  if (s.explore) return JSON.stringify(['explore', s.source, s.exploreBy, exploreShown(s, maxEventCharts(s.eventTextChart)), eventTextList(s), s.eventTextChart, s.eventInterval]);
+  if (s.explore) return JSON.stringify(['explore', s.source, s.exploreBy, exploreShown(s, maxEventCharts(s.eventTextChart, s.eventAnalysis)), eventTextList(s), s.eventTextChart, s.eventInterval]);
   return JSON.stringify([s.source, eventRequest(s)]);
 }
 
@@ -605,7 +605,7 @@ async function runEventsUpdate(ctrl: AbortController, showAt: number, reuse: boo
   } else if (charted.length === 0) {
     renderPredictionList(ctx, { ...model, items: data });
   } else {
-    renderPrediction(ctx, { ...model, charts: charted, ticker: data.filter((d) => !charted.includes(d)) });
+    renderPrediction(ctx, { ...model, charts: charted, ticker: data.filter((d) => !charted.includes(d)), analysis: s.eventAnalysis });
   }
   notDue();
   await present(ctrl, showAt, textBoxes, data.filter((d) => d.error).map((d) => `${d.market}: ${d.error}`), updated, drawStart);
@@ -845,6 +845,7 @@ const candleWidthSel = $<HTMLSelectElement>('candle-width');
 const fontSel = $<HTMLSelectElement>('font');
 const showIndexBox = $<HTMLInputElement>('show-index');
 const analysisBox = $<HTMLInputElement>('analysis');
+const eventAnalysisBox = $<HTMLInputElement>('event-analysis');
 const analysisSel = $<HTMLSelectElement>('analysis-kind');
 const analysisSecondSel = $<HTMLSelectElement>('analysis-second');
 /** The indicators' parameters: each setting's input. */
@@ -950,7 +951,7 @@ function syncKind(s: Settings = settings): void {
   for (const el of document.querySelectorAll<HTMLElement>('[data-events]')) el.hidden = !events;
   intervalLabel.textContent = events ? 'History spacing' : 'Candle size';
   addMarketBtn.textContent = events ? '+ Add event' : '+ Add market';
-  marketsHint.textContent = events ? `Up to ${MAX_CHARTS} charts; ${MAX_MARKETS} events: a Polymarket link or the event's slug` : `Up to ${analysisBox.checked ? MAX_ANALYSIS_CHARTS : MAX_CHARTS} charts; ${MAX_MARKETS} markets`;
+  marketsHint.textContent = events ? `Up to ${eventAnalysisBox.checked ? MAX_ANALYSIS_CHARTS : MAX_CHARTS} charts; ${MAX_MARKETS} events: a Polymarket link or the event's slug` : `Up to ${analysisBox.checked ? MAX_ANALYSIS_CHARTS : MAX_CHARTS} charts; ${MAX_MARKETS} markets`;
   // Each prediction market has its own list too.
   const kind = events ? 'events' : 'markets';
   const list = events ? sourceSel.value : '';
@@ -1004,7 +1005,7 @@ function syncMarketControls(): void {
   const rows = [...marketList.children];
   const checks = rows.flatMap((li) => li.querySelector<HTMLInputElement>('input[type=checkbox]') ?? []);
   // Text candles are for exchanges' charts; a prediction market's has a text chart of its own.
-  const max = marketList.dataset.kind === 'events' ? maxEventCharts(eventStyleSel.value === 'text') : maxCharts(candleWidthSel.value as CandleWidth, analysisBox.checked);
+  const max = marketList.dataset.kind === 'events' ? maxEventCharts(eventStyleSel.value === 'text', eventAnalysisBox.checked) : maxCharts(candleWidthSel.value as CandleWidth, analysisBox.checked);
   // A width or analysis that allows fewer charts keeps the first ones ticked.
   checks.filter((c) => c.checked).slice(max).forEach((c) => { c.checked = false; });
   const nChecked = checks.filter((c) => c.checked).length;
@@ -1030,7 +1031,7 @@ function syncExploreView(): void {
   const rankings = events ? getPredictionSource(sourceSel.value).exploreRankings : undefined;
   for (const opt of exploreBySel.options) opt.disabled = !!rankings && !rankings.includes(opt.value as ExploreBy);
   if (exploreBySel.selectedOptions[0]?.disabled) exploreBySel.value = rankings![0]!;
-  const max = events ? maxEventCharts(eventStyleSel.value === 'text') : maxCharts(candleWidthSel.value as CandleWidth, analysisBox.checked);
+  const max = events ? maxEventCharts(eventStyleSel.value === 'text', eventAnalysisBox.checked) : maxCharts(candleWidthSel.value as CandleWidth, analysisBox.checked);
   for (const opt of exploreViewSel.options) {
     opt.disabled = opt.value !== 'list' && Number(opt.value) > max;
   }
@@ -1132,8 +1133,9 @@ function syncFavorite(s: Settings = settings): void {
 }
 
 function fillForm(s: Settings): void {
-  // First: it limits the chart ticks and Explore layouts synced below.
+  // First: these limit the chart ticks and Explore layouts synced below.
   analysisBox.checked = s.analysis;
+  eventAnalysisBox.checked = s.eventAnalysis;
   sourceSel.value = s.source;
   favoriteBox.dataset.source = '';
   syncFavorite(s);
@@ -1220,6 +1222,7 @@ function readForm(): Settings {
     eventCharts: events && watchlist ? { ...settings.eventCharts, [sourceSel.value]: watchlist.filter((r) => r.charted).map((r) => r.market) } : settings.eventCharts,
     eventInterval: events ? Number(intervalSel.value) : settings.eventInterval,
     eventTextChart: eventStyleSel.value === 'text',
+    eventAnalysis: eventAnalysisBox.checked,
     explore,
     exploreBy: exploreBySel.value as ExploreBy,
     exploreView: exploreViewSel.value as ExploreView,
@@ -1308,7 +1311,7 @@ async function applyForm(): Promise<boolean> {
   if (chartChanged) restartSchedule({ cancel: true, manual: true });
   // A new font or analysis needs no new data: redraw the last, sparing the APIs
   // (CoinGecko drops the index when asked too often). Without data to reuse, this fetches.
-  else if (next.font !== prev.font || JSON.stringify(analysisSpecs(next)) !== JSON.stringify(analysisSpecs(prev))) void update({ cancel: true, manual: true, reuse: true });
+  else if (next.font !== prev.font || next.eventAnalysis !== prev.eventAnalysis || JSON.stringify(analysisSpecs(next)) !== JSON.stringify(analysisSpecs(prev))) void update({ cancel: true, manual: true, reuse: true });
   // Leaving manual-only: fetch in the background now and start the schedule.
   else if (prev.manualOnly && !next.manualOnly) restartSchedule();
   else scheduleAt(nextAt - prev.refreshSec * 1000 + next.refreshSec * 1000);

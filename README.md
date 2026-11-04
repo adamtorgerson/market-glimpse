@@ -69,6 +69,26 @@ refreshes every 2m, chart shown for 12s, narrow candles.
   legend if there's room, else on a line of its own. Each line moves the plot up (keeping
   its gridlines on the font's rows), and the time keys with it. Explore
   offers List or 1 chart, with its other top events listed.
+- **Analysis** (prediction markets, its own section): **Show analysis** adds
+  to the image charts (not the text chart or the list), with no extra requests:
+  - In the legend, for each outcome, in points of probability: its **change**,
+    **vol/d** and **spread**. The change is headed by what it covers: `24h` if
+    Polymarket gives every outcome charted a 24h figure, otherwise since the
+    chart's history starts (`7d`). It leaves the figure out for many markets, not
+    only those that didn't move, and Polymarket US has none. **vol/d** is the
+    typical move in a day, at today's price: measured in log-odds over the chart's
+    history, as 5 points near 2% is a far bigger move than near 50%. Noisy
+    prices read high, as it can't tell a real move from a price bouncing between
+    the bid and ask. **spread** is the best ask minus the best bid.
+  - In the header: **Sum**, the total of all its markets' prices, charted or not,
+    where exactly one wins and all are listed, which should be about 100%. A
+    large set of long shots reads high, each priced at the middle of its bid and
+    ask. Polymarket's sets that can still gain outcomes have none, as whatever's
+    on those isn't listed. **ends**, the time to its end date; it can be
+    `past end date` while waiting to be resolved.
+
+  It limits a prediction market to 2 charts: turning it on keeps the first 2
+  ticked, and Explore's 4 charts becomes 2.
 - **Currency type**: USD (default), EUR or AUD, the fiat currencies most of
   the sources quote in. It's the quote for markets entered without one.
 - **Stocks and bare names**: a name with no quote (`TSLA`, `BTC`) is first a
@@ -266,7 +286,7 @@ glasses at once, like **Show now**: ticking or unticking a chart, the data
 source, currency type, candle size or history spacing, candle width, chart
 style, index price, **Market List** or **Market List as text**, the events
 entered, or Explore's tab, ranking and Show. A font or analysis change redraws
-the last data without fetching. Other changes (markets in the list, refresh rate,
+the last data without fetching, unless it changes what's charted. Other changes (markets in the list, refresh rate,
 show-for time) wait for the next scheduled update. A new refresh rate
 re-times that update.
 

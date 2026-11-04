@@ -21,6 +21,10 @@ export interface Outcome {
   history: PricePoint[];
   /** Its market's 24h volume, in dollars, where it has a market of its own (or is the first of one's two sides). */
   dayVolume?: number;
+  /** The source's own 24h change in probability (0.15 is 15 points), where it gives one. */
+  dayChange?: number;
+  /** Its market's bid-ask spread, in probability (0.01 is 1 point), where it's quoted. */
+  spread?: number;
   /** Which way its probability moved since the last update, as `MarketData.trend`. */
   trend?: number;
 }
@@ -39,7 +43,21 @@ export interface PredictionData {
   other?: { count: number; price?: number };
   /** 24h volume, in dollars. */
   dayVolume?: number;
+  /**
+   * Where exactly one of its several markets wins and they're all listed, the
+   * total of all their prices, charted or not. It should be about 1. Each is at
+   * the middle of its bid and ask, a market with no bid at half its ask.
+   */
+  total?: number;
+  /** The event's end date, in unix seconds, where it gives one. It can stay open past it, awaiting resolution. */
+  endTime?: number;
   error?: string;
+}
+
+/** An end date from an API, in unix seconds; undefined if missing or unreadable. */
+export function parseEndTime(date: string | undefined): number | undefined {
+  const ms = date ? Date.parse(date) : NaN;
+  return Number.isFinite(ms) ? ms / 1000 : undefined;
 }
 
 export interface PredictionRequest {

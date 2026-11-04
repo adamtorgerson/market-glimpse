@@ -1,6 +1,6 @@
 import { describeError, isAbort, PublicApi } from './http';
 import { EXPLORE_COUNT } from './types';
-import { chooseOutcomes, type Chosen, type ExploredEvent, type PredictionData, type PredictionSource } from './prediction';
+import { chooseOutcomes, parseEndTime, type Chosen, type ExploredEvent, type PredictionData, type PredictionSource } from './prediction';
 
 /**
  * Polymarket US (polymarket.us): the US exchange, with its own events and
@@ -23,7 +23,15 @@ export interface UsMarket {
   title: string;
   active: boolean;
   closed: boolean;
-  /** The long side's best bid and ask, JSON-encoded: '["0.9200","0.9300"]'. */
+  endDate?: string;
+  /** The long side's best quotes; a side with none is missing or null. */
+  bestBidQuote?: { value: string } | null;
+  bestAskQuote?: { value: string } | null;
+  /**
+   * The long side's best bid and ask, JSON-encoded: '["0.9200","0.9300"]'. With
+   * one side unquoted it's a lone price, that of the side that is ('["0.0100"]',
+   * with no bid, is an ask of 1¢); `bestBidQuote` and `bestAskQuote` say which.
+   */
   outcomePrices: string;
   /** SPORTS_MARKET_TYPE_MONEYLINE or …_DRAWABLE_OUTCOME (soccer) for who wins a game; …_FUTURE for most else. */
   sportsMarketTypeV2?: string;
@@ -43,6 +51,7 @@ export interface UsEvent {
   title: string;
   /** "neg-risk" among them for some exclusive sets. */
   tags?: { slug: string }[];
+  endDate?: string;
   markets: UsMarket[];
 }
 
@@ -53,9 +62,13 @@ export interface UsLine {
   /** The market whose history is the outcome's, or for the second side, the complement of it. */
   market: string;
   complement?: boolean;
+  /** Its market's bid-ask spread, where it's quoted: the same for either side. */
+  spread?: number;
 }
 
 export interface UsPick extends Chosen<UsLine> {
+  /** See `PredictionData.total`. */
+  total?: number;
   /** Why there's nothing to chart. */
   error?: string;
 }
@@ -64,25 +77,37 @@ const WINNER = new Set(['SPORTS_MARKET_TYPE_MONEYLINE', 'SPORTS_MARKET_TYPE_DRAW
 /** Types of markets that aren't part of a game. */
 const NOT_GAME = new Set(['', 'SPORTS_MARKET_TYPE_UNSPECIFIED', 'SPORTS_MARKET_TYPE_FUTURE']);
 
-/** The long side's best bid and ask; the ask missing without offers. */
-function quote(m: UsMarket): [number, number | undefined] {
-  const [bid, ask] = (JSON.parse(m.outcomePrices || '[]') as string[]).map(Number);
-  return [bid ?? NaN, ask];
+/**
+ * The long side's best bid and ask, each undefined if it has none. A lone
+ * price with no quotes to say which is taken as a bid, as with bids and no asks.
+ */
+function quote(m: UsMarket): [number | undefined, number | undefined] {
+  const [first, second] = (JSON.parse(m.outcomePrices || '[]') as string[]).map(Number);
+  if (first === undefined) return [NaN, undefined];
+  if (second === undefined && !m.bestBidQuote && m.bestAskQuote) return [undefined, first];
+  return [first, second];
 }
 
 /** Quoted on both sides, closely enough to price it: not a bid of 0 and an ask of 1. */
 function quoted(m: UsMarket): boolean {
   const [bid, ask] = quote(m);
-  return ask !== undefined && ask - bid <= 0.5;
+  return bid !== undefined && ask !== undefined && ask - bid <= 0.5;
 }
 
 /**
  * The midpoint of the long side's bid and ask, or without a close quote, the
- * bid; until the history gives the exchange's own display price.
+ * bid; until the history gives the exchange's own display price. No bid is a
+ * bid of 0: a market with just a low ask is at half of it.
  */
 function mid(m: UsMarket): number {
+  const [bid = 0, ask] = quote(m);
+  return ask !== undefined && ask - bid <= 0.5 ? (bid + ask) / 2 : bid;
+}
+
+/** The ask minus the bid, where it's closely quoted. */
+function spread(m: UsMarket): number | undefined {
   const [bid, ask] = quote(m);
-  return quoted(m) ? (bid + ask!) / 2 : bid;
+  return quoted(m) ? ask! - bid! : undefined;
 }
 
 /** A market's two sides (two teams, or Yes and No): only the first needs a history. */
@@ -93,8 +118,8 @@ function sides(m: UsMarket, eventTitle: string): UsLine[] {
   // "BTC Up or Down Daily" is Yes and No on the API, but Up and Down on the site.
   const updown = long.description === 'Yes' && /up or down/i.test(eventTitle);
   return [
-    { name: updown ? 'Up' : long.description, price, market: m.slug },
-    { name: updown ? 'Down' : short.description, price: 1 - price, market: m.slug, complement: true },
+    { name: updown ? 'Up' : long.description, price, market: m.slug, spread: spread(m) },
+    { name: updown ? 'Down' : short.description, price: 1 - price, market: m.slug, complement: true, spread: spread(m) },
   ];
 }
 
@@ -121,7 +146,7 @@ export function pickUs(e: UsEvent): UsPick {
   const lines = open.flatMap((m): UsLine[] => {
     const price = mid(m);
     // "AC Milan (Reg. Time)" is AC Milan; "Tie (Reg. Time)", Tie.
-    return Number.isFinite(price) ? [{ name: m.title.replace(/ \(Reg\. Time\)$/, ''), price, market: m.slug }] : [];
+    return Number.isFinite(price) ? [{ name: m.title.replace(/ \(Reg\. Time\)$/, ''), price, market: m.slug, spread: spread(m) }] : [];
   });
   const priced = open.filter((m) => Number.isFinite(mid(m)));
   const terms = priced.map((m) => m.assetPriceTerms);
@@ -131,7 +156,8 @@ export function pickUs(e: UsEvent): UsPick {
   const total = priced.filter(quoted).reduce((sum, m) => sum + mid(m), 0);
   const exclusive = ranges || !!e.tags?.some((t) => t.slug === 'neg-risk') || Math.abs(total - 1) <= 0.15;
   const numbers = lines.map((l) => Number(l.name.replace(/,/g, '').match(/-?\d+(\.\d+)?/)?.[0] ?? NaN));
-  return chooseOutcomes(lines, exclusive, numbers.every(Number.isFinite) ? numbers : undefined);
+  const chosen = chooseOutcomes(lines, exclusive, numbers.every(Number.isFinite) ? numbers : undefined);
+  return exclusive ? { ...chosen, total: priced.reduce((sum, m) => sum + mid(m), 0) } : chosen;
 }
 
 /** A market's best bid and ask, with the shares at each (`v1/markets/{slug}/bbo`). */
@@ -215,10 +241,13 @@ export const polymarketUs: PredictionSource = {
           return [];
         }
         d.title = e.title;
-        const { lines, other, error } = pickUs(e);
+        const endTime = parseEndTime(e.endDate ?? e.markets[0]?.endDate);
+        if (endTime !== undefined) d.endTime = endTime;
+        const { lines, other, error, total } = pickUs(e);
         // Current prices even if the history can't be had.
-        d.outcomes = lines.map((l) => ({ name: l.name, price: l.price, history: [] }));
+        d.outcomes = lines.map((l) => ({ name: l.name, price: l.price, history: [], spread: l.spread }));
         if (other) d.other = other;
+        if (total !== undefined) d.total = total;
         if (lines.length === 0) d.error = error ?? 'closed';
         historyCounts.set(m, new Set(lines.map((l) => l.market)).size);
         return lines.length ? [{ d, lines }] : [];
@@ -254,7 +283,7 @@ export const polymarketUs: PredictionSource = {
         const points = (history.get(l.market) ?? []).map((h) => ({ time: h.timestamp, p: l.complement ? 1 - h.longPrice : h.longPrice }));
         // The latest display price, where there is one: a market without
         // quotes has a bid of 0 and an ask of 1, which says nothing.
-        return { name: l.name, price: points.at(-1)?.p ?? l.price, history: points };
+        return { name: l.name, price: points.at(-1)?.p ?? l.price, history: points, spread: l.spread };
       });
     }
     return result();

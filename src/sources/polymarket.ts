@@ -1,6 +1,6 @@
 import { describeError, isAbort, PublicApi } from './http';
 import { EXPLORE_COUNT } from './types';
-import { chooseOutcomes, MAX_OUTCOMES, type Chosen, type PredictionRequest, type ExploredEvent, type Outcome, type PredictionData, type PredictionSource, type PricePoint } from './prediction';
+import { chooseOutcomes, MAX_OUTCOMES, parseEndTime, type Chosen, type PredictionRequest, type ExploredEvent, type Outcome, type PredictionData, type PredictionSource, type PricePoint } from './prediction';
 
 // Two APIs, each with its own rate limit: Gamma for events and current
 // prices, the CLOB for price history.
@@ -23,6 +23,10 @@ export interface GammaMarket {
   closed: boolean;
   /** In dollars. */
   volume24hr?: number;
+  /** Change in the first outcome's probability over a day. */
+  oneDayPriceChange?: number;
+  /** Best ask minus best bid, in probability. */
+  spread?: number;
 }
 
 export interface GammaEvent {
@@ -33,6 +37,12 @@ export interface GammaEvent {
   liquidity?: number;
   /** Exactly one of the event's markets resolves Yes, so their prices add up to about 1. */
   negRisk?: boolean;
+  /**
+   * More outcomes can still be added, and an unlisted "Other" isn't traded: the
+   * listed prices are short of 1 by whatever's on those, whatever the market's quality.
+   */
+  negRiskAugmented?: boolean;
+  endDate?: string;
   markets: GammaMarket[];
 }
 
@@ -45,9 +55,15 @@ export interface Line {
   complement?: boolean;
   /** Its market's 24h volume: the first side's, for a market of two. */
   volume?: number;
+  /** The source's 24h change in this outcome's probability. */
+  change?: number;
+  /** Its market's bid-ask spread: the same for either side. */
+  spread?: number;
 }
 
 export interface Pick extends Chosen<Line> {
+  /** See `PredictionData.total`. Polymarket's own prices are already its bid and ask's middle. */
+  total?: number;
   /** Why there's nothing to chart. */
   error?: string;
 }
@@ -67,7 +83,12 @@ function historyRequests(req: PredictionRequest): number {
 function both(m: GammaMarket): Line[] {
   const names = parse<string>(m.outcomes), prices = parse<string>(m.outcomePrices), token = parse<string>(m.clobTokenIds)[0];
   if (names.length !== 2 || !token) return [];
-  return names.map((name, i) => ({ name, price: +prices[i]!, token, complement: i === 1, ...(i === 0 ? { volume: m.volume24hr } : {}) }));
+  return names.map((name, i) => ({
+    name, price: +prices[i]!, token, complement: i === 1, spread: m.spread,
+    // What one side gains, the other loses.
+    change: m.oneDayPriceChange === undefined ? undefined : i === 0 ? m.oneDayPriceChange : -m.oneDayPriceChange,
+    ...(i === 0 ? { volume: m.volume24hr } : {}),
+  }));
 }
 
 /** A yes/no market within an event, as the outcome it's about: its "Yes", named as the event names it. */
@@ -76,7 +97,7 @@ function yes(m: GammaMarket): Line[] {
   const price = +(parse<string>(m.outcomePrices)[0] ?? NaN);
   // "Draw (Manchester City FC vs. Brighton & Hove Albion FC)" is just "Draw".
   const name = (m.groupItemTitle || m.question).replace(/^(Draw|Tie) \(.*\)$/, '$1');
-  return token && Number.isFinite(price) ? [{ name, price, token, volume: m.volume24hr }] : [];
+  return token && Number.isFinite(price) ? [{ name, price, token, volume: m.volume24hr, change: m.oneDayPriceChange, spread: m.spread }] : [];
 }
 
 /**
@@ -101,7 +122,8 @@ export function pick(e: GammaEvent): Pick {
   const ladder = open.every((m, i) => m.groupItemThreshold !== undefined && Number.isFinite(order[i]))
     && open.filter((m) => /\d/.test(m.groupItemTitle ?? '')).length >= open.length * 0.6;
   const lines = open.flatMap((m) => yes(m).map((l) => ({ l, i: open.indexOf(m) })));
-  return chooseOutcomes(lines.map((x) => x.l), !!e.negRisk, ladder ? lines.map((x) => order[x.i]!) : undefined);
+  const chosen = chooseOutcomes(lines.map((x) => x.l), !!e.negRisk, ladder ? lines.map((x) => order[x.i]!) : undefined);
+  return e.negRisk && !e.negRiskAugmented ? { ...chosen, total: lines.reduce((sum, x) => sum + x.l.price, 0) } : chosen;
 }
 
 export const polymarket: PredictionSource = {
@@ -160,10 +182,13 @@ export const polymarket: PredictionSource = {
         }
         d.title = e.title;
         d.dayVolume = e.volume24hr;
-        const { lines: ls, other, error } = pick(e);
+        const endTime = parseEndTime(e.endDate);
+        if (endTime !== undefined) d.endTime = endTime;
+        const { lines: ls, other, error, total } = pick(e);
         // Current prices even if the history can't be had.
-        d.outcomes = ls.map((l) => ({ name: l.name, price: l.price, history: [], dayVolume: l.volume }));
+        d.outcomes = ls.map((l) => ({ name: l.name, price: l.price, history: [], dayVolume: l.volume, dayChange: l.change, spread: l.spread }));
         if (other) d.other = other;
+        if (total !== undefined) d.total = total;
         if (ls.length === 0) d.error = error ?? 'closed';
         return ls.length ? [{ d, lines: ls }] : [];
       });
@@ -197,7 +222,7 @@ export const polymarket: PredictionSource = {
     for (const { d, lines: ls } of charted) {
       d.outcomes = ls.map((l): Outcome => {
         const points: PricePoint[] = (history[l.token] ?? []).map((h) => ({ time: h.t, p: l.complement ? 1 - h.p : h.p }));
-        return { name: l.name, price: l.price, history: points, dayVolume: l.volume };
+        return { name: l.name, price: l.price, history: points, dayVolume: l.volume, dayChange: l.change, spread: l.spread };
       });
     }
     return result();
