@@ -47,6 +47,8 @@ export interface ExchangeSpec {
   api: PublicApi;
   /** Supported candle sizes in minutes, mapped to the API's name for each. */
   intervals: Record<number, string>;
+  /** See `MarketSource.currencies`. */
+  currencies?: readonly string[];
   /** One market's ticker, by its instrument id. Throws `UnknownMarketError` if there's no such market. */
   ticker(market: string, signal: AbortSignal): Promise<Ticker>;
   /**
@@ -117,6 +119,7 @@ export function exchangeSource(spec: ExchangeSpec): MarketSource {
     id: spec.id,
     label: spec.label,
     intervals: Object.keys(spec.intervals).map(Number).sort((a, b) => a - b),
+    currencies: spec.currencies,
 
     resolve,
 

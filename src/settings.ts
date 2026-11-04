@@ -3,9 +3,9 @@ import {
   MIN_K, MIN_PERIOD, MIN_SAR, RSI_PERIOD, SAR_MAX, SAR_STEP, SMA_PERIOD, type Analysis, type AnalysisSpec,
 } from './analysis';
 import { isCalibration, type LookUpCalibration } from './lookup';
-import { DEFAULT_SOURCE, getPredictionSource, getSource, isPredictionSource, PREDICTION_SOURCES, SOURCES } from './sources';
+import { DEFAULT_SOURCE, getPredictionSource, getSource, isPredictionSource, PREDICTION_SOURCES, sourceCurrencies, SOURCES } from './sources';
 import { EVENT_INTERVALS, eventSlug } from './sources/prediction';
-import { CURRENCIES, DEFAULT_CURRENCY, type Currency } from './sources/symbols';
+import { DEFAULT_CURRENCY } from './sources/symbols';
 import type { ExploreBy } from './sources/types';
 
 export const CANDLE_WIDTHS = ['wide', 'narrow', 'thin', 'text-blocks', 'text-wide', 'text-narrow', 'text-thin'] as const;
@@ -53,7 +53,7 @@ export interface Settings {
   /** Source ids a long press on the glasses cycles through, in the source list's order. */
   favorites: string[];
   /** Quote currency for markets typed without one ("TSLA", "BTC"). */
-  currency: Currency;
+  currency: string;
   /** Markets to monitor, e.g. "BTC-USDC", or "TSLA" with no quote. */
   markets: string[];
   /** Subset of `markets` drawn as charts (0–4). The rest are listed under the charts, or full screen if none. */
@@ -208,7 +208,10 @@ export function sanitize(input: Partial<Settings>): Settings {
   const d = DEFAULT_SETTINGS;
   const source = SOURCES.some((s) => s.id === input.source) || isPredictionSource(input.source ?? '') ? input.source! : d.source;
   const favorites = Array.isArray(input.favorites) ? ALL_SOURCE_IDS.filter((id) => input.favorites!.includes(id)) : d.favorites;
-  const currency = (CURRENCIES as readonly string[]).includes(input.currency as string) ? input.currency! : d.currency;
+  // Kept as is while a prediction market is chosen, for when an exchange is again;
+  // an exchange without it takes its own default.
+  const currencies = isPredictionSource(source) ? SOURCES.flatMap((s) => sourceCurrencies(s.id)) : sourceCurrencies(source);
+  const currency = currencies.includes(input.currency as string) ? input.currency! : isPredictionSource(source) ? d.currency : currencies[0]!;
   const markets = dedupe((input.markets ?? d.markets).map(normalizeMarket).filter(Boolean)).slice(0, MAX_MARKETS);
   if (markets.length === 0) markets.push(...d.markets);
 

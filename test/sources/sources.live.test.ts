@@ -16,7 +16,7 @@ const EQUITIES = ['TSLA', 'AAPL', 'NVDA', 'MSFT', 'GOOGL', 'AMZN', 'META', 'SPY'
  * Equities each source has a stock token for (as of October 2026): xStocks,
  * on Gate, Ondo tokens where there's no xStock (MSFT, AMD), and on Bitget,
  * its own "r" tokens. Only OKX and Bitget have RKLB; Gate has just 3x
- * leveraged RKLB tokens, which aren't the stock. Binance.US has no stocks.
+ * leveraged RKLB tokens, which aren't the stock. Binance and Binance.US have no stocks.
  * Hyperliquid has the xStocks that trade there (its TSLAX and AAPLX have no
  * book), and leaves out others' tokens named after stocks; Aster has its own
  * "B" tokens ("NVDAB").
@@ -26,6 +26,7 @@ const LISTED: Record<string, string[]> = {
   okx: EQUITIES,
   gate: EQUITIES.filter((e) => e !== 'RKLB'),
   coinbase: [],
+  binance: [],
   binanceus: [],
   bitget: EQUITIES,
   hyperliquid: ['NVDA', 'SPY', 'QQQ'],
@@ -41,6 +42,7 @@ const NAMESAKES: Record<string, string[]> = {
   okx: [],
   gate: [],
   coinbase: ['META'],
+  binance: [],
   binanceus: [],
   bitget: [],
   hyperliquid: [],
@@ -100,6 +102,22 @@ describe.concurrent.each(SOURCES.map((s) => [s.id, s] as const))('%s', (id, sour
     const resolved = await source.resolve(EQUITIES, 'USD', signal());
     expect([...resolved.keys()].sort()).toEqual([...listed, ...namesakes].sort());
     for (const [m, i] of resolved) expect(i.stock, m).toBe(listed.includes(m) ? m : undefined);
+  });
+});
+
+describe('Binance', () => {
+  const binance = SOURCES.find((s) => s.id === 'binance')!;
+
+  it('has every currency it offers, and BTC in each', async () => {
+    for (const currency of binance.currencies!) {
+      const resolved = await binance.resolve(['BTC'], currency, signal());
+      expect(resolved.get('BTC')?.quote, currency).toBe(currency);
+    }
+  });
+
+  it('leaves a typed BTC-USD its exact market, thin as it is', async () => {
+    const resolved = await binance.resolve(['BTC-USD'], 'USDT', signal());
+    expect(resolved.get('BTC-USD')?.quote).toBe('USD');
   });
 });
 

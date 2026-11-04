@@ -6,10 +6,9 @@
  * exist.
  */
 
-/** Fiat currencies most of the sources quote in: the choices for a market typed without a quote. */
-export const CURRENCIES = ['USD', 'EUR', 'AUD'] as const;
-export type Currency = (typeof CURRENCIES)[number];
-export const DEFAULT_CURRENCY: Currency = 'USD';
+/** Fiat currencies most of the sources quote in: the choices for a market typed without a quote, unless a source has its own. */
+export const CURRENCIES: readonly string[] = ['USD', 'EUR', 'AUD'];
+export const DEFAULT_CURRENCY = 'USD';
 
 /** Dollar quotes, interchangeable when looking a market up, in the order to try them. */
 export const DOLLARS = ['USD', 'USDT', 'USDC'];

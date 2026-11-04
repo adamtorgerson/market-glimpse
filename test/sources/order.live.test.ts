@@ -12,6 +12,8 @@ const HOSTS: Record<string, string> = {
   okx: 'www.okx.com',
   coinbase: 'api.exchange.coinbase.com',
   gate: 'api.gateio.ws',
+  // Tests run in dev mode, which uses Binance's mirror.
+  binance: 'data-api.binance.vision',
   binanceus: 'api.binance.us',
   bitget: 'api.bitget.com',
   hyperliquid: 'api.hyperliquid.xyz',

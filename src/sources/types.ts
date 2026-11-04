@@ -50,7 +50,7 @@ export interface ExploreItem {
 export interface MarketRequest {
   /** Every monitored market, as typed: "BTC-USDC", or "TSLA" with no quote. */
   markets: string[];
-  /** Fiat currency for markets typed without a quote, e.g. "USD". */
+  /** Currency for markets typed without a quote, e.g. "USD". */
   currency: string;
   /** The subset that needs candles. */
   charts: string[];
@@ -75,6 +75,8 @@ export interface MarketSource {
   label: string;
   /** Supported candle sizes in minutes, ascending. */
   intervals: readonly number[];
+  /** The currency types to offer, default first, where they aren't the usual `CURRENCIES`. */
+  currencies?: readonly string[];
   /**
    * What each market names on this exchange (see `Catalog.resolve`), loading
    * the market list if it hasn't been yet. Unknown markets are left out.

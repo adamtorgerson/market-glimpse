@@ -4,6 +4,11 @@ Notable changes to MarketGlimpse, by release tag.
 
 ## [Unreleased]
 
+### Added
+- Binance (binance.com) as a data source, alongside Binance.US. It refuses
+  connections from some regions, including the US. It has its own currency
+  types: USDT (the default), USDC, EUR, JPY, TRY and BRL.
+
 ## [0.4.4] - 2026-11-04
 
 ### Changed

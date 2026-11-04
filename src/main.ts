@@ -10,8 +10,8 @@ import { calibrate, LookUpDetector, type Vec } from './lookup';
 import { encodeTiles } from './png';
 import { buildEventLoadingList, buildEventTextChart, buildEventTextList, eventTextPoints, buildLoadingList, buildTextChart, buildTextList, drawTextChart, serializeBox, textCandles, type TextBox } from './textchart';
 import { average, describeError, isAbort, MIN_GAP_MS } from './sources/http';
-import { CURRENCIES, DOLLARS, type Currency } from './sources/symbols';
-import { getPredictionSource, getSource, isPredictionSource, PREDICTION_SOURCES, sourceLabel, SOURCES } from './sources';
+import { DOLLARS } from './sources/symbols';
+import { getPredictionSource, getSource, isPredictionSource, PREDICTION_SOURCES, sourceCurrencies, sourceLabel, SOURCES } from './sources';
 import { EVENT_INTERVALS, eventSlug, type ExploredEvent, type PredictionData, type PredictionRequest } from './sources/prediction';
 import { estimateIndexMs, fetchIndexPrices } from './sources/coingecko';
 import { EXPLORE_COUNT, type ExploreBy, type ExploreItem, type MarketData, type MarketRequest } from './sources/types';
@@ -921,7 +921,6 @@ for (const [label, sources] of [['Exchanges', SOURCES], ['Prediction markets', P
   for (const src of sources) group.append(new Option(src.label, src.id));
   sourceSel.append(group);
 }
-for (const c of CURRENCIES) currencySel.add(new Option(c, c));
 const CANDLE_WIDTH_LABELS: Record<CandleWidth, string> = { wide: 'Wide', narrow: 'Narrow', thin: 'Thin', 'text-blocks': 'Text blocks, 1 chart', 'text-wide': 'Text wide, 1 chart', 'text-narrow': 'Text narrow, 1 chart', 'text-thin': 'Text thin, 1 chart' };
 for (const w of CANDLE_WIDTHS) candleWidthSel.add(new Option(CANDLE_WIDTH_LABELS[w], w));
 for (const a of ANALYSES) analysisSel.add(new Option(ANALYSIS_LABELS[a], a));
@@ -966,6 +965,19 @@ function syncIntervalOptions(current?: number): void {
     intervalSel.replaceChildren(...supported.map((m) => new Option(formatInterval(m), String(m))));
   }
   intervalSel.value = String(nearestInterval(supported, want));
+}
+
+/**
+ * Offer the selected exchange's currency types, keeping the current one or
+ * else taking its default. A prediction market has none (the control is
+ * hidden), so the current one waits there for the next exchange.
+ */
+function syncCurrencyOptions(current = currencySel.value): void {
+  const supported = isPredictionSource(sourceSel.value) ? [current] : sourceCurrencies(sourceSel.value);
+  if ([...currencySel.options].map((o) => o.value).join() !== supported.join()) {
+    currencySel.replaceChildren(...supported.map((c) => new Option(c, c)));
+  }
+  currencySel.value = supported.includes(current) ? current : supported[0]!;
 }
 
 /**
@@ -1183,7 +1195,7 @@ function fillForm(s: Settings): void {
   selectTab(s.explore);
   exploreBySel.value = s.exploreBy;
   exploreViewSel.value = s.exploreView;
-  currencySel.value = s.currency;
+  syncCurrencyOptions(s.currency);
   syncIntervalOptions(isPredictionSource(s.source) ? s.eventInterval : s.interval);
   marketList.dataset.kind = '';
   syncKind(s);
@@ -1255,7 +1267,7 @@ function readForm(): Settings {
   const next = sanitize({
     source: sourceSel.value,
     favorites: [...settings.favorites.filter((id) => id !== sourceSel.value), ...(favoriteBox.checked ? [sourceSel.value] : [])],
-    currency: currencySel.value as Currency,
+    currency: currencySel.value,
     markets: events || !watchlist ? settings.markets : watchlist.map((r) => r.market),
     charts: events || !watchlist ? settings.charts : watchlist.filter((r) => r.charted).map((r) => r.market),
     interval: events ? settings.interval : Number(intervalSel.value),
@@ -1310,6 +1322,7 @@ async function applyForm(): Promise<boolean> {
   syncKind();
   syncExploreView();
   syncIntervalOptions();
+  syncCurrencyOptions();
   syncMarketControls();
   let next: Settings;
   try {

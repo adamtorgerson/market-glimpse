@@ -1,7 +1,7 @@
 # MarketGlimpse for Even G2
 
 Even Hub app that shows candlestick charts from an exchange's public API
-(Kraken, OKX, Coinbase, Gate, Binance.US, Bitget, Hyperliquid or Aster), or
+(Kraken, OKX, Coinbase, Gate, Binance, Binance.US, Bitget, Hyperliquid or Aster), or
 outcome probabilities from a prediction market (Polymarket, Polymarket US,
 Hyperliquid's outcome markets),
 on the G2 glasses. On a fixed schedule it fetches, shows the chart for a few
@@ -21,7 +21,7 @@ refreshes every 2m, chart shown for 12s, narrow candles.
   is dark; turning it off lets the current one come down after the show-for
   time. Off by default: a lit display costs battery.
 - **Data source**: the exchange whose public API supplies prices and candles:
-  Kraken, OKX, Coinbase, Gate, Binance.US or Bitget, or the order-book DEXes
+  Kraken, OKX, Coinbase, Gate, Binance, Binance.US or Bitget, or the order-book DEXes
   Hyperliquid and Aster (spot markets only). Market names use `BASE-QUOTE` on all of
   them (`BTC-USDT`). Each exchange lists different markets. For example,
   Coinbase has `BTC-USD` but no `BTC-USDC`. A market the exchange doesn't
@@ -95,6 +95,11 @@ refreshes every 2m, chart shown for 12s, narrow candles.
   ticked, and Explore's 4 charts becomes 2.
 - **Currency type**: USD (default), EUR or AUD, the fiat currencies most of
   the sources quote in. It's the quote for markets entered without one.
+  Binance has its own list: USDT (its default), USDC, EUR, JPY, TRY or BRL. It
+  leaves out USD, where it has only a few thin markets (BTC-USD trades about
+  0.02% of BTC-USDT's volume), and AUD, which it doesn't quote in; a typed
+  `BTC-USD` is still that market. Switching source keeps the currency type
+  if the new source has it, or else takes its default.
 - **Stocks and bare names**: a name with no quote (`TSLA`, `BTC`) is first a
   tokenized stock, then a coin quoted in the currency type. Stocks are
   xStocks, on Gate, Ondo tokens where it has no xStock (`MSFT` is
@@ -109,9 +114,9 @@ refreshes every 2m, chart shown for 12s, narrow candles.
   no market in it (USD, then USDT, then USDC): OKX and Gate quote almost
   nothing in USD itself, so `BTC-USD` there is `BTC-USDT`. Each exchange's own stock spelling
   works on all of them (`TSLAX`, `XTSLA-USDT`, `TSLA-USD`). Kraken, OKX, Gate,
-  Bitget, Hyperliquid and Aster have stocks; Coinbase and Binance.US don't, so there a bare name
+  Bitget, Hyperliquid and Aster have stocks; Coinbase, Binance and Binance.US don't, so there a bare name
   is always a coin (on Coinbase, `META` is the META coin). Gate, Binance.US,
-  Hyperliquid and Aster quote nothing in EUR or AUD. Hyperliquid's bridged
+  Hyperliquid and Aster quote nothing in EUR or AUD, and Binance nothing in AUD. Hyperliquid's bridged
   coins go by their common codes (Unit's `UBTC` is `BTC`, `USDT0` is `USDT`),
   and its markets with no trades in 24h are left out.
 - **Markets**: up to 8 (`BTC-USDC`, `SOL-USD`, …). Tick up to 4 to chart (1
@@ -164,7 +169,7 @@ refreshes every 2m, chart shown for 12s, narrow candles.
 - **Most liquid** (a third Explore ranking): the money at the best bid and
   best ask (price × size, each), the top of the book rather than its depth,
   among the 100 most traded (a big order on a dead market isn't liquidity);
-  no order books are fetched. Kraken, OKX, Binance.US, Bitget and Aster give the
+  no order books are fetched. Kraken, OKX, Binance, Binance.US, Bitget and Aster give the
   sizes in the tickers already fetched. Coinbase's tickers have no bid or
   ask, and Gate's all-market tickers and Hyperliquid's no sizes: they look up their 12 most
   traded markets' best bid and ask, a request each, and keep the ranking 10
@@ -183,7 +188,7 @@ refreshes every 2m, chart shown for 12s, narrow candles.
   (name, price and 24h volume, no line graphs). It goes up in one step, and
   only the ticker is fetched.
 - **Candle size**: whatever the source offers. Kraken has 1m to 15d, OKX 1m
-  to 1w, Coinbase 1m to 1d, Gate 1m to 1w, Binance.US 1m to 1w, Bitget
+  to 1w, Coinbase 1m to 1d, Gate 1m to 1w, Binance and Binance.US 1m to 1w, Bitget
   1m to 1w, Hyperliquid 1m to 1w, and Aster 1m to 1w. Switching source keeps the size
   if the new source has it, or else picks the nearest.
 - **Candle width**: Wide (6px, or 4px in quadrants), Narrow (3px, the default)
@@ -384,7 +389,7 @@ requests to wait between, the charts are the freshest data.
 | OKX | 1: `market/ticker?instId=`; 2+: `market/tickers?instType=SPOT` | `market/candles` with `limit` |
 | Coinbase | 1: `products/{id}/stats`; 2+: `products/stats` | `products/{id}/candles` with `start`/`end` |
 | Gate | 1: `spot/tickers?currency_pair=`; 2+: `spot/tickers` | `spot/candlesticks` with `limit` |
-| Binance.US | 1: `ticker/24hr?symbol=`; 2+: `ticker/24hr?symbols=[…]` (just those markets) | `klines` with `limit` |
+| Binance, Binance.US | 1: `ticker/24hr?symbol=`; 2+: `ticker/24hr?symbols=[…]` (just those markets) | `klines` with `limit` |
 | Bitget | 1: `market/tickers?symbol=`; 2+: `market/tickers` | `market/candles` with `limit` |
 | Hyperliquid | `spotMetaAndAssetCtxs` (all markets, POST `info`) | `candleSnapshot` with `startTime` |
 | Aster | 1: `ticker/24hr?symbol=`; 2+: `ticker/24hr` | `klines` with `limit` |
@@ -400,11 +405,16 @@ charts with 2 or more listed markets take about 6.5s.
 Each source's market list is fetched once per session, and every market is
 resolved against it before any price is asked for: a market the exchange
 doesn't have shows "unknown pair" without a request. (Kraken's Ticker fails
-outright if any pair in it is unknown, as does Binance.US's list, and Gate's
-and Binance.US's errors have no CORS headers, so asking would fail anyway.)
-The lists are large (Bitget 1.7MB, OKX and Gate about 1MB, Binance.US 0.5MB,
+outright if any pair in it is unknown, as do both Binances' lists, and Gate's
+and both Binances' errors have no CORS headers, so asking would fail anyway.)
+The lists are large (Binance 2.5MB, Bitget 1.7MB, OKX and Gate about 1MB, Binance.US 0.5MB,
 Coinbase and Hyperliquid 350KB, Aster 100KB) but load once. Kraken's takes two requests, as it
 lists stocks separately, and it prices crypto and stocks in a request each.
+
+Binance.com refuses the US (HTTP 451, with no CORS headers, so a release build
+there shows "unknown pair, offline or blocked"). In dev mode (`npm run dev`, and
+the tests) the Binance source uses its public market-data mirror,
+`data-api.binance.vision`, instead. Only `api.binance.com` is in `app.json`'s whitelist.
 
 KuCoin is implemented (`src/sources/kucoin.ts`) but not offered. Its API
 sends no CORS headers, so the WebView blocks every response. That was
