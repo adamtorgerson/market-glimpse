@@ -301,8 +301,19 @@ the last data without fetching, unless it changes what's charted. Other changes 
 show-for time) wait for the next scheduled update. A new refresh rate
 re-times that update.
 
-The phone page's "Next update in…" countdown only ticks while the page is
-visible, so it doesn't wake the phone every second in the background.
+The phone page's countdowns ("Next update in…", "Fetching…", Explore's
+"Loading…") only tick while the page is visible, so they don't wake the phone
+every second in the background.
+
+Scheduled updates pause, to save battery on both devices, while the glasses
+aren't in use: taken off, in their case, or disconnected, as the Even app reports. The
+phone page says **Paused**, what's on the display is blanked, and the motion
+sensor stops. Putting them back on, or any input on the glasses, resumes as on
+launch: a chart straight away (in manual-only mode, only for a tap). The phone's
+buttons work throughout, without resuming the schedule. The SDK reports
+"not worn" for a status that doesn't say, so being off the head only counts
+once the glasses have reported being worn. In development, the phone page's
+Diagnostics list each status reported.
 
 Settings persist through the Even app's storage, or through `localStorage` in a
 plain browser.

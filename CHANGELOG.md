@@ -8,6 +8,13 @@ Notable changes to MarketGlimpse, by release tag.
 - Binance (binance.com) as a data source, alongside Binance.US. It refuses
   connections from some regions, including the US. It has its own currency
   types: USDT (the default), USDC, EUR, JPY, TRY and BRL.
+- Scheduled updates pause while the glasses are off, in their case or
+  disconnected, saving battery on both devices. Putting them back on, or any
+  input on the glasses, shows a fresh chart.
+
+### Changed
+- The phone page's "Fetching…" and Explore's "Loading…" countdowns no longer
+  tick while the page is hidden.
 
 ## [0.4.4] - 2026-11-04
 

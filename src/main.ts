@@ -15,6 +15,7 @@ import { getPredictionSource, getSource, isPredictionSource, PREDICTION_SOURCES,
 import { EVENT_INTERVALS, eventSlug, type ExploredEvent, type PredictionData, type PredictionRequest } from './sources/prediction';
 import { estimateIndexMs, fetchIndexPrices } from './sources/coingecko';
 import { EXPLORE_COUNT, type ExploreBy, type ExploreItem, type MarketData, type MarketRequest } from './sources/types';
+import { WearTracker, type GlassesStatus } from './wear';
 import {
   CANDLE_WIDTHS,
   CHART_FONTS,
@@ -756,15 +757,15 @@ async function hide(): Promise<void> {
  * soon after.
  */
 function restartSchedule(opts: UpdateOptions = {}): void {
-  // Manual-only: nothing is fetched until the user asks.
-  if (opts.manual || !settings.manualOnly) void update(opts);
+  // Manual-only or paused: nothing is fetched until the user asks.
+  if (opts.manual || (!settings.manualOnly && !paused)) void update(opts);
   scheduleAt(Date.now() + settings.refreshSec * 1000);
 }
 
-/** Schedule the next chart for `at` (ms), and the ones after it every `refreshSec`. None in manual-only mode. */
+/** Schedule the next chart for `at` (ms), and the ones after it every `refreshSec`. None in manual-only mode, or while paused. */
 function scheduleAt(at: number): void {
   clearTimeout(nextTimer);
-  nextAt = settings.manualOnly || exited ? 0 : at;
+  nextAt = settings.manualOnly || paused || exited ? 0 : at;
   syncCountdown();
   if (!nextAt) return;
   const leadMs = estimateUpdateMs() + 1000;
@@ -772,6 +773,70 @@ function scheduleAt(at: number): void {
     void update({ showAt: at });
     scheduleAt(at + settings.refreshSec * 1000);
   }, Math.max(0, at - leadMs - Date.now()));
+}
+
+// ── Pausing while the glasses aren't in use ─────────────────────────────
+
+const wear = new WearTracker();
+/** Scheduled updates, and the motion sensor, are stopped: the glasses are off, in their case or disconnected. */
+let paused = false;
+
+/** Stop updating until the glasses are back in use. The phone's own buttons still work. */
+function pause(status: GlassesStatus): void {
+  paused = true;
+  inFlight?.abort();
+  inFlight = null;
+  notDue();
+  clearTimeout(nextTimer);
+  nextAt = 0;
+  syncCountdown();
+  syncLookUp();
+  setStatus('Paused: glasses not in use');
+  if (status.connectType === 'connected') {
+    void hide();
+  } else {
+    // Nothing to blank, and no answer to wait for.
+    clearTimeout(hideTimer);
+    setShowing(false);
+    loading = false;
+  }
+}
+
+/** Update again, as on launch: a chart straight away, unless `manual` is false. */
+function resume(manual = !settings.manualOnly): void {
+  paused = false;
+  syncLookUp();
+  restartSchedule({ manual });
+}
+
+function onGlassesStatus(status: GlassesStatus): void {
+  const was = wear.inUse;
+  const now = wear.update(status);
+  logGlassesStatus(status, now);
+  if (exited || now === was) return;
+  if (!now) pause(status);
+  // A tap may have resumed already; going on would restart its chart.
+  else if (paused) resume();
+}
+
+/** Input on the glasses shows they're in use, whatever their status said. True if that resumed updates. */
+function usedGlasses(manual?: boolean): boolean {
+  if (!paused || exited) return false;
+  resume(manual);
+  return true;
+}
+
+const wearLogEl = $('wear-log');
+const wearLog: string[] = [];
+
+/** Every status the Even app reports, to check its wearing state against the real glasses. */
+function logGlassesStatus(status: GlassesStatus, inUse: boolean): void {
+  const line = `${new Date().toLocaleTimeString()} ${status.connectType} worn=${status.isWearing} case=${status.isInCase}: ${inUse ? 'in use' : 'not in use'}`;
+  console.info('Glasses status', line);
+  if (!DIAGNOSTICS) return;
+  wearLog.unshift(line);
+  wearLog.length = Math.min(wearLog.length, 8);
+  wearLogEl.textContent = wearLog.join(' · ');
 }
 
 const uploadStatsEl = $('upload-stats');
@@ -818,7 +883,8 @@ if (DIAGNOSTICS) onTraffic(() => {
 
 /** The status line: `text` (and any errors) on the left, the data's fetch time on the right (kept if `updated` is omitted). */
 function setStatus(text: string, errors: string[] = [], updated?: string): void {
-  clearInterval(fetchTimer);
+  stopFetchTicker?.();
+  stopFetchTicker = undefined;
   statusEl.textContent = text;
   if (errors.length) statusEl.textContent += ` · ${errors.join('; ')}`;
   if (updated !== undefined) updatedEl.textContent = updated && `Updated ${updated}`;
@@ -828,20 +894,45 @@ function setStatus(text: string, errors: string[] = [], updated?: string): void 
  * "Fetching… ~3s", counting down to when the chart should be up (the loading
  * screen's estimate), until the next status replaces it.
  */
-let fetchTimer: ReturnType<typeof setInterval> | undefined;
+let stopFetchTicker: (() => void) | undefined;
 function showFetching(): void {
   const text = () => {
     const secs = Math.round((inFlightEta - Date.now()) / 1000);
     return secs > 0 ? `Fetching… ~${secs}s` : 'Fetching…';
   };
   setStatus(text());
-  fetchTimer = setInterval(() => { statusEl.textContent = text(); }, 1000);
+  stopFetchTicker = tickWhileVisible(() => { statusEl.textContent = text(); });
+}
+
+/**
+ * Run `tick` every second while the page is visible, and as soon as it's
+ * visible again, so the phone isn't woken for text nobody can see. Returns how to stop it.
+ */
+function tickWhileVisible(tick: () => void): () => void {
+  let timer: ReturnType<typeof setInterval> | undefined;
+  const sync = () => {
+    clearInterval(timer);
+    timer = undefined;
+    if (document.hidden) return;
+    tick();
+    timer = setInterval(tick, 1000);
+  };
+  sync();
+  document.addEventListener('visibilitychange', sync);
+  return () => {
+    clearInterval(timer);
+    document.removeEventListener('visibilitychange', sync);
+  };
 }
 
 function renderSchedule(): void {
   const shown = `shown for ${formatDuration(settings.displaySec)}`;
   if (settings.manualOnly) {
     scheduleEl.textContent = `Manual only: press Show now or tap the glasses · ${shown}`;
+    return;
+  }
+  if (paused) {
+    scheduleEl.textContent = 'Paused until the glasses are back in use';
     return;
   }
   const secs = Math.max(0, Math.round((nextAt - Date.now()) / 1000));
@@ -856,7 +947,7 @@ function syncCountdown(): void {
   countdownTimer = undefined;
   if (document.hidden) return;
   renderSchedule();
-  if (!settings.manualOnly) countdownTimer = setInterval(renderSchedule, 1000);
+  if (!settings.manualOnly && !paused) countdownTimer = setInterval(renderSchedule, 1000);
 }
 document.addEventListener('visibilitychange', syncCountdown);
 
@@ -1110,15 +1201,15 @@ function estimateExploreListMs(s: Settings): number {
  */
 let exploreExpectedAt = 0;
 let exploreWaitingFor = '';
-let exploreTimer: ReturnType<typeof setInterval> | undefined;
+let stopExploreTicker: (() => void) | undefined;
 function exploreLoadingText(): string {
   const secs = Math.ceil((exploreExpectedAt - Date.now()) / 1000);
   return secs > 0 ? `Loading… ${secs}s` : 'Loading…';
 }
 function syncExploreTimer(waiting: boolean): void {
   if (!waiting) {
-    clearInterval(exploreTimer);
-    exploreTimer = undefined;
+    stopExploreTicker?.();
+    stopExploreTicker = undefined;
     exploreWaitingFor = '';
     return;
   }
@@ -1127,7 +1218,7 @@ function syncExploreTimer(waiting: boolean): void {
     exploreWaitingFor = key;
     exploreExpectedAt = Date.now() + estimateExploreListMs(settings);
   }
-  exploreTimer ??= setInterval(() => { exploreHint.textContent = exploreLoadingText(); }, 1000);
+  stopExploreTicker ??= tickWhileVisible(() => { exploreHint.textContent = exploreLoadingText(); });
 }
 
 /**
@@ -1513,7 +1604,7 @@ function syncLookUp(): void {
       if (!showing) restartSchedule({ manual: true });
     })
     : null;
-  const want = glasses !== null && !exited && (lookUpDetector !== null || calibrationSamples !== null);
+  const want = glasses !== null && !exited && ((lookUpDetector !== null && !paused) || calibrationSamples !== null);
   if (want === imuOn) return;
   imuOn = want;
   glasses?.setImu(want).catch((e) => {
@@ -1671,13 +1762,13 @@ async function boot(): Promise<void> {
   if (DIAGNOSTICS && glasses) tapBridge();
   if (DIAGNOSTICS) speedTestBtn.disabled = !glasses;
   // Tap while the chart is up dismisses it (always on: refreshes it); tap while dark pulls a fresh one.
-  glasses?.onTap(toggleChart);
+  glasses?.onTap(() => { if (!usedGlasses(true)) toggleChart(); });
   // Even Hub's exit gesture on the root page: the glasses ask to confirm.
   glasses?.onDoubleTap(() => void glasses!.exit().catch(() => {}));
   // Swipes act as if on the phone: up switches Watchlist / Explore, down flips Market List.
-  glasses?.onSwipe((dir) => void onSwipe(dir));
+  glasses?.onSwipe((dir) => { usedGlasses(); void onSwipe(dir); });
   // A long press goes on to the next favorite data source.
-  glasses?.onLongPress(() => void onLongPress());
+  glasses?.onLongPress(() => { usedGlasses(); void onLongPress(); });
   glasses?.onImu(onImuReading);
   glasses?.onExit(stop);
   settings = await loadSettings();
@@ -1693,6 +1784,11 @@ async function boot(): Promise<void> {
     drawPlaceholder('Press Show now');
     setStatus(glasses ? 'Glasses connected' : 'Browser preview (glasses not connected)');
   }
+  // Already off or in their case: still the one chart below, for the phone, but no schedule.
+  const status = await glasses?.status();
+  if (status && !wear.update(status)) paused = true;
+  if (status) logGlassesStatus(status, wear.inUse);
+  glasses?.onStatus(onGlassesStatus);
   // The first chart is fetched now, with the loading screen up, as if asked
   // for; in manual-only mode nothing is fetched until it is.
   restartSchedule({ manual: !settings.manualOnly });

@@ -15,6 +15,7 @@ import {
 import type { Vec } from './lookup';
 import { toBase64, type Rect, type Tile } from './png';
 import { textWidth } from './textchart';
+import type { GlassesStatus } from './wear';
 
 const CAPTURE_ID = 1;
 const CAPTURE_NAME = 'capture';
@@ -107,6 +108,20 @@ export class Glasses {
       new Promise<null>((r) => setTimeout(() => r(null), Math.max(0, deadline - Date.now()))),
     ]);
     return bridge ? new Glasses(bridge) : null;
+  }
+
+  /** The glasses' status now, or null if the Even app doesn't say within a second. */
+  async status(): Promise<GlassesStatus | null> {
+    const info = await Promise.race([
+      this.bridge.getDeviceInfo().catch(() => null),
+      new Promise<null>((r) => setTimeout(() => r(null), 1000)),
+    ]);
+    return info?.status ?? null;
+  }
+
+  /** The glasses' connection, wearing or charging state changed. */
+  onStatus(cb: (status: GlassesStatus) => void): () => void {
+    return this.bridge.onDeviceStatusChanged(cb);
   }
 
   /** Touchpad tap (any source). */
