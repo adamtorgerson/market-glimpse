@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { analysisSpec, DEFAULT_SETTINGS, exploreCharts, maxCharts, sanitize } from '../../src/settings';
+import { analysisSpecs, DEFAULT_SETTINGS, exploreCharts, maxCharts, sanitize } from '../../src/settings';
 
 describe('analysis settings', () => {
   it('defaults to EMA 20, RSI 14 and Bollinger Bands 20, 2σ, turned off', () => {
     const s = sanitize({});
     expect([s.analysis, s.emaPeriod, s.rsiPeriod, s.bollingerPeriod, s.bollingerK]).toEqual([false, 20, 14, 20, 2]);
-    expect(analysisSpec(s)).toBeNull();
+    expect(analysisSpecs(s)).toEqual([]);
   });
 
   it('keeps periods to whole candles from 2 to 200, and the band width from 0.1 to 5 to one place', () => {
@@ -17,9 +17,30 @@ describe('analysis settings', () => {
 
   it('draws the chosen indicator with its own period', () => {
     const on = { ...DEFAULT_SETTINGS, analysis: true, emaPeriod: 9, rsiPeriod: 7, bollingerPeriod: 30, bollingerK: 1.5 };
-    expect(analysisSpec(sanitize({ ...on, analysisKind: 'ema' }))).toEqual({ kind: 'ema', period: 9 });
-    expect(analysisSpec(sanitize({ ...on, analysisKind: 'rsi' }))).toEqual({ kind: 'rsi', period: 7 });
-    expect(analysisSpec(sanitize({ ...on, analysisKind: 'bollinger' }))).toEqual({ kind: 'bollinger', period: 30, k: 1.5 });
+    expect(analysisSpecs(sanitize({ ...on, analysisKind: 'ema' }))).toEqual([{ kind: 'ema', period: 9 }]);
+    expect(analysisSpecs(sanitize({ ...on, analysisKind: 'rsi' }))).toEqual([{ kind: 'rsi', period: 7 }]);
+    expect(analysisSpecs(sanitize({ ...on, analysisKind: 'bollinger' }))).toEqual([{ kind: 'bollinger', period: 30, k: 1.5 }]);
+  });
+});
+
+describe('a second indicator', () => {
+  it('defaults to none, and draws just the first', () => {
+    expect(sanitize({}).analysisSecond).toBe('none');
+    expect(analysisSpecs(sanitize({ analysis: true, analysisKind: 'rsi' }))).toEqual([{ kind: 'rsi', period: 14 }]);
+  });
+
+  it('draws both, the first first, each with its own parameters', () => {
+    const s = sanitize({ analysis: true, analysisKind: 'rsi', rsiPeriod: 7, analysisSecond: 'macd', macdFast: 3, macdSlow: 8, macdSignal: 4 });
+    expect(analysisSpecs(s)).toEqual([{ kind: 'rsi', period: 7 }, { kind: 'macd', fast: 3, slow: 8, signal: 4 }]);
+  });
+
+  it('is never the same as the first, or unknown', () => {
+    expect(sanitize({ analysisKind: 'ema', analysisSecond: 'ema' }).analysisSecond).toBe('none');
+    expect(sanitize({ analysisSecond: 'nope' as never }).analysisSecond).toBe('none');
+  });
+
+  it('draws nothing with analysis off', () => {
+    expect(analysisSpecs(sanitize({ analysis: false, analysisKind: 'rsi', analysisSecond: 'macd' }))).toEqual([]);
   });
 });
 
@@ -31,12 +52,12 @@ describe('the new indicators\' settings', () => {
 
   it('gives each indicator its own parameters', () => {
     const on = { analysis: true, smaPeriod: 5, atrPeriod: 6, donchianPeriod: 7, macdFast: 3, macdSlow: 8, macdSignal: 4, sarStep: 0.05, sarMax: 0.5 };
-    expect(analysisSpec(sanitize({ ...on, analysisKind: 'sma' }))).toEqual({ kind: 'sma', period: 5 });
-    expect(analysisSpec(sanitize({ ...on, analysisKind: 'atr' }))).toEqual({ kind: 'atr', period: 6 });
-    expect(analysisSpec(sanitize({ ...on, analysisKind: 'donchian' }))).toEqual({ kind: 'donchian', period: 7 });
-    expect(analysisSpec(sanitize({ ...on, analysisKind: 'macd' }))).toEqual({ kind: 'macd', fast: 3, slow: 8, signal: 4 });
-    expect(analysisSpec(sanitize({ ...on, analysisKind: 'sar' }))).toEqual({ kind: 'sar', step: 0.05, max: 0.5 });
-    expect(analysisSpec(sanitize({ ...on, analysisKind: 'vwap' }))).toEqual({ kind: 'vwap' });
+    expect(analysisSpecs(sanitize({ ...on, analysisKind: 'sma' }))).toEqual([{ kind: 'sma', period: 5 }]);
+    expect(analysisSpecs(sanitize({ ...on, analysisKind: 'atr' }))).toEqual([{ kind: 'atr', period: 6 }]);
+    expect(analysisSpecs(sanitize({ ...on, analysisKind: 'donchian' }))).toEqual([{ kind: 'donchian', period: 7 }]);
+    expect(analysisSpecs(sanitize({ ...on, analysisKind: 'macd' }))).toEqual([{ kind: 'macd', fast: 3, slow: 8, signal: 4 }]);
+    expect(analysisSpecs(sanitize({ ...on, analysisKind: 'sar' }))).toEqual([{ kind: 'sar', step: 0.05, max: 0.5 }]);
+    expect(analysisSpecs(sanitize({ ...on, analysisKind: 'vwap' }))).toEqual([{ kind: 'vwap' }]);
   });
 
   it('goes back to the defaults for pairs out of order, and keeps SAR to three places', () => {

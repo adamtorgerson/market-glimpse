@@ -205,7 +205,8 @@ refreshes every 2m, chart shown for 12s, narrow candles.
 - **Show index price (CoinGecko)**: on by default. Turn it off to skip the
   CoinGecko request on each update.
 - **Analysis** (its own section; exchanges only): **Show analysis** draws
-  the chosen **Indicator** on the image charts (not text candles), computed
+  the chosen **Indicator**, and any **Second indicator**, on the image charts
+  (not text candles), computed
   from the candles shown, so it needs no extra requests. Each indicator has
   its own settings, kept when you switch between them. Periods are 2–200
   candles.
@@ -233,7 +234,12 @@ refreshes every 2m, chart shown for 12s, narrow candles.
   - **ATR**: Wilder's average true range, in the same pane on its own scale,
     labelled with its latest value in price. **Period** 14 by default.
 
-  Each starts once its period has filled, since only the candles shown are
+  Two below the chart are overlaid in the same area, so the candles keep their
+  height: each on its own scale, the second's line dotted, and their labels
+  along the top. Overlaid, MACD is its histogram alone, and where the area is
+  short (two charts) RSI loses its 30 and 70 lines. Two over the price are both
+  drawn, the second's solid lines dotted. The second can't be the same as the
+  first. Each starts once its period has filled, since only the candles shown are
   fetched; a period too long for the chart says how many candles it needs
   instead. EMA, RSI, MACD, ATR and Parabolic SAR carry their starting values
   forward, so their left ends can differ from a chart with more history. With
@@ -497,7 +503,7 @@ npm run qr                                    # QR code to load the dev server i
 npm run pack                                  # build + market-glimpse.ehpk
 npm run icon                                  # assets/icon-24.png (store icon) from assets/icon.svg
 npm run screenshots                           # screenshots/*.png from the simulator, live data
-npm run store-screenshots                     # screenshots/store/*.png: just the Even Hub store's six
+npm run store-screenshots                     # screenshots/store/*.png: just the Even Hub store's seven, and tiled.png of them all
 npm test                                      # every test, including each source against its live API
 npm run test:offline                          # only the tests that don't call an API
 npm test -- --project charting                # one group: sources, prediction, charting, explore, settings

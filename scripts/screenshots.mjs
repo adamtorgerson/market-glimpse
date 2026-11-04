@@ -5,15 +5,17 @@
 // brightness in alpha and a transparent background. Run with
 // `npm run screenshots`, optionally naming the shots to take, or
 // `npm run store-screenshots` for just the Even Hub store's (STORE), written
-// to screenshots/store/.
+// to screenshots/store/, or those of them named. Either way, tiled.png there
+// is then rebuilt from all of them.
 //
 // Vite runs on its own port so the seeded settings don't replace those of the
 // dev server on :5173 (the simulator stores them per origin).
 import { spawn } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
+import { tilePngs } from './tile-png.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const VITE_PORT = 5199;
@@ -48,6 +50,15 @@ const SHOTS = {
   'analysis-macd-two-charts': { markets: ALL, charts: M8.slice(0, 2), analysis: true, analysisKind: 'macd' },
   'analysis-atr': { markets: ALL, charts: ['BTC-USDC'], analysis: true, analysisKind: 'atr' },
   'analysis-too-long': { markets: ALL, charts: ['BTC-USDC'], analysis: true, analysisKind: 'ema', emaPeriod: 200 },
+  'analysis-bollinger-macd': { markets: ALL, charts: ['BTC-USDC'], analysis: true, analysisKind: 'bollinger', analysisSecond: 'macd' },
+  'analysis-two-over': { markets: ALL, charts: ['BTC-USDC'], analysis: true, analysisKind: 'ema', analysisSecond: 'sma', smaPeriod: 50 },
+  'analysis-bands-and-sar': { markets: ALL, charts: ['BTC-USDC'], analysis: true, analysisKind: 'bollinger', analysisSecond: 'sar' },
+  'analysis-over-and-pane': { markets: ALL, charts: ['BTC-USDC'], analysis: true, analysisKind: 'ema', analysisSecond: 'rsi' },
+  'analysis-both-below': { markets: ALL, charts: ['BTC-USDC'], analysis: true, analysisKind: 'rsi', analysisSecond: 'macd' },
+  'analysis-both-below-lines': { markets: ['BTC-USDC'], charts: ['BTC-USDC'], analysis: true, analysisKind: 'rsi', analysisSecond: 'atr' },
+  'analysis-both-below-macd-first': { markets: ALL, charts: ['BTC-USDC'], analysis: true, analysisKind: 'macd', analysisSecond: 'atr' },
+  'analysis-both-below-two-charts': { markets: ALL, charts: M8.slice(0, 2), analysis: true, analysisKind: 'rsi', analysisSecond: 'macd' },
+  'analysis-both-too-long': { markets: ALL, charts: ['BTC-USDC'], analysis: true, analysisKind: 'ema', emaPeriod: 200, analysisSecond: 'sma', smaPeriod: 200 },
   'analysis-rsi-two-charts': { markets: ALL, charts: M8.slice(0, 2), analysis: true, analysisKind: 'rsi' },
   'text-list': { markets: M6, charts: [], textList: true },
   'text-chart': { markets: M3, charts: ['BTC-USDC'], candleWidth: 'text-narrow' },
@@ -77,11 +88,12 @@ const SHOTS = {
 };
 
 // The Even Hub store listing: Kraken (the default source) and one prediction market.
-const STORE = ['one-chart', 'two-charts', 'four-charts', 'market-list', 'text-blocks-chart', 'prediction-two-charts'];
+const STORE = ['one-chart', 'two-charts', 'four-charts', 'analysis-bollinger-macd', 'market-list', 'text-blocks-chart', 'prediction-two-charts'];
 
 const args = process.argv.slice(2);
 const store = args.includes('--store');
-const names = store ? STORE : args;
+const named = args.filter((a) => a !== '--store');
+const names = store && named.length === 0 ? STORE : named;
 const OUT = new URL(store ? '../screenshots/store/' : '../screenshots/', import.meta.url);
 const unknown = names.filter((n) => !(n in SHOTS));
 if (unknown.length) throw new Error(`Unknown shots: ${unknown.join(' ')} (have ${Object.keys(SHOTS).join(' ')})`);
@@ -151,4 +163,15 @@ try {
   }
 } finally {
   await server.close();
+}
+
+if (store) {
+  // Every store screenshot, in the listing's order, whichever were just taken.
+  const taken = STORE.filter((name) => existsSync(new URL(`${name}.png`, OUT)));
+  const missing = STORE.filter((name) => !taken.includes(name));
+  if (missing.length) console.warn(`Not tiled, not taken yet: ${missing.join(' ')}`);
+  if (taken.length) {
+    writeFileSync(new URL('tiled.png', OUT), tilePngs(taken.map((name) => readFileSync(new URL(`${name}.png`, OUT))), { columns: 3, gap: 16 }));
+    console.log('screenshots/store/tiled.png');
+  }
 }

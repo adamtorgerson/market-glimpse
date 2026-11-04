@@ -10,10 +10,16 @@ Notable changes to MarketGlimpse, by release tag.
   ATR in a pane under the volume strip, on the image charts, from the candles
   shown, with no extra requests. Each indicator's parameters are settings. A
   period too long for the chart says how many candles it needs.
+- A **Second indicator** draws two at once. Below the chart, they're overlaid
+  in the same area, each on its own scale; over the price, the second's solid
+  lines are dotted.
 - Analysis allows up to 2 charts: turning it on keeps the first 2 ticked, and
   Explore's 4 charts becomes 2. With two charts, MACD is its histogram alone.
 
 ### Development
+- A store screenshot of Bollinger Bands and MACD on one chart. `npm run
+  store-screenshots` can take just those named, and also writes `tiled.png`,
+  all of them on one image.
 - The indicators are tested against an outside reference on real Kraken
   candles, intraday and daily: TA-Lib's results, given just the candles shown
   and given the market's long history, and Kraken's own VWAP.

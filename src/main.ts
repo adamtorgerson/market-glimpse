@@ -19,7 +19,7 @@ import {
   CANDLE_WIDTHS,
   CHART_FONTS,
   DEFAULT_SETTINGS,
-  analysisSpec,
+  analysisSpecs,
   exploreCharts,
   formatInterval,
   isTextWidth,
@@ -462,7 +462,7 @@ async function runUpdate(ctrl: AbortController, showAt: number, reuse: boolean):
   if (textBoxes) {
     drawTextChart(ctx, textBoxes);
   } else {
-    const model = { charts, ticker, interval: s.interval, candleWidth: s.candleWidth, updated, source, font: s.font, analysis: analysisSpec(s) };
+    const model = { charts, ticker, interval: s.interval, candleWidth: s.candleWidth, updated, source, font: s.font, analysis: analysisSpecs(s) };
     lastAxisW = DIAGNOSTICS && supersample ? renderSupersampled(ctx, model) : renderScreen(ctx, model);
   }
   refreshWidthLabels();
@@ -846,6 +846,7 @@ const fontSel = $<HTMLSelectElement>('font');
 const showIndexBox = $<HTMLInputElement>('show-index');
 const analysisBox = $<HTMLInputElement>('analysis');
 const analysisSel = $<HTMLSelectElement>('analysis-kind');
+const analysisSecondSel = $<HTMLSelectElement>('analysis-second');
 /** The indicators' parameters: each setting's input. */
 const ANALYSIS_INPUTS = {
   smaPeriod: $<HTMLInputElement>('sma-period'),
@@ -895,6 +896,8 @@ for (const c of CURRENCIES) currencySel.add(new Option(c, c));
 const CANDLE_WIDTH_LABELS: Record<CandleWidth, string> = { wide: 'Wide', narrow: 'Narrow', thin: 'Thin', 'text-blocks': 'Text blocks, 1 chart', 'text-wide': 'Text wide, 1 chart', 'text-narrow': 'Text narrow, 1 chart', 'text-thin': 'Text thin, 1 chart' };
 for (const w of CANDLE_WIDTHS) candleWidthSel.add(new Option(CANDLE_WIDTH_LABELS[w], w));
 for (const a of ANALYSES) analysisSel.add(new Option(ANALYSIS_LABELS[a], a));
+analysisSecondSel.add(new Option('None', 'none'));
+for (const a of ANALYSES) analysisSecondSel.add(new Option(ANALYSIS_LABELS[a], a));
 for (const f of CHART_FONTS) fontSel.add(new Option(FONTS[f].label, f));
 let lastAxisW = DEFAULT_AXIS_W;
 
@@ -1168,13 +1171,19 @@ function showAnalysisParams(s: Settings): void {
   for (const p of ANALYSIS_PARAMS) ANALYSIS_INPUTS[p].value = String(s[p]);
 }
 
-/** Show the chosen indicator's parameters only, and grey out the section's controls while analysis is off. */
+/**
+ * Show the chosen indicators' parameters only, and grey out the section's
+ * controls while analysis is off. The second can't be the same as the first.
+ */
 function syncAnalysisControls(s: Settings): void {
   for (const el of document.querySelectorAll<HTMLElement>('[data-analysis]')) {
-    el.hidden = el.dataset.analysis !== s.analysisKind;
+    el.hidden = el.dataset.analysis !== s.analysisKind && el.dataset.analysis !== s.analysisSecond;
     el.querySelector('input')!.disabled = !s.analysis;
   }
   analysisSel.disabled = !s.analysis;
+  analysisSecondSel.disabled = !s.analysis;
+  for (const opt of analysisSecondSel.options) opt.disabled = opt.value === s.analysisKind;
+  analysisSecondSel.value = s.analysisSecond;
 }
 
 function readForm(): Settings {
@@ -1221,6 +1230,7 @@ function readForm(): Settings {
     showIndex: showIndexBox.checked,
     analysis: analysisBox.checked,
     analysisKind: analysisSel.value as Analysis,
+    analysisSecond: analysisSecondSel.value as Analysis | 'none',
     ...analysis,
     manualOnly,
     lookUpUpdate: lookUpBox.checked,
@@ -1298,7 +1308,7 @@ async function applyForm(): Promise<boolean> {
   if (chartChanged) restartSchedule({ cancel: true, manual: true });
   // A new font or analysis needs no new data: redraw the last, sparing the APIs
   // (CoinGecko drops the index when asked too often). Without data to reuse, this fetches.
-  else if (next.font !== prev.font || JSON.stringify(analysisSpec(next)) !== JSON.stringify(analysisSpec(prev))) void update({ cancel: true, manual: true, reuse: true });
+  else if (next.font !== prev.font || JSON.stringify(analysisSpecs(next)) !== JSON.stringify(analysisSpecs(prev))) void update({ cancel: true, manual: true, reuse: true });
   // Leaving manual-only: fetch in the background now and start the schedule.
   else if (prev.manualOnly && !next.manualOnly) restartSchedule();
   else scheduleAt(nextAt - prev.refreshSec * 1000 + next.refreshSec * 1000);

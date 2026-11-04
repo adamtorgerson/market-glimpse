@@ -18,8 +18,10 @@ const VOL_DOWN = '#404040';
 /** Analysis over the candles, a shade under up candles; bands and channels, behind them, dimmer. */
 const OVER_COLOR = '#c0c0c0';
 const BAND_COLOR = '#787878';
-/** A pane shorter than this has room for MACD's histogram but not its lines as well. */
+/** A pane area shorter than this has room for MACD's histogram but not its lines as well. */
 const MIN_MACD_LINES_H = 24;
+/** Height per indicator below which RSI's 30 and 70 lines would hide what's drawn. */
+const MIN_RSI_LEVELS_H = 16;
 /** Line height of the market list under the charts. */
 const LIST_LINE_H = 18;
 const LIST_PX = 13;
@@ -30,8 +32,8 @@ export const TIME_AXIS_H = 14;
 
 /** The font of the render in progress; `renderScreen` sets it, so helpers needn't pass it along. */
 let chartFont: ChartFont = 'atkinson';
-/** The indicator drawn on each chart in the render in progress, if any; also set by `renderScreen`. */
-let chartAnalysis: AnalysisSpec | null = null;
+/** The indicators drawn on each chart in the render in progress; also set by `renderScreen`. */
+let chartAnalysis: AnalysisSpec[] = [];
 
 /** `px` is the size in SF Pro / Roboto terms; each font is scaled to match its digit height. */
 function font(px: number, bold = false): string {
@@ -53,8 +55,8 @@ export interface ScreenModel {
   source: string;
   /** Must be loaded (`loadFont`) before rendering. */
   font: ChartFont;
-  /** Indicator to draw on each chart, if any. */
-  analysis?: AnalysisSpec | null;
+  /** Indicators to draw on each chart, in order. */
+  analysis?: AnalysisSpec[];
 }
 
 interface PanelStyle {
@@ -68,7 +70,7 @@ interface PanelStyle {
 interface Geometry {
   plot: Rect;
   vol: Rect;
-  /** The pane under the volume strip, for an indicator with its own scale. */
+  /** The pane area under the volume strip, for indicators with their own scale, overlaid. */
   osc: Rect | null;
   /** Slot width (body + gap) and candle body width, in px. */
   pitch: number;
@@ -94,7 +96,7 @@ export const DEFAULT_AXIS_W = 52;
 /** Returns the measured price-axis width, for `candleCapacity`. */
 export function renderScreen(ctx: CanvasRenderingContext2D, model: ScreenModel): number {
   chartFont = model.font;
-  chartAnalysis = model.analysis ?? null;
+  chartAnalysis = model.analysis ?? [];
   ctx.save();
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, SCREEN_W, SCREEN_H);
@@ -130,7 +132,7 @@ export function renderScreen(ctx: CanvasRenderingContext2D, model: ScreenModel):
     ctx.measureText('000.0K').width,
     ...model.charts.map((m) => m.candles.length ? ctx.measureText(formatPrice(m.candles.at(-1)!.close)).width : 0),
   )) + 8;
-  const geoms = rects.map((r) => panelGeometry(r, style, axisW, model.candleWidth, !!chartAnalysis && hasPane(chartAnalysis.kind)));
+  const geoms = rects.map((r) => panelGeometry(r, style, axisW, model.candleWidth, chartAnalysis.some((a) => hasPane(a.kind))));
 
   const intervalSec = model.interval * 60;
   const latest = Math.max(...model.charts.map((m) => m.candles.at(-1)?.time ?? -Infinity));
@@ -217,7 +219,7 @@ function panelStyle(compact: boolean): PanelStyle {
 
 /**
  * Price plot with a right-hand axis, and a volume strip (~10%) underneath;
- * with `osc`, an indicator's pane (~20%) under that. The panes share the plot's
+ * with `osc`, the area for indicators with their own scale (~20%) under that. These share the plot's
  * width, so candle capacity doesn't depend on it.
  */
 function panelGeometry(r: Rect, s: PanelStyle, axisW: number, width: CandleWidth, osc = false): Geometry {
@@ -365,9 +367,15 @@ function drawPanel(
 
   // Indicators run over every candle fetched (no more than the chart shows);
   // the price scale stretches to fit those drawn on it.
-  const a = chartAnalysis;
   const pointsOf: PointsOf = (values) => visible.flatMap(({ i, k }) => (values[i] == null ? [] : [{ k, v: values[i]! }]));
-  const overlays = a ? priceSeries(a, data.candles).map((series) => ({ ...series, pts: pointsOf(series.values) })) : [];
+  // Two over the price: the second's lines go dotted, to tell them apart.
+  const bothOver = chartAnalysis.length === 2 && !chartAnalysis.some((a) => hasPane(a.kind));
+  const overlays = chartAnalysis.flatMap((a, n) => priceSeries(a, data.candles).map((series) => ({
+    ...series,
+    spec: a,
+    style: bothOver && n === 1 && series.style === 'solid' ? 'dotted' as const : series.style,
+    pts: pointsOf(series.values),
+  })));
   let scaleTop = hi, scaleBottom = lo;
   for (const { pts } of overlays) {
     for (const { v } of pts) {
@@ -446,7 +454,10 @@ function drawPanel(
 
   // Lines and dots go over the candles, to be seen through them.
   for (const o of overlays) if (!o.behind) drawSeries(ctx, g, o.pts, y, o.color, o.style);
-  if (a && g.osc) drawPane(ctx, g, g.osc, paneContent(a, data.candles, pointsOf, g.osc.h >= MIN_MACD_LINES_H), axisFont);
+  if (g.osc) {
+    const specs = chartAnalysis.filter((a) => hasPane(a.kind));
+    drawPanes(ctx, g, g.osc, specs.map((a) => paneContent(a, data.candles, pointsOf, g.osc!.h, specs.length > 1)), axisFont);
+  }
 
   // Price labels sit on their gridlines at the right edge. Skip any that would
   // poke up into the header, or cover the logo (tag's box, plus a row).
@@ -545,11 +556,13 @@ function drawPanel(
     extreme(lo, loK);
   }
 
-  // Top-left of the plot, over anything there.
-  if (a && overlays.length && overlays.every((o) => o.pts.length < 2)) {
-    ctx.font = axisFont;
-    tag(ctx, needsText(a), plot.x + 2, plot.y + Math.ceil(ctx.measureText('0').actualBoundingBoxAscent / 2) + 2, 'left', MID);
-  }
+  // Top-left of the plot, over anything there, one under the other.
+  ctx.font = axisFont;
+  const lacking = chartAnalysis.filter((a) => !hasPane(a.kind) && overlays.filter((o) => o.spec === a).every((o) => o.pts.length < 2));
+  lacking.forEach((a, n) => {
+    const box = paneLabelH(ctx);
+    tag(ctx, needsText(a), plot.x + 2, plot.y + box / 2 + n * box, 'left', MID);
+  });
 
   ctx.restore();
 }
@@ -633,12 +646,12 @@ interface Pane {
   label: string;
 }
 
-/** An indicator's pane: its own scale, and its name and latest value (or the candles it lacks) as the label. */
-function paneContent(a: AnalysisSpec, candles: Candle[], pointsOf: PointsOf, tall: boolean): Pane {
+/** An indicator in the pane area: its own scale, and its name and latest value (or the candles it lacks) as the label. */
+function paneContent(a: AnalysisSpec, candles: Candle[], pointsOf: PointsOf, height: number, overlaid: boolean): Pane {
   const closes = candles.map((c) => c.close);
   if (a.kind === 'rsi') {
     const pts = pointsOf(rsi(closes, a.period));
-    return { lo: 0, hi: 100, levels: [30, 70], bars: [], lines: [{ pts, color: FG, style: 'solid' }], label: pts.length < 2 ? needsText(a) : `RSI ${Math.round(latestPoint(pts)!.v)}` };
+    return { lo: 0, hi: 100, levels: height / (overlaid ? 2 : 1) >= MIN_RSI_LEVELS_H ? [30, 70] : [], bars: [], lines: [{ pts, color: FG, style: 'solid' }], label: pts.length < 2 ? needsText(a) : `RSI ${Math.round(latestPoint(pts)!.v)}` };
   }
   if (a.kind === 'atr') {
     const pts = pointsOf(atr(candles, a.period));
@@ -648,39 +661,70 @@ function paneContent(a: AnalysisSpec, candles: Candle[], pointsOf: PointsOf, tal
   if (a.kind === 'macd') {
     const m = macd(closes, a.fast, a.slow, a.signal);
     const bars = pointsOf(m.hist);
-    // Short of room, the histogram alone: it's the two lines' difference.
-    const lines = tall ? [{ pts: pointsOf(m.line), color: FG, style: 'solid' as const }, { pts: pointsOf(m.signal), color: MID, style: 'dotted' as const }] : [];
+    // Short of room, or over another indicator, the histogram alone: it's the two lines' difference.
+    const lines = !overlaid && height >= MIN_MACD_LINES_H ? [{ pts: pointsOf(m.line), color: FG, style: 'solid' as const }, { pts: pointsOf(m.signal), color: MID, style: 'dotted' as const }] : [];
     const reach = Math.max(0, ...[bars, ...lines.map((l) => l.pts)].flat().map((p) => Math.abs(p.v)));
     return { lo: -reach, hi: reach, levels: [0], bars, lines, label: bars.length < 2 ? needsText(a) : `MACD hist ${formatPrice(latestPoint(bars)!.v)}` };
   }
   return { lo: 0, hi: 1, levels: [], bars: [], lines: [], label: '' };
 }
 
-/** A pane in `r`: dashed levels, then bars, then lines, with its label top-left. */
-function drawPane(ctx: CanvasRenderingContext2D, g: Geometry, r: Rect, pane: Pane, axisFont: string): void {
-  const flat = !(pane.hi > pane.lo);
-  const ry = (v: number) => (flat ? r.y + Math.floor(r.h / 2) : Math.round(r.y + (pane.hi - v) / (pane.hi - pane.lo) * (r.h - 1)));
+/** Height of the box `tag` draws around a label, in the current font. */
+function paneLabelH(ctx: CanvasRenderingContext2D): number {
+  // The ascent is from the baseline in use, and `tag` leaves it at the middle.
+  ctx.textBaseline = 'alphabetic';
+  return Math.ceil(ctx.measureText('0').actualBoundingBoxAscent) + 4;
+}
+
+/**
+ * Indicators in the pane area `r`, overlaid, each on its own scale: dashed
+ * levels, then bars, then lines (so a line stays in front of another's bars),
+ * then their labels along the top, in order.
+ */
+function drawPanes(ctx: CanvasRenderingContext2D, g: Geometry, r: Rect, panes: Pane[], axisFont: string): void {
+  const scaled = (pane: Pane) => (v: number) => (pane.hi > pane.lo ? Math.round(r.y + (pane.hi - v) / (pane.hi - pane.lo) * (r.h - 1)) : r.y + Math.floor(r.h / 2));
   ctx.save();
   ctx.lineWidth = 1;
   ctx.strokeStyle = FAINT;
   ctx.setLineDash([2, 3]);
-  for (const level of pane.levels) {
-    ctx.beginPath();
-    ctx.moveTo(r.x, ry(level) + 0.5);
-    ctx.lineTo(r.x + r.w, ry(level) + 0.5);
-    ctx.stroke();
+  for (const pane of panes) {
+    for (const level of pane.levels) {
+      ctx.beginPath();
+      ctx.moveTo(r.x, scaled(pane)(level) + 0.5);
+      ctx.lineTo(r.x + r.w, scaled(pane)(level) + 0.5);
+      ctx.stroke();
+    }
   }
   ctx.setLineDash([]);
   ctx.fillStyle = FAINT;
   ctx.fillRect(r.x, r.y + r.h, r.w, 1);
-  for (const { k, v } of pane.bars) {
-    const zero = ry(0), to = ry(v);
-    ctx.fillStyle = v >= 0 ? MID : DIM;
-    ctx.fillRect(slotLeft(g, k), Math.min(zero, to), g.body, Math.max(1, Math.abs(to - zero)));
+  for (const pane of panes) {
+    const ry = scaled(pane);
+    for (const { k, v } of pane.bars) {
+      const zero = ry(0), to = ry(v);
+      ctx.fillStyle = v >= 0 ? MID : DIM;
+      ctx.fillRect(slotLeft(g, k), Math.min(zero, to), g.body, Math.max(1, Math.abs(to - zero)));
+    }
   }
-  for (const line of pane.lines) drawSeries(ctx, g, line.pts, ry, line.color, line.style);
+  panes.forEach((pane, n) => {
+    // Two lines: the second's dotted, to tell them apart, as over the price.
+    for (const line of pane.lines) drawSeries(ctx, g, line.pts, scaled(pane), line.color, n === 1 ? 'dotted' : line.style);
+  });
   ctx.font = axisFont;
-  tag(ctx, pane.label, r.x + 2, r.y + Math.ceil(ctx.measureText('0').actualBoundingBoxAscent / 2) + 2, 'left', MID);
+  const box = paneLabelH(ctx);
+  let x = r.x + 2;
+  for (const pane of panes) {
+    // `tag` sizes its box from the baseline in use, and leaves it at the middle.
+    ctx.textBaseline = 'alphabetic';
+    const drawn = tag(ctx, pane.label, x, r.y + box / 2, 'left', MID);
+    // Black between labels too, so nothing shows through there.
+    const end = drawn.x + drawn.w, gap = 6;
+    if (panes.length > 1 && pane !== panes.at(-1)) {
+      ctx.fillStyle = '#000';
+      ctx.fillRect(end, drawn.y, gap, drawn.h);
+    }
+    x = end + gap + 2;
+  }
   ctx.restore();
 }
 

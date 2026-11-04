@@ -107,6 +107,8 @@ export interface Settings {
   analysis: boolean;
   /** The indicator drawn when `analysis` is on. */
   analysisKind: Analysis;
+  /** A second indicator drawn with it, never the same one. */
+  analysisSecond: Analysis | 'none';
   /** Candles each indicator looks back over. */
   smaPeriod: number;
   emaPeriod: number;
@@ -160,6 +162,7 @@ export const DEFAULT_SETTINGS: Settings = {
   showIndex: true,
   analysis: false,
   analysisKind: 'ema',
+  analysisSecond: 'none',
   smaPeriod: SMA_PERIOD,
   emaPeriod: EMA_PERIOD,
   rsiPeriod: RSI_PERIOD,
@@ -239,6 +242,7 @@ export function sanitize(input: Partial<Settings>): Settings {
   const showList = typeof input.showList === 'boolean' ? input.showList : textList && !input.explore;
   const showIndex = typeof input.showIndex === 'boolean' ? input.showIndex : d.showIndex;
   const analysisKind = (ANALYSES as readonly string[]).includes(input.analysisKind as string) ? input.analysisKind! : d.analysisKind;
+  const analysisSecond = (ANALYSES as readonly string[]).includes(input.analysisSecond as string) && input.analysisSecond !== analysisKind ? input.analysisSecond! : d.analysisSecond;
   const period = (v: unknown, fallback: number) => clampInt(v, MIN_PERIOD, MAX_PERIOD, fallback);
   const smaPeriod = period(input.smaPeriod, d.smaPeriod);
   const emaPeriod = period(input.emaPeriod, d.emaPeriod);
@@ -264,13 +268,17 @@ export function sanitize(input: Partial<Settings>): Settings {
   const exploreBy = !rankings || rankings.includes(wantBy) ? wantBy : rankings[0]!;
   const exploreView = (EXPLORE_VIEWS as readonly string[]).includes(input.exploreView as string) ? input.exploreView! : d.exploreView;
 
-  return { source, favorites, currency, markets, charts, interval, events, eventCharts, eventInterval, eventTextChart, explore, exploreBy, exploreView, candleWidth, font, showList, textList, showIndex, analysis, analysisKind, smaPeriod, emaPeriod, rsiPeriod, atrPeriod, bollingerPeriod, donchianPeriod, bollingerK, macdFast, macdSlow, macdSignal, sarStep, sarMax, manualOnly, lookUpUpdate, lookUpCal, refreshSec, displaySec, alwaysOn };
+  return { source, favorites, currency, markets, charts, interval, events, eventCharts, eventInterval, eventTextChart, explore, exploreBy, exploreView, candleWidth, font, showList, textList, showIndex, analysis, analysisKind, analysisSecond, smaPeriod, emaPeriod, rsiPeriod, atrPeriod, bollingerPeriod, donchianPeriod, bollingerK, macdFast, macdSlow, macdSignal, sarStep, sarMax, manualOnly, lookUpUpdate, lookUpCal, refreshSec, displaySec, alwaysOn };
 }
 
-/** The indicator to draw with `s`, if analysis is on. */
-export function analysisSpec(s: Settings): AnalysisSpec | null {
-  if (!s.analysis) return null;
-  switch (s.analysisKind) {
+/** The indicators to draw with `s`, in order: none if analysis is off. */
+export function analysisSpecs(s: Settings): AnalysisSpec[] {
+  if (!s.analysis) return [];
+  return s.analysisSecond === 'none' ? [analysisSpec(s, s.analysisKind)] : [analysisSpec(s, s.analysisKind), analysisSpec(s, s.analysisSecond)];
+}
+
+function analysisSpec(s: Settings, kind: Analysis): AnalysisSpec {
+  switch (kind) {
     case 'sma': return { kind: 'sma', period: s.smaPeriod };
     case 'ema': return { kind: 'ema', period: s.emaPeriod };
     case 'rsi': return { kind: 'rsi', period: s.rsiPeriod };
