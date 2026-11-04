@@ -4,6 +4,7 @@ import { bitget } from './bitget';
 import { coinbase } from './coinbase';
 import { gate } from './gate';
 import { hyperliquid } from './hyperliquid';
+import { hyperliquidOutcomes } from './hyperliquidoutcomes';
 import { kraken } from './kraken';
 import { okx } from './okx';
 import { polymarket } from './polymarket';
@@ -21,7 +22,7 @@ export function getSource(id: string): MarketSource {
 }
 
 /** Prediction markets: a different kind of source, charting events' outcomes rather than prices. */
-export const PREDICTION_SOURCES: readonly PredictionSource[] = [polymarket, polymarketUs];
+export const PREDICTION_SOURCES: readonly PredictionSource[] = [polymarket, polymarketUs, hyperliquidOutcomes];
 
 export function isPredictionSource(id: string): boolean {
   return PREDICTION_SOURCES.some((s) => s.id === id);

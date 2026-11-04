@@ -1,10 +1,11 @@
 import { exchangeSource, topOfBook, UnknownMarketError, type Ticker } from './exchange';
 import { PublicApi } from './http';
 
-// Hyperliquid's spot markets. Every request is a POST to /info, saying what it wants.
-const api = new PublicApi('https://api.hyperliquid.xyz');
+// Hyperliquid's spot markets. Every request is a POST to /info, saying what it
+// wants. Shared with its outcome markets (./hyperliquidoutcomes.ts): one rate limit.
+export const api = new PublicApi('https://api.hyperliquid.xyz');
 
-const info = <T>(body: Record<string, unknown>, signal: AbortSignal) => api.post<T>('/info', body, signal);
+export const info = <T>(body: Record<string, unknown>, signal: AbortSignal) => api.post<T>('/info', body, signal);
 
 interface SpotMeta {
   tokens: { name: string; index: number; fullName: string | null }[];
@@ -45,7 +46,7 @@ const STOCKS = new Set([
 ]);
 
 /** Candle sizes in minutes, by the API's name for each. */
-const INTERVALS: Record<number, string> = {
+export const INTERVALS: Record<number, string> = {
   1: '1m', 3: '3m', 5: '5m', 15: '15m', 30: '30m', 60: '1h', 120: '2h', 240: '4h', 480: '8h',
   720: '12h', 1440: '1d', 4320: '3d', 10080: '1w',
 };

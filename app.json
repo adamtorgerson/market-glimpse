@@ -8,7 +8,7 @@
   "permissions": [
     {
       "name": "network",
-      "desc": "Fetches public market data from the selected exchange (Kraken, OKX, Coinbase, Gate, Binance.US, Bitget, Hyperliquid or Aster) or prediction market (Polymarket, Polymarket US), and index prices from CoinGecko.",
+      "desc": "Fetches public market data from the selected exchange (Kraken, OKX, Coinbase, Gate, Binance.US, Bitget, Hyperliquid or Aster) or prediction market (Polymarket, Polymarket US, Hyperliquid Outcomes), and index prices from CoinGecko.",
       "whitelist": [
         "https://api.kraken.com",
         "https://www.okx.com",

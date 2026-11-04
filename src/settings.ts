@@ -64,7 +64,8 @@ export interface Settings {
    * Events to monitor (slugs), up to 8, by prediction-market source id: each
    * names its events its own way (polymarket.com's
    * "bitcoin-up-or-down-on-october-29-2026", polymarket.us's
-   * "btc-updown-1d-2026-10-27-2100z"). Kept apart from `markets`, so
+   * "btc-updown-1d-2026-10-27-2100z", Hyperliquid's
+   * "touch-btc-20261201-0000"). Kept apart from `markets`, so
    * switching sources keeps every list.
    */
   events: Record<string, string[]>;

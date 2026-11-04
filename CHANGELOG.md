@@ -13,6 +13,11 @@ Notable changes to MarketGlimpse, by release tag.
   where there's room.
 
 ### Added
+- Hyperliquid's outcome markets (HIP-4) as a prediction source, **HL Outcomes**:
+  sports, the Fed's decision, price targets and IPOs, charted with
+  their history, ranked in Explore by volume, movers or liquidity. Events are added from
+  Explore, or by a Hyperliquid link or its name
+  (`out:btc-touches-75000-by-dec-1-at-1200-am-utc-yes`). Its spreads aren't shown.
 - An Analysis section: **Show analysis** draws SMA, EMA, VWAP, Bollinger
   Bands, Donchian Channels or Parabolic SAR over the price, or RSI, MACD or
   ATR in a pane under the volume strip, on the image charts, from the candles

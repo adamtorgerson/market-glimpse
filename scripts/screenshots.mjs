@@ -23,6 +23,8 @@ const AUTOMATION = 'http://localhost:9898';
 const STORAGE_KEY = 'kraken-candles.settings'; // src/main.ts
 const TIMEOUT_MS = 60_000;
 
+// Hyperliquid's: a Fed decision, tournaments and an IPO's ladder, open well into 2027 (the Fed's till December).
+const HL_EVENTS = ['q199', 'q430', 'q545', 'ipo-cap-anthropic-20270501-0359'];
 const M8 = ['BTC-USDC', 'ETH-USDC', 'SOL-USD', 'XRP-USD', 'DOGE-USD', 'ADA-USD', 'LTC-USD', 'DOT-USD'];
 // Tokenized stocks, entered by ticker as a user would.
 const STOCKS = ['TSLA', 'NVDA', 'AAPL'];
@@ -91,6 +93,13 @@ const SHOTS = {
   'prediction-list': { source: 'polymarket', events: { polymarket: [...EVENTS, ...MORE_EVENTS] }, eventCharts: { polymarket: [] }, eventInterval: 60 },
   'prediction-explore-two-charts': { source: 'polymarket', explore: true, exploreView: '2', eventInterval: 60 },
   'prediction-us-explore-list': { source: 'polymarketus', explore: true, exploreView: 'list', eventInterval: 60 },
+  'prediction-hl-explore-list': { source: 'hyperliquidoutcomes', explore: true, exploreView: 'list', eventInterval: 60 },
+  'prediction-hl-explore-two-charts': { source: 'hyperliquidoutcomes', explore: true, exploreView: '2', eventInterval: 60 },
+  'prediction-hl-three-charts': { source: 'hyperliquidoutcomes', events: { hyperliquidoutcomes: HL_EVENTS.slice(0, 3) }, eventInterval: 60 },
+  'prediction-hl-four-charts': { source: 'hyperliquidoutcomes', events: { hyperliquidoutcomes: HL_EVENTS }, eventInterval: 60 },
+  'prediction-hl-explore-four-charts': { source: 'hyperliquidoutcomes', explore: true, exploreView: '4', eventInterval: 60 },
+  'prediction-hl-explore-liquid-list': { source: 'hyperliquidoutcomes', explore: true, exploreBy: 'liquidity', exploreView: 'list', eventInterval: 60 },
+  'prediction-hl-ladder': { source: 'hyperliquidoutcomes', events: { hyperliquidoutcomes: ['ipo-cap-anthropic-20270501-0359'] }, eventInterval: 60, eventAnalysis: true },
   'prediction-us-four-charts': { source: 'polymarketus', events: { polymarketus: US_EVENTS }, eventInterval: 60 },
 };
 

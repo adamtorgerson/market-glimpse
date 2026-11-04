@@ -74,6 +74,8 @@ export interface PredictionRequest {
 export interface PredictionSource {
   id: string;
   label: string;
+  /** How to enter an event, in the phone's form, if not by a Polymarket link or its slug. */
+  eventInput?: string;
   /** Most requests one `fetch` makes to any one of its APIs, so the UI can keep the refresh rate sustainable. */
   requestsPerUpdate(req: PredictionRequest): number;
   /** Rough ms a `fetch` would take if started now (rate limits, recent response times). */
@@ -109,17 +111,25 @@ export interface ExploredEvent {
   volume?: number;
   /** Its market that moved most: the 1-day change in probability (0.15 is 15 points). */
   change?: number;
-  /** Its liquidity in dollars: the money on its books, or at the top of its leading market's. */
+  /** Its liquidity in dollars: the money on its books or its leading market's, or at the top of its leading market's. */
   liquidity?: number;
 }
 
 /** Lines one chart can tell apart without colour. */
 export const MAX_OUTCOMES = 4;
 
-/** A slug, from a slug or an event's URL ("https://polymarket.com/event/<slug>"). */
+/**
+ * A slug, from a slug or an event's URL ("https://polymarket.com/event/<slug>",
+ * "https://app.hyperliquid.xyz/trade/out:<slug>").
+ */
 export function eventSlug(input: string): string {
-  const m = input.trim().match(/\/event\/([^/?#]+)/);
-  return (m ? m[1]! : input.trim()).toLowerCase();
+  const m = input.trim().match(/\/(?:event|trade|outcomes)\/([^/?#]+)/);
+  const slug = m ? m[1]! : input.trim();
+  try {
+    return decodeURIComponent(slug).toLowerCase();
+  } catch {
+    return slug.toLowerCase();
+  }
 }
 
 /** Outcomes chosen to chart, and what's left out (see `PredictionData.other`). */

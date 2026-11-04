@@ -628,8 +628,8 @@ async function exploreEvents(s: Settings, ctrl: AbortController): Promise<Predic
   }
   const value = (f: ExploredEvent) => {
     if (s.exploreBy === 'movers') return f.change === undefined ? '' : formatPoints(f.change);
-    // Polymarket's own liquidity is its books; Polymarket US's, the top of its leading market's.
-    if (s.exploreBy === 'liquidity') return f.liquidity === undefined ? '' : `$${formatVolume(f.liquidity)} ${s.source === 'polymarket' ? 'book' : 'bid/ask'}`;
+    // Polymarket's own liquidity is its books, and HL Outcomes' its leading market's; Polymarket US's, the top of its leading market's.
+    if (s.exploreBy === 'liquidity') return f.liquidity === undefined ? '' : `$${formatVolume(f.liquidity)} ${s.source === 'polymarketus' ? 'bid/ask' : 'book'}`;
     return f.volume === undefined ? '' : `${formatVolume(f.volume)} shares`;
   };
   // The list on the phone as soon as they're found, by the titles the ranking gave.
@@ -951,7 +951,7 @@ function syncKind(s: Settings = settings): void {
   for (const el of document.querySelectorAll<HTMLElement>('[data-events]')) el.hidden = !events;
   intervalLabel.textContent = events ? 'History spacing' : 'Candle size';
   addMarketBtn.textContent = events ? '+ Add event' : '+ Add market';
-  marketsHint.textContent = events ? `Up to ${eventAnalysisBox.checked ? MAX_ANALYSIS_CHARTS : MAX_CHARTS} charts; ${MAX_MARKETS} events: a Polymarket link or the event's slug` : `Up to ${analysisBox.checked ? MAX_ANALYSIS_CHARTS : MAX_CHARTS} charts; ${MAX_MARKETS} markets`;
+  marketsHint.textContent = events ? `Up to ${eventAnalysisBox.checked ? MAX_ANALYSIS_CHARTS : MAX_CHARTS} charts; ${MAX_MARKETS} events: ${getPredictionSource(sourceSel.value).eventInput ?? 'a Polymarket link or the event\'s slug'}` : `Up to ${analysisBox.checked ? MAX_ANALYSIS_CHARTS : MAX_CHARTS} charts; ${MAX_MARKETS} markets`;
   // Each prediction market has its own list too.
   const kind = events ? 'events' : 'markets';
   const list = events ? sourceSel.value : '';
@@ -981,7 +981,7 @@ function addMarketRow(market = '', charted = false): void {
   const li = document.createElement('li');
   li.innerHTML = marketList.dataset.kind === 'events'
     ? `
-    <input type="text" placeholder="Polymarket link or event slug" spellcheck="false" autocapitalize="off" />
+    <input type="text" placeholder="${getPredictionSource(marketList.dataset.source ?? '').eventInput ?? 'Polymarket link or event slug'}" spellcheck="false" autocapitalize="off" />
     <label><input type="checkbox" /> Chart</label>
     <button type="button" class="secondary" aria-label="Remove">✕</button>`
     : `

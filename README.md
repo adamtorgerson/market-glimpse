@@ -2,7 +2,8 @@
 
 Even Hub app that shows candlestick charts from an exchange's public API
 (Kraken, OKX, Coinbase, Gate, Binance.US, Bitget, Hyperliquid or Aster), or
-outcome probabilities from a prediction market (Polymarket, Polymarket US),
+outcome probabilities from a prediction market (Polymarket, Polymarket US,
+Hyperliquid's outcome markets),
 on the G2 glasses. On a fixed schedule it fetches, shows the chart for a few
 seconds, then blanks the display.
 
@@ -25,11 +26,12 @@ refreshes every 2m, chart shown for 12s, narrow candles.
   them (`BTC-USDT`). Each exchange lists different markets. For example,
   Coinbase has `BTC-USD` but no `BTC-USDC`. A market the exchange doesn't
   have shows "unknown pair". The list also offers **prediction markets**
-  (Polymarket, Polymarket US); see below.
+  (Polymarket, Polymarket US, HL Outcomes); see below.
   - **Favorite**: a long press on the glasses goes on to the next favorite
     source, in the list's order. So does the button beside **Show now**,
     which names that source ("Next: OKX").
-- **Prediction markets** (Polymarket or Polymarket US as the data source):
+- **Prediction markets** (Polymarket, Polymarket US or HL Outcomes, Hyperliquid's
+  outcome markets, as the data source):
   the market list becomes up to 8 events, entered as a link or the event's
   slug, with the same Chart ticks as markets: up to 4 charted, the rest
   listed under the charts (title, likeliest outcome's probability and name,
@@ -168,7 +170,9 @@ refreshes every 2m, chart shown for 12s, narrow candles.
   traded markets' best bid and ask, a request each, and keep the ranking 10
   minutes. Polymarket ranks events by its own liquidity (the money on their
   books), one request. Polymarket US by the money at the top of each of its
-  12 most traded events' leading market (a quote each), kept 10 minutes.
+  12 most traded events' leading market (a quote each), kept 10 minutes. HL
+  Outcomes by the money on the visible book (up to 20 levels a side) of each of
+  its 12 most traded events' leading market (a request each), kept 10 minutes.
   Explore's tab shows it beside each ("$1.2M bid/ask", "$74.6M book").
 - **Market List**: the glasses show the full-screen market list instead of
   any charts, in the Watchlist or Explore. It takes precedence: chart ticks
@@ -441,6 +445,7 @@ line.
 |---|---|---|
 | Polymarket | Gamma `events?slug=A&slug=B…` (every event, one request) | CLOB `POST batch-prices-history` (up to 20 outcomes per request, the most it takes: one for 4 events, two for Explore's 8), from just far enough back, at the history spacing |
 | Polymarket US | Gateway `v1/events?slug=A&slug=B…` (every event, one request) | `v1/price-history?symbol=` (one market per request: there's no batch endpoint), likewise |
+| HL Outcomes | `outcomeMeta` (the event list, kept 10 minutes) and `spotMetaAndAssetCtxs` (every price, about 350KB) | `candleSnapshot` (one market per request), likewise |
 
 Polymarket's two are separate APIs, each with its own rate limit. Polymarket
 US's history takes a request per charted market (a yes/no market or a game's
@@ -454,6 +459,28 @@ ladder (`assetPriceTerms`); otherwise an event tagged `neg-risk` is, or one
 whose quoted prices add up to about 100%. The events request
 is large for events with many markets (the 2028 presidential winner is
 440KB, 41KB compressed: Polymarket returns every market, closed ones too).
+
+HL Outcomes shares the Hyperliquid exchange source's `PublicApi`: one
+host, one rate limit. Explore adds events as `q567-rb-leipzig-vs-manchester-city`
+(a question, of which one outcome wins), `o24239-…` (a game or other lone
+market) or `touch-btc-20261201-0000` (standalone markets on one asset and date,
+as a ladder); only the part up to the title matters. They can also be entered
+as a Hyperliquid link or the name in it
+(`https://app.hyperliquid.xyz/trade/out:btc-touches-75000-by-dec-1-at-1200-am-utc-yes`,
+with or without `out:`, its venue). A market's name is built the way the site
+builds it, from `outcomeTemplates` (about 50KB, one request, only once a name is
+entered). A name goes to that market's Yes and No, or if it's one of a
+question's outcomes, the whole question. Without the venue, a name on several
+venues (an IPO's market caps) asks for it. A recurring market's name has its
+date, so it stops working once that market settles. Titles and names are built from
+each market's templated description. Prices are its mark prices, as a mid means
+little on a thin book, but thin markets can still be well off: their rungs can
+be out of order, and a question's sum far from 100%. Those never traded are
+left out, as is a question's fallback outcome, which has no price. A tournament
+lists only its favourites, so it has no sum. A game's end date is its deadline
+to resolve, about a week after it. There are no spreads (they'd take a request
+per market). Movers leaves out markets under 1,000 shares
+in 24h, and a daily market's change, which is since before it opened.
 
 Each chart's header also shows CoinGecko's index price (its price aggregated
 across exchanges), centred between the exchange's price and the market name,
@@ -532,7 +559,8 @@ npm test -- --project charting                # one group: sources, prediction, 
 ```
 
 Tests are grouped by directory under `test/`: `sources` (exchange name
-resolution and requests), `prediction` (Polymarket and Polymarket US),
+resolution and requests), `prediction` (Polymarket, Polymarket US and
+HL Outcomes),
 `charting` (the glasses' text charts and lists), `explore` (ranking the top
 markets) and `settings`. Files ending `.live.test.ts` call the live APIs.
 `test/charting/analysis-reference.test.ts` checks the Analysis indicators
