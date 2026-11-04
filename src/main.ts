@@ -23,6 +23,7 @@ import {
   exploreCharts,
   formatInterval,
   isTextWidth,
+  MAX_ANALYSIS_CHARTS,
   MAX_CHARTS,
   MAX_MARKETS,
   maxCharts,
@@ -154,7 +155,7 @@ let lastFetch: { key: string; data: MarketData[]; updated: Date } | null = null;
 /** What an update fetches with `s`; data fetched for the same key can be redrawn as is. */
 function fetchKey(s: Settings): string {
   if (s.explore) {
-    const n = exploreShown(s, maxCharts(s.candleWidth));
+    const n = exploreShown(s, maxCharts(s.candleWidth, s.analysis));
     return JSON.stringify(['explore', s.source, s.exploreBy, s.currency, s.exploreView, s.showList, s.textList, s.interval, s.candleWidth, capacity(n, s.candleWidth), n && s.showIndex]);
   }
   return JSON.stringify([s.source, marketRequest(s), indexMarkets(s)]);
@@ -445,7 +446,7 @@ async function runUpdate(ctrl: AbortController, showAt: number, reuse: boolean):
   const byMarket = new Map(data.map((d) => [d.market, d]));
   const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
   // Explore's top markets are charted (or none, for the list), and the rest listed, in their order.
-  const exploring = s.explore ? exploreShown(s, maxCharts(s.candleWidth)) : 0;
+  const exploring = s.explore ? exploreShown(s, maxCharts(s.candleWidth, s.analysis)) : 0;
   const shown = s.explore ? data.slice(0, exploring).map((d) => d.market) : shownCharts(s);
   const charts = shown.map((m) => byMarket.get(m)!);
   const ticker = s.explore ? data.slice(exploring) : s.markets.filter((m) => !shown.includes(m)).map((m) => byMarket.get(m)!);
@@ -519,7 +520,7 @@ async function exploreMarkets(s: Settings, ctrl: AbortController): Promise<Marke
   })));
   const data = found.map((f): MarketData => ({ market: f.market, candles: [], last: f.last, dayVolume: f.dayVolume, ...(movers ? { dayChange: f.change } : {}) }));
   onProgress(ctrl, data);
-  const n = exploreShown(s, maxCharts(s.candleWidth));
+  const n = exploreShown(s, maxCharts(s.candleWidth, s.analysis));
   const markets = (n ? data.slice(0, n) : s.textList ? [] : data).map((d) => d.market);
   if (markets.length === 0) return data;
   // Candles asked for as charts: the tickers are in hand, so there's no second ticker request.
@@ -547,7 +548,7 @@ async function exploreMarkets(s: Settings, ctrl: AbortController): Promise<Marke
  * in the list, one per line graph (none as text).
  */
 function exploreCandles(s: Settings): number {
-  const n = exploreShown(s, maxCharts(s.candleWidth));
+  const n = exploreShown(s, maxCharts(s.candleWidth, s.analysis));
   return n || (s.textList ? 0 : EXPLORE_COUNT);
 }
 
@@ -845,10 +846,23 @@ const fontSel = $<HTMLSelectElement>('font');
 const showIndexBox = $<HTMLInputElement>('show-index');
 const analysisBox = $<HTMLInputElement>('analysis');
 const analysisSel = $<HTMLSelectElement>('analysis-kind');
-const emaPeriodInput = $<HTMLInputElement>('ema-period');
-const rsiPeriodInput = $<HTMLInputElement>('rsi-period');
-const bollingerPeriodInput = $<HTMLInputElement>('bollinger-period');
-const bollingerKInput = $<HTMLInputElement>('bollinger-k');
+/** The indicators' parameters: each setting's input. */
+const ANALYSIS_INPUTS = {
+  smaPeriod: $<HTMLInputElement>('sma-period'),
+  emaPeriod: $<HTMLInputElement>('ema-period'),
+  bollingerPeriod: $<HTMLInputElement>('bollinger-period'),
+  bollingerK: $<HTMLInputElement>('bollinger-k'),
+  donchianPeriod: $<HTMLInputElement>('donchian-period'),
+  sarStep: $<HTMLInputElement>('sar-step'),
+  sarMax: $<HTMLInputElement>('sar-max'),
+  rsiPeriod: $<HTMLInputElement>('rsi-period'),
+  macdFast: $<HTMLInputElement>('macd-fast'),
+  macdSlow: $<HTMLInputElement>('macd-slow'),
+  macdSignal: $<HTMLInputElement>('macd-signal'),
+  atrPeriod: $<HTMLInputElement>('atr-period'),
+};
+type AnalysisParam = keyof typeof ANALYSIS_INPUTS;
+const ANALYSIS_PARAMS = Object.keys(ANALYSIS_INPUTS) as AnalysisParam[];
 const showListBox = $<HTMLInputElement>('show-list');
 const textListBox = $<HTMLInputElement>('text-list');
 const eventStyleSel = $<HTMLSelectElement>('event-style');
@@ -933,7 +947,7 @@ function syncKind(s: Settings = settings): void {
   for (const el of document.querySelectorAll<HTMLElement>('[data-events]')) el.hidden = !events;
   intervalLabel.textContent = events ? 'History spacing' : 'Candle size';
   addMarketBtn.textContent = events ? '+ Add event' : '+ Add market';
-  marketsHint.textContent = events ? `Up to ${MAX_CHARTS} charts; ${MAX_MARKETS} events: a Polymarket link or the event's slug` : `Up to ${MAX_CHARTS} charts; ${MAX_MARKETS} markets`;
+  marketsHint.textContent = events ? `Up to ${MAX_CHARTS} charts; ${MAX_MARKETS} events: a Polymarket link or the event's slug` : `Up to ${analysisBox.checked ? MAX_ANALYSIS_CHARTS : MAX_CHARTS} charts; ${MAX_MARKETS} markets`;
   // Each prediction market has its own list too.
   const kind = events ? 'events' : 'markets';
   const list = events ? sourceSel.value : '';
@@ -987,8 +1001,8 @@ function syncMarketControls(): void {
   const rows = [...marketList.children];
   const checks = rows.flatMap((li) => li.querySelector<HTMLInputElement>('input[type=checkbox]') ?? []);
   // Text candles are for exchanges' charts; a prediction market's has a text chart of its own.
-  const max = marketList.dataset.kind === 'events' ? maxEventCharts(eventStyleSel.value === 'text') : maxCharts(candleWidthSel.value as CandleWidth);
-  // A width that allows fewer charts keeps the first ones ticked.
+  const max = marketList.dataset.kind === 'events' ? maxEventCharts(eventStyleSel.value === 'text') : maxCharts(candleWidthSel.value as CandleWidth, analysisBox.checked);
+  // A width or analysis that allows fewer charts keeps the first ones ticked.
   checks.filter((c) => c.checked).slice(max).forEach((c) => { c.checked = false; });
   const nChecked = checks.filter((c) => c.checked).length;
   // Market List takes precedence over charts: their ticks are kept but greyed out.
@@ -1005,15 +1019,15 @@ addMarketBtn.addEventListener('click', () => {
 });
 
 /**
- * Offer the Explore layouts the candle width allows (text candles fill the
- * glasses with one chart), and the rankings the source does.
+ * Offer the Explore layouts the candle width and analysis allow (text candles
+ * fill the glasses with one chart), and the rankings the source does.
  */
 function syncExploreView(): void {
   const events = isPredictionSource(sourceSel.value);
   const rankings = events ? getPredictionSource(sourceSel.value).exploreRankings : undefined;
   for (const opt of exploreBySel.options) opt.disabled = !!rankings && !rankings.includes(opt.value as ExploreBy);
   if (exploreBySel.selectedOptions[0]?.disabled) exploreBySel.value = rankings![0]!;
-  const max = events ? maxEventCharts(eventStyleSel.value === 'text') : maxCharts(candleWidthSel.value as CandleWidth);
+  const max = events ? maxEventCharts(eventStyleSel.value === 'text') : maxCharts(candleWidthSel.value as CandleWidth, analysisBox.checked);
   for (const opt of exploreViewSel.options) {
     opt.disabled = opt.value !== 'list' && Number(opt.value) > max;
   }
@@ -1115,6 +1129,8 @@ function syncFavorite(s: Settings = settings): void {
 }
 
 function fillForm(s: Settings): void {
+  // First: it limits the chart ticks and Explore layouts synced below.
+  analysisBox.checked = s.analysis;
   sourceSel.value = s.source;
   favoriteBox.dataset.source = '';
   syncFavorite(s);
@@ -1134,12 +1150,8 @@ function fillForm(s: Settings): void {
   syncMarketControls();
   renderExplore();
   showIndexBox.checked = s.showIndex;
-  analysisBox.checked = s.analysis;
   analysisSel.value = s.analysisKind;
-  emaPeriodInput.value = String(s.emaPeriod);
-  rsiPeriodInput.value = String(s.rsiPeriod);
-  bollingerPeriodInput.value = String(s.bollingerPeriod);
-  bollingerKInput.value = String(s.bollingerK);
+  showAnalysisParams(s);
   syncAnalysisControls(s);
   manualOnlyBox.checked = s.manualOnly;
   lookUpBox.checked = s.lookUpUpdate;
@@ -1150,6 +1162,10 @@ function fillForm(s: Settings): void {
   displayInput.disabled = s.alwaysOn;
   displayInput.value = formatDuration(s.displaySec);
   formError.textContent = '';
+}
+
+function showAnalysisParams(s: Settings): void {
+  for (const p of ANALYSIS_PARAMS) ANALYSIS_INPUTS[p].value = String(s[p]);
 }
 
 /** Show the chosen indicator's parameters only, and grey out the section's controls while analysis is off. */
@@ -1179,6 +1195,11 @@ function readForm(): Settings {
   const alwaysOn = alwaysOnBox.checked;
   if (!manualOnly && !alwaysOn && displaySec >= refreshSec) throw new Error('Show-for must be shorter than the refresh interval.');
 
+  // An emptied box keeps the saved value.
+  const analysis = Object.fromEntries(ANALYSIS_PARAMS.map((p) => [p, Number(ANALYSIS_INPUTS[p].value || settings[p])])) as Record<AnalysisParam, number>;
+  if (analysis.macdFast >= analysis.macdSlow) throw new Error('MACD\'s fast period must be shorter than its slow period.');
+  if (analysis.sarStep > analysis.sarMax) throw new Error('Parabolic SAR\'s step can\'t be more than its max.');
+
   const next = sanitize({
     source: sourceSel.value,
     favorites: [...settings.favorites.filter((id) => id !== sourceSel.value), ...(favoriteBox.checked ? [sourceSel.value] : [])],
@@ -1200,11 +1221,7 @@ function readForm(): Settings {
     showIndex: showIndexBox.checked,
     analysis: analysisBox.checked,
     analysisKind: analysisSel.value as Analysis,
-    // An emptied box keeps the saved value.
-    emaPeriod: Number(emaPeriodInput.value || settings.emaPeriod),
-    rsiPeriod: Number(rsiPeriodInput.value || settings.rsiPeriod),
-    bollingerPeriod: Number(bollingerPeriodInput.value || settings.bollingerPeriod),
-    bollingerK: Number(bollingerKInput.value || settings.bollingerK),
+    ...analysis,
     manualOnly,
     lookUpUpdate: lookUpBox.checked,
     lookUpCal: settings.lookUpCal,
@@ -1257,10 +1274,7 @@ async function applyForm(): Promise<boolean> {
   refreshInput.disabled = next.manualOnly;
   displayInput.disabled = next.alwaysOn;
   // Show the clamped values.
-  emaPeriodInput.value = String(next.emaPeriod);
-  rsiPeriodInput.value = String(next.rsiPeriod);
-  bollingerPeriodInput.value = String(next.bollingerPeriod);
-  bollingerKInput.value = String(next.bollingerK);
+  showAnalysisParams(next);
   syncAnalysisControls(next);
   displayInput.value = formatDuration(next.displaySec);
   syncLookUpControls(next);

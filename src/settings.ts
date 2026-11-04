@@ -1,4 +1,7 @@
-import { ANALYSES, BOLLINGER_K, BOLLINGER_PERIOD, EMA_PERIOD, MAX_K, MAX_PERIOD, MIN_K, MIN_PERIOD, RSI_PERIOD, type Analysis, type AnalysisSpec } from './analysis';
+import {
+  ANALYSES, ATR_PERIOD, BOLLINGER_K, BOLLINGER_PERIOD, DONCHIAN_PERIOD, EMA_PERIOD, MACD_FAST, MACD_SIGNAL, MACD_SLOW, MAX_K, MAX_PERIOD, MAX_SAR,
+  MIN_K, MIN_PERIOD, MIN_SAR, RSI_PERIOD, SAR_MAX, SAR_STEP, SMA_PERIOD, type Analysis, type AnalysisSpec,
+} from './analysis';
 import { isCalibration, type LookUpCalibration } from './lookup';
 import { DEFAULT_SOURCE, getPredictionSource, getSource, isPredictionSource, PREDICTION_SOURCES, SOURCES } from './sources';
 import { EVENT_INTERVALS, eventSlug } from './sources/prediction';
@@ -14,6 +17,8 @@ export const CHART_FONTS = ['atkinson', 'b612', 'dejavu-mono', 'hack', 'terminus
 export type ChartFont = (typeof CHART_FONTS)[number];
 
 export const MAX_CHARTS = 4;
+/** Charts allowed with analysis on: smaller ones have too few candles for an indicator to settle. */
+export const MAX_ANALYSIS_CHARTS = 2;
 
 /** Explore's layouts: the market list, or that many of the top markets charted. */
 export const EXPLORE_VIEWS = ['list', '1', '2', '4'] as const;
@@ -30,9 +35,10 @@ export function isTextWidth(width: CandleWidth): width is TextWidth {
   return width.startsWith('text');
 }
 
-/** Charts a candle width allows: text candles fill the glasses with one. */
-export function maxCharts(width: CandleWidth): number {
-  return isTextWidth(width) ? 1 : MAX_CHARTS;
+/** Charts a candle width allows: text candles fill the glasses with one, and analysis (image charts only) limits the rest. */
+export function maxCharts(width: CandleWidth, analysis: boolean): number {
+  if (isTextWidth(width)) return 1;
+  return analysis ? MAX_ANALYSIS_CHARTS : MAX_CHARTS;
 }
 
 /** Events charted at most: the text chart fills the glasses with one. */
@@ -101,12 +107,22 @@ export interface Settings {
   analysis: boolean;
   /** The indicator drawn when `analysis` is on. */
   analysisKind: Analysis;
-  /** Candles each indicator averages over. */
+  /** Candles each indicator looks back over. */
+  smaPeriod: number;
   emaPeriod: number;
   rsiPeriod: number;
+  atrPeriod: number;
   bollingerPeriod: number;
+  donchianPeriod: number;
   /** Bollinger band width, in standard deviations either side. */
   bollingerK: number;
+  /** MACD's EMA periods, in candles: fast below slow. */
+  macdFast: number;
+  macdSlow: number;
+  macdSignal: number;
+  /** Parabolic SAR's acceleration: the step, up to the max. */
+  sarStep: number;
+  sarMax: number;
   /** Show CoinGecko's index price in each chart header (one extra request per update). */
   showIndex: boolean;
   /** No scheduled updates: fetch and show only on Show now or a tap. */
@@ -144,10 +160,18 @@ export const DEFAULT_SETTINGS: Settings = {
   showIndex: true,
   analysis: false,
   analysisKind: 'ema',
+  smaPeriod: SMA_PERIOD,
   emaPeriod: EMA_PERIOD,
   rsiPeriod: RSI_PERIOD,
+  atrPeriod: ATR_PERIOD,
   bollingerPeriod: BOLLINGER_PERIOD,
+  donchianPeriod: DONCHIAN_PERIOD,
   bollingerK: BOLLINGER_K,
+  macdFast: MACD_FAST,
+  macdSlow: MACD_SLOW,
+  macdSignal: MACD_SIGNAL,
+  sarStep: SAR_STEP,
+  sarMax: SAR_MAX,
   manualOnly: false,
   lookUpUpdate: false,
   lookUpCal: null,
@@ -201,9 +225,10 @@ export function sanitize(input: Partial<Settings>): Settings {
 
   const font = (CHART_FONTS as readonly string[]).includes(input.font as string) ? input.font! : d.font;
 
+  const analysis = typeof input.analysis === 'boolean' ? input.analysis : d.analysis;
   const charts = dedupe((input.charts ?? d.charts).map(normalizeMarket))
     .filter((m) => markets.includes(m))
-    .slice(0, maxCharts(candleWidth));
+    .slice(0, maxCharts(candleWidth, analysis));
 
   const refreshSec = clampInt(input.refreshSec, 15, 24 * 3600, d.refreshSec);
   // The chart has to come down before the next update goes up.
@@ -213,14 +238,21 @@ export function sanitize(input: Partial<Settings>): Settings {
   // Before Market List, the text list took precedence over the watchlist's charts.
   const showList = typeof input.showList === 'boolean' ? input.showList : textList && !input.explore;
   const showIndex = typeof input.showIndex === 'boolean' ? input.showIndex : d.showIndex;
-  const analysis = typeof input.analysis === 'boolean' ? input.analysis : d.analysis;
   const analysisKind = (ANALYSES as readonly string[]).includes(input.analysisKind as string) ? input.analysisKind! : d.analysisKind;
-  const emaPeriod = clampInt(input.emaPeriod, MIN_PERIOD, MAX_PERIOD, d.emaPeriod);
-  const rsiPeriod = clampInt(input.rsiPeriod, MIN_PERIOD, MAX_PERIOD, d.rsiPeriod);
-  const bollingerPeriod = clampInt(input.bollingerPeriod, MIN_PERIOD, MAX_PERIOD, d.bollingerPeriod);
-  const k = Number(input.bollingerK);
-  const bollingerK = Number.isFinite(k) && input.bollingerK !== null && input.bollingerK !== undefined
-    ? Math.round(Math.min(MAX_K, Math.max(MIN_K, k)) * 10) / 10 : d.bollingerK;
+  const period = (v: unknown, fallback: number) => clampInt(v, MIN_PERIOD, MAX_PERIOD, fallback);
+  const smaPeriod = period(input.smaPeriod, d.smaPeriod);
+  const emaPeriod = period(input.emaPeriod, d.emaPeriod);
+  const rsiPeriod = period(input.rsiPeriod, d.rsiPeriod);
+  const atrPeriod = period(input.atrPeriod, d.atrPeriod);
+  const bollingerPeriod = period(input.bollingerPeriod, d.bollingerPeriod);
+  const donchianPeriod = period(input.donchianPeriod, d.donchianPeriod);
+  const bollingerK = clampPlaces(input.bollingerK, MIN_K, MAX_K, 1, d.bollingerK);
+  const macdSignal = period(input.macdSignal, d.macdSignal);
+  // The form refuses these pairs out of order; anything else that is goes back to the defaults.
+  let macdFast = period(input.macdFast, d.macdFast), macdSlow = period(input.macdSlow, d.macdSlow);
+  if (macdFast >= macdSlow) [macdFast, macdSlow] = [d.macdFast, d.macdSlow];
+  let sarStep = clampPlaces(input.sarStep, MIN_SAR, MAX_SAR, 3, d.sarStep), sarMax = clampPlaces(input.sarMax, MIN_SAR, MAX_SAR, 3, d.sarMax);
+  if (sarStep > sarMax) [sarStep, sarMax] = [d.sarStep, d.sarMax];
   const manualOnly = typeof input.manualOnly === 'boolean' ? input.manualOnly : d.manualOnly;
   const lookUpUpdate = typeof input.lookUpUpdate === 'boolean' ? input.lookUpUpdate : d.lookUpUpdate;
   const lookUpCal = isCalibration(input.lookUpCal) ? input.lookUpCal : null;
@@ -232,14 +264,23 @@ export function sanitize(input: Partial<Settings>): Settings {
   const exploreBy = !rankings || rankings.includes(wantBy) ? wantBy : rankings[0]!;
   const exploreView = (EXPLORE_VIEWS as readonly string[]).includes(input.exploreView as string) ? input.exploreView! : d.exploreView;
 
-  return { source, favorites, currency, markets, charts, interval, events, eventCharts, eventInterval, eventTextChart, explore, exploreBy, exploreView, candleWidth, font, showList, textList, showIndex, analysis, analysisKind, emaPeriod, rsiPeriod, bollingerPeriod, bollingerK, manualOnly, lookUpUpdate, lookUpCal, refreshSec, displaySec, alwaysOn };
+  return { source, favorites, currency, markets, charts, interval, events, eventCharts, eventInterval, eventTextChart, explore, exploreBy, exploreView, candleWidth, font, showList, textList, showIndex, analysis, analysisKind, smaPeriod, emaPeriod, rsiPeriod, atrPeriod, bollingerPeriod, donchianPeriod, bollingerK, macdFast, macdSlow, macdSignal, sarStep, sarMax, manualOnly, lookUpUpdate, lookUpCal, refreshSec, displaySec, alwaysOn };
 }
 
 /** The indicator to draw with `s`, if analysis is on. */
 export function analysisSpec(s: Settings): AnalysisSpec | null {
   if (!s.analysis) return null;
-  const period = { ema: s.emaPeriod, rsi: s.rsiPeriod, bollinger: s.bollingerPeriod }[s.analysisKind];
-  return { kind: s.analysisKind, period, k: s.bollingerK };
+  switch (s.analysisKind) {
+    case 'sma': return { kind: 'sma', period: s.smaPeriod };
+    case 'ema': return { kind: 'ema', period: s.emaPeriod };
+    case 'rsi': return { kind: 'rsi', period: s.rsiPeriod };
+    case 'atr': return { kind: 'atr', period: s.atrPeriod };
+    case 'donchian': return { kind: 'donchian', period: s.donchianPeriod };
+    case 'bollinger': return { kind: 'bollinger', period: s.bollingerPeriod, k: s.bollingerK };
+    case 'macd': return { kind: 'macd', fast: s.macdFast, slow: s.macdSlow, signal: s.macdSignal };
+    case 'sar': return { kind: 'sar', step: s.sarStep, max: s.sarMax };
+    case 'vwap': return { kind: 'vwap' };
+  }
 }
 
 /** `minutes` if supported, else the supported size closest to it (by ratio). */
@@ -252,6 +293,12 @@ export function nearestInterval(supported: readonly number[], minutes: number): 
 function clampInt(v: unknown, min: number, max: number, fallback: number): number {
   const n = Math.round(Number(v));
   return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
+}
+
+/** A number between `min` and `max`, to `places` decimal places. */
+function clampPlaces(v: unknown, min: number, max: number, places: number, fallback: number): number {
+  const n = v === null || v === undefined ? NaN : Number(v);
+  return Number.isFinite(n) ? Number(Math.min(max, Math.max(min, n)).toFixed(places)) : fallback;
 }
 
 function dedupe<T>(xs: T[]): T[] {

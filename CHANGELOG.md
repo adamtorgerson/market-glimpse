@@ -5,10 +5,19 @@ Notable changes to MarketGlimpse, by release tag.
 ## [Unreleased]
 
 ### Added
-- An Analysis section: **Show analysis** draws an EMA, RSI in a pane under
-  the volume strip, or Bollinger Bands on the image charts, from the
-  candles shown, with no extra requests. Each indicator's period (and the
-  bands' width) is a setting.
+- An Analysis section: **Show analysis** draws SMA, EMA, VWAP, Bollinger
+  Bands, Donchian Channels or Parabolic SAR over the price, or RSI, MACD or
+  ATR in a pane under the volume strip, on the image charts, from the candles
+  shown, with no extra requests. Each indicator's parameters are settings. A
+  period too long for the chart says how many candles it needs.
+- Analysis allows up to 2 charts: turning it on keeps the first 2 ticked, and
+  Explore's 4 charts becomes 2. With two charts, MACD is its histogram alone.
+
+### Development
+- The indicators are tested against an outside reference on real Kraken
+  candles, intraday and daily: TA-Lib's results, given just the candles shown
+  and given the market's long history, and Kraken's own VWAP.
+  `scripts/analysis-fixtures.py` rewrites the fixture.
 
 ## [0.4.3] - 2026-11-02
 

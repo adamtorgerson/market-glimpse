@@ -1,7 +1,7 @@
 import type { Candle, MarketData } from './sources/types';
 import { cssFont, digitBottom, digitMid, digitTop } from './fonts';
 import { formatInterval, type CandleWidth, type ChartFont } from './settings';
-import { bollinger, ema, rsi, type AnalysisSpec } from './analysis';
+import { ANALYSIS_LABELS, atr, bollinger, candlesNeeded, donchian, ema, hasPane, macd, parabolicSar, rsi, sma, vwap, type AnalysisSpec } from './analysis';
 import LOGO_SVG from '../assets/icon.svg?raw';
 
 export const SCREEN_W = 576;
@@ -15,9 +15,11 @@ export const FAINT = '#282828';
 // Volume bars sit a step below the candles so they read as background context.
 const VOL_UP = '#686868';
 const VOL_DOWN = '#404040';
-/** Analysis lines: the EMA over the candles, a shade under up candles; Bollinger Bands, behind them, dimmer. */
-const EMA_COLOR = '#c0c0c0';
+/** Analysis over the candles, a shade under up candles; bands and channels, behind them, dimmer. */
+const OVER_COLOR = '#c0c0c0';
 const BAND_COLOR = '#787878';
+/** A pane shorter than this has room for MACD's histogram but not its lines as well. */
+const MIN_MACD_LINES_H = 24;
 /** Line height of the market list under the charts. */
 const LIST_LINE_H = 18;
 const LIST_PX = 13;
@@ -66,7 +68,7 @@ interface PanelStyle {
 interface Geometry {
   plot: Rect;
   vol: Rect;
-  /** The RSI pane under the volume strip, when RSI is drawn. */
+  /** The pane under the volume strip, for an indicator with its own scale. */
   osc: Rect | null;
   /** Slot width (body + gap) and candle body width, in px. */
   pitch: number;
@@ -128,7 +130,7 @@ export function renderScreen(ctx: CanvasRenderingContext2D, model: ScreenModel):
     ctx.measureText('000.0K').width,
     ...model.charts.map((m) => m.candles.length ? ctx.measureText(formatPrice(m.candles.at(-1)!.close)).width : 0),
   )) + 8;
-  const geoms = rects.map((r) => panelGeometry(r, style, axisW, model.candleWidth, chartAnalysis?.kind === 'rsi'));
+  const geoms = rects.map((r) => panelGeometry(r, style, axisW, model.candleWidth, !!chartAnalysis && hasPane(chartAnalysis.kind)));
 
   const intervalSec = model.interval * 60;
   const latest = Math.max(...model.charts.map((m) => m.candles.at(-1)?.time ?? -Infinity));
@@ -215,7 +217,7 @@ function panelStyle(compact: boolean): PanelStyle {
 
 /**
  * Price plot with a right-hand axis, and a volume strip (~10%) underneath;
- * with `osc`, an RSI pane (~20%) under that. The panes share the plot's
+ * with `osc`, an indicator's pane (~20%) under that. The panes share the plot's
  * width, so candle capacity doesn't depend on it.
  */
 function panelGeometry(r: Rect, s: PanelStyle, axisW: number, width: CandleWidth, osc = false): Geometry {
@@ -362,22 +364,16 @@ function drawPanel(
   if (hi === lo) { hi += hi * 0.001 || 1; lo -= lo * 0.001 || 1; }
 
   // Indicators run over every candle fetched (no more than the chart shows);
-  // the price scale stretches to fit the overlays.
-  const closes = data.candles.map((c) => c.close);
+  // the price scale stretches to fit those drawn on it.
   const a = chartAnalysis;
-  const emaLine = a?.kind === 'ema' ? ema(closes, a.period) : null;
-  const bands = a?.kind === 'bollinger' ? bollinger(closes, a.period, a.k) : null;
-  const rsiLine = a?.kind === 'rsi' && g.osc ? rsi(closes, a.period) : null;
-  const pointsOf = (values: (number | null)[]) =>
-    visible.flatMap(({ i, k }) => (values[i] == null ? [] : [{ k, v: values[i]! }]));
-  const emaPts = emaLine ? pointsOf(emaLine) : [];
-  const upperPts = bands ? pointsOf(bands.map((b) => b?.upper ?? null)) : [];
-  const midPts = bands ? pointsOf(bands.map((b) => b?.mid ?? null)) : [];
-  const lowerPts = bands ? pointsOf(bands.map((b) => b?.lower ?? null)) : [];
+  const pointsOf: PointsOf = (values) => visible.flatMap(({ i, k }) => (values[i] == null ? [] : [{ k, v: values[i]! }]));
+  const overlays = a ? priceSeries(a, data.candles).map((series) => ({ ...series, pts: pointsOf(series.values) })) : [];
   let scaleTop = hi, scaleBottom = lo;
-  for (const { v } of [...emaPts, ...upperPts, ...lowerPts]) {
-    scaleTop = Math.max(scaleTop, v);
-    scaleBottom = Math.min(scaleBottom, v);
+  for (const { pts } of overlays) {
+    for (const { v } of pts) {
+      scaleTop = Math.max(scaleTop, v);
+      scaleBottom = Math.min(scaleBottom, v);
+    }
   }
   const y = (p: number) => Math.round(plot.y + (scaleTop - p) / (scaleTop - scaleBottom) * (plot.h - 1));
 
@@ -407,12 +403,8 @@ function drawPanel(
   }
   ctx.setLineDash([]);
 
-  // Bollinger Bands go behind the candles: the bands solid, the average dotted.
-  if (bands) {
-    drawSeries(ctx, g, upperPts, y, BAND_COLOR);
-    drawSeries(ctx, g, lowerPts, y, BAND_COLOR);
-    drawSeries(ctx, g, midPts, y, BAND_COLOR, true);
-  }
+  // Bands and channels go behind the candles.
+  for (const o of overlays) if (o.behind) drawSeries(ctx, g, o.pts, y, o.color, o.style);
 
   // Volume strip.
   let maxVol = 0, maxVolK = 0;
@@ -452,9 +444,9 @@ function drawPanel(
     }
   }
 
-  // The EMA goes over the candles, to be seen through them.
-  if (emaLine) drawSeries(ctx, g, emaPts, y, EMA_COLOR);
-  if (rsiLine && g.osc) drawRsi(ctx, g, g.osc, pointsOf(rsiLine), axisFont);
+  // Lines and dots go over the candles, to be seen through them.
+  for (const o of overlays) if (!o.behind) drawSeries(ctx, g, o.pts, y, o.color, o.style);
+  if (a && g.osc) drawPane(ctx, g, g.osc, paneContent(a, data.candles, pointsOf, g.osc.h >= MIN_MACD_LINES_H), axisFont);
 
   // Price labels sit on their gridlines at the right edge. Skip any that would
   // poke up into the header, or cover the logo (tag's box, plus a row).
@@ -553,18 +545,62 @@ function drawPanel(
     extreme(lo, loK);
   }
 
+  // Top-left of the plot, over anything there.
+  if (a && overlays.length && overlays.every((o) => o.pts.length < 2)) {
+    ctx.font = axisFont;
+    tag(ctx, needsText(a), plot.x + 2, plot.y + Math.ceil(ctx.measureText('0').actualBoundingBoxAscent / 2) + 2, 'left', MID);
+  }
+
   ctx.restore();
 }
 
+type Point = { k: number; v: number };
+type PointsOf = (values: (number | null)[]) => Point[];
+type SeriesStyle = 'solid' | 'dotted' | 'steps' | 'dots';
+
+/** What an indicator draws over the price: nothing, if it has a pane of its own. */
+function priceSeries(a: AnalysisSpec, candles: Candle[]): { values: (number | null)[]; style: SeriesStyle; color: string; behind: boolean }[] {
+  const closes = candles.map((c) => c.close);
+  const over = (values: (number | null)[], style: SeriesStyle = 'solid') => [{ values, style, color: OVER_COLOR, behind: false }];
+  const band = (values: (number | null)[], style: SeriesStyle) => ({ values, style, color: BAND_COLOR, behind: true });
+  switch (a.kind) {
+    case 'sma': return over(sma(closes, a.period));
+    case 'ema': return over(ema(closes, a.period));
+    case 'vwap': return over(vwap(candles));
+    case 'sar': return over(parabolicSar(candles, a.step, a.max), 'dots');
+    case 'bollinger': {
+      const b = bollinger(closes, a.period, a.k);
+      return [band(b.map((x) => x?.upper ?? null), 'solid'), band(b.map((x) => x?.lower ?? null), 'solid'), band(b.map((x) => x?.mid ?? null), 'dotted')];
+    }
+    case 'donchian': {
+      const c = donchian(candles, a.period);
+      return [band(c.map((x) => x?.upper ?? null), 'steps'), band(c.map((x) => x?.lower ?? null), 'steps')];
+    }
+    default: return [];
+  }
+}
+
 /**
- * A line through `pts` (slot `k`, value `v`) at the slots' centres, drawn
- * as whole-pixel runs so it stays crisp (no anti-aliased fringe to slow the
- * upload); `dotted`, every other column.
+ * Points at the slots' centres, drawn in whole pixels so they stay crisp (no
+ * anti-aliased fringe to slow the upload): a line, the same with every other
+ * column left out, level runs that step at each candle, or a 2px dot each.
  */
-function drawSeries(ctx: CanvasRenderingContext2D, g: Geometry, pts: { k: number; v: number }[], y: (v: number) => number, color: string, dotted = false): void {
+function drawSeries(ctx: CanvasRenderingContext2D, g: Geometry, pts: Point[], y: (v: number) => number, color: string, style: SeriesStyle = 'solid'): void {
   if (pts.length < 2) return;
   const xy = pts.map(({ k, v }) => ({ x: slotCenter(g, k), y: y(v) })).sort((a, b) => a.x - b.x);
   ctx.fillStyle = color;
+  if (style === 'dots') {
+    for (const p of xy) ctx.fillRect(p.x, p.y, 2, 2);
+    return;
+  }
+  if (style === 'steps') {
+    xy.forEach((p, j) => {
+      const next = xy[j + 1];
+      ctx.fillRect(p.x, p.y, next ? next.x - p.x : 1, 1);
+      if (next && next.y !== p.y) ctx.fillRect(next.x, Math.min(p.y, next.y), 1, Math.abs(next.y - p.y));
+    });
+    return;
+  }
   let prevY = xy[0]!.y;
   for (let x = xy[0]!.x, j = 1; x <= xy.at(-1)!.x; x++) {
     while (x > xy[j]!.x) j++;
@@ -572,19 +608,63 @@ function drawSeries(ctx: CanvasRenderingContext2D, g: Geometry, pts: { k: number
     const yy = Math.round(a.y + (b.y - a.y) * (x - a.x) / Math.max(1, b.x - a.x));
     // Each column runs from just past the last one's row to its own, so steep stretches stay joined.
     const top = yy > prevY ? prevY + 1 : yy, h = Math.max(1, Math.abs(yy - prevY));
-    if (!dotted || x % 2 === 0) ctx.fillRect(x, top, 1, h);
+    if (style === 'solid' || x % 2 === 0) ctx.fillRect(x, top, 1, h);
     prevY = yy;
   }
 }
 
-/** RSI on a 0–100 scale in `r`, with dashed lines at 30 and 70 and its latest value top-left. */
-function drawRsi(ctx: CanvasRenderingContext2D, g: Geometry, r: Rect, pts: { k: number; v: number }[], axisFont: string): void {
-  const ry = (v: number) => Math.round(r.y + (100 - v) / 100 * (r.h - 1));
+function needsText(a: AnalysisSpec): string {
+  return `${ANALYSIS_LABELS[a.kind]} needs ${candlesNeeded(a)} candles`;
+}
+
+/** The latest of `pts`: the smallest slot. */
+function latestPoint(pts: Point[]): Point | undefined {
+  return pts.reduce<Point | undefined>((best, p) => (!best || p.k < best.k ? p : best), undefined);
+}
+
+interface Pane {
+  lo: number;
+  hi: number;
+  /** Values marked with a dashed line. */
+  levels: number[];
+  /** Histogram bars, from zero. */
+  bars: Point[];
+  lines: { pts: Point[]; color: string; style: SeriesStyle }[];
+  label: string;
+}
+
+/** An indicator's pane: its own scale, and its name and latest value (or the candles it lacks) as the label. */
+function paneContent(a: AnalysisSpec, candles: Candle[], pointsOf: PointsOf, tall: boolean): Pane {
+  const closes = candles.map((c) => c.close);
+  if (a.kind === 'rsi') {
+    const pts = pointsOf(rsi(closes, a.period));
+    return { lo: 0, hi: 100, levels: [30, 70], bars: [], lines: [{ pts, color: FG, style: 'solid' }], label: pts.length < 2 ? needsText(a) : `RSI ${Math.round(latestPoint(pts)!.v)}` };
+  }
+  if (a.kind === 'atr') {
+    const pts = pointsOf(atr(candles, a.period));
+    const values = pts.map((p) => p.v);
+    return { lo: Math.min(...values), hi: Math.max(...values), levels: [], bars: [], lines: [{ pts, color: FG, style: 'solid' }], label: pts.length < 2 ? needsText(a) : `ATR ${formatPrice(latestPoint(pts)!.v)}` };
+  }
+  if (a.kind === 'macd') {
+    const m = macd(closes, a.fast, a.slow, a.signal);
+    const bars = pointsOf(m.hist);
+    // Short of room, the histogram alone: it's the two lines' difference.
+    const lines = tall ? [{ pts: pointsOf(m.line), color: FG, style: 'solid' as const }, { pts: pointsOf(m.signal), color: MID, style: 'dotted' as const }] : [];
+    const reach = Math.max(0, ...[bars, ...lines.map((l) => l.pts)].flat().map((p) => Math.abs(p.v)));
+    return { lo: -reach, hi: reach, levels: [0], bars, lines, label: bars.length < 2 ? needsText(a) : `MACD hist ${formatPrice(latestPoint(bars)!.v)}` };
+  }
+  return { lo: 0, hi: 1, levels: [], bars: [], lines: [], label: '' };
+}
+
+/** A pane in `r`: dashed levels, then bars, then lines, with its label top-left. */
+function drawPane(ctx: CanvasRenderingContext2D, g: Geometry, r: Rect, pane: Pane, axisFont: string): void {
+  const flat = !(pane.hi > pane.lo);
+  const ry = (v: number) => (flat ? r.y + Math.floor(r.h / 2) : Math.round(r.y + (pane.hi - v) / (pane.hi - pane.lo) * (r.h - 1)));
   ctx.save();
   ctx.lineWidth = 1;
   ctx.strokeStyle = FAINT;
   ctx.setLineDash([2, 3]);
-  for (const level of [30, 70]) {
+  for (const level of pane.levels) {
     ctx.beginPath();
     ctx.moveTo(r.x, ry(level) + 0.5);
     ctx.lineTo(r.x + r.w, ry(level) + 0.5);
@@ -593,12 +673,14 @@ function drawRsi(ctx: CanvasRenderingContext2D, g: Geometry, r: Rect, pts: { k: 
   ctx.setLineDash([]);
   ctx.fillStyle = FAINT;
   ctx.fillRect(r.x, r.y + r.h, r.w, 1);
-  drawSeries(ctx, g, pts, ry, FG);
+  for (const { k, v } of pane.bars) {
+    const zero = ry(0), to = ry(v);
+    ctx.fillStyle = v >= 0 ? MID : DIM;
+    ctx.fillRect(slotLeft(g, k), Math.min(zero, to), g.body, Math.max(1, Math.abs(to - zero)));
+  }
+  for (const line of pane.lines) drawSeries(ctx, g, line.pts, ry, line.color, line.style);
   ctx.font = axisFont;
-  const ascent = ctx.measureText('0').actualBoundingBoxAscent;
-  // Latest is the smallest slot.
-  const latest = pts.reduce<{ k: number; v: number } | null>((best, p) => (!best || p.k < best.k ? p : best), null);
-  tag(ctx, latest ? `RSI ${Math.round(latest.v)}` : 'RSI', r.x + 2, r.y + Math.ceil(ascent / 2) + 2, 'left', MID);
+  tag(ctx, pane.label, r.x + 2, r.y + Math.ceil(ctx.measureText('0').actualBoundingBoxAscent / 2) + 2, 'left', MID);
   ctx.restore();
 }
 

@@ -91,7 +91,7 @@ refreshes every 2m, chart shown for 12s, narrow candles.
   coins go by their common codes (Unit's `UBTC` is `BTC`, `USDT0` is `USDT`),
   and its markets with no trades in 24h are left out.
 - **Markets**: up to 8 (`BTC-USDC`, `SOL-USD`, …). Tick up to 4 to chart (1
-  with any Text width). Any market that isn't charted is listed under the charts
+  with any Text width, 2 with **Show analysis** on). Any market that isn't charted is listed under the charts
   with its price and 24h volume (unlabelled, in the base currency, e.g.
   `ETH-USDC 2,400.22 4.4K`).
   Several markets share a line, and the list wraps onto more lines as needed.
@@ -108,7 +108,7 @@ refreshes every 2m, chart shown for 12s, narrow candles.
   full-screen market list, with the 24h change in place of the volume for
   movers; or **1 chart**, **2 charts** or **4 charts**, charting just the top
   1, 2 or 4 (with the index, as on any chart) and listing the rest of the 8
-  under them. Text candles allow 1. For a prediction market, List is its
+  under them. Text candles allow 1, and **Show analysis** 2. For a prediction market, List is its
   top 8 events, one per row: the title, the likeliest outcome's probability
   and name, the 24h volume, and a line plot of the event's top
   (up to 4) outcomes over the period one chart shows, in the charts' line
@@ -206,20 +206,39 @@ refreshes every 2m, chart shown for 12s, narrow candles.
   CoinGecko request on each update.
 - **Analysis** (its own section; exchanges only): **Show analysis** draws
   the chosen **Indicator** on the image charts (not text candles), computed
-  from the closes of the candles shown, so it needs no extra requests. Each
-  has its own settings, kept when you switch between them:
-  - **EMA**: an exponential moving average, a line over the candles.
-    **Period** 2–200 candles (20 by default).
+  from the candles shown, so it needs no extra requests. Each indicator has
+  its own settings, kept when you switch between them. Periods are 2–200
+  candles.
+  - **SMA** and **EMA**: simple and exponential moving averages of the
+    closes, a line over the candles. **Period** 20 by default.
+  - **VWAP**: the volume-weighted average price, a line over the candles. It
+    runs from the chart's left edge, not a session's open, so it won't match
+    the session VWAP other charts show, and it shifts as the chart moves on.
+  - **Bollinger Bands**: the average over **Period** candles (20 by default),
+    dotted, with bands **Band width** standard deviations either side (0.1–5,
+    2 by default), behind the candles; the price scale stretches to fit them.
+  - **Donchian Channels**: the highest high and lowest low of the last
+    **Period** candles (20 by default), stepped lines behind the candles.
+  - **Parabolic SAR**: a dot per candle, above or below the price, that
+    closes in as the trend runs and flips when the price reaches it.
+    **Acceleration step** (0.02 by default) and **max** (0.2), 0.001–1.
   - **RSI**: Wilder's relative strength index in a pane under the volume
     strip, on a 0–100 scale with dashed lines at 30 and 70 and the latest
-    value top-left. **Period** 2–200 candles (14 by default).
-  - **Bollinger Bands**: the average over **Period** candles (2–200, 20 by
-    default), dotted, with bands **Band width** standard deviations either
-    side (0.1–5, 2 by default), behind the candles; the price scale
-    stretches to fit them.
+    value top-left. **Period** 14 by default.
+  - **MACD**: in the same pane, a histogram of the line minus its signal,
+    around a dashed zero, labelled with its latest value. Where the pane has
+    room (one chart), also the line (solid) and signal (dotted). **Fast**,
+    **slow** and **signal** periods 12, 26 and 9 by default; fast must be
+    shorter than slow.
+  - **ATR**: Wilder's average true range, in the same pane on its own scale,
+    labelled with its latest value in price. **Period** 14 by default.
 
-  Each starts once its period has filled (that many candles in from the
-  left), since only the candles shown are fetched.
+  Each starts once its period has filled, since only the candles shown are
+  fetched; a period too long for the chart says how many candles it needs
+  instead. EMA, RSI, MACD, ATR and Parabolic SAR carry their starting values
+  forward, so their left ends can differ from a chart with more history. With
+  so few candles in a quadrant, analysis limits an exchange to 2 charts:
+  turning it on keeps the first 2 ticked, and Explore's 4 charts becomes 2.
 - **Manual only**: no scheduled updates. Nothing is fetched and the glasses
   stay dark until you press **Show now** or tap the glasses, which saves
   battery on both devices. The refresh rate is ignored while this is on.
@@ -488,6 +507,10 @@ Tests are grouped by directory under `test/`: `sources` (exchange name
 resolution and requests), `prediction` (Polymarket and Polymarket US),
 `charting` (the glasses' text charts and lists), `explore` (ranking the top
 markets) and `settings`. Files ending `.live.test.ts` call the live APIs.
+`test/charting/analysis-reference.test.ts` checks the Analysis indicators
+against TA-Lib (given just the candles shown, and given long history) and
+Kraken's own VWAP, on real intraday and daily candles saved in
+`test/charting/fixtures/`; `scripts/analysis-fixtures.py` rewrites them.
 
 The store icon is `assets/icon-24.png`. The upload validates it: 24×24,
 every pixel `#F4F4F4` at full opacity or fully transparent, and every lit
