@@ -37,7 +37,7 @@ describe('the prediction text chart', () => {
 
   it('has the time, question, volume and source along the top', () => {
     expect(lines(0)[0]).toBe('Fed decision in December?');
-    expect(lines(4)[0]).toMatch(/^14:36:34 +Polymarket +\$4\.2M$/);
+    expect(lines(4)[0]).toMatch(/^14:36:34 +Polymarket +4\.2M$/);
   });
 
   it('has a legend along the bottom, on two lines if one would cut names short: each line\'s sample and probability in its brightness, and its name', () => {

@@ -29,8 +29,9 @@ const STOCKS = ['TSLA', 'NVDA', 'AAPL'];
 const M3 = [...M8.slice(0, 2), STOCKS[0]];
 const M6 = [...M8.slice(0, 4), ...STOCKS.slice(0, 2)];
 // Polymarket events that run until well after 2026, and Polymarket US's (named its own way).
-const EVENTS = ['presidential-election-winner-2028', 'democratic-presidential-nominee-2028', 'republican-presidential-nominee-2028', 'balance-of-power-2026-midterms'];
-const MORE_EVENTS = ['which-party-will-win-the-house-in-2026', 'which-party-will-win-the-senate-in-2026'];
+const EVENTS = ['presidential-election-winner-2028', 'democratic-presidential-nominee-2028', 'republican-presidential-nominee-2028', 'which-party-wins-2028-us-presidential-election'];
+// A single yes/no market, then a set where exactly one wins and all are listed.
+const MORE_EVENTS = ['will-trump-be-impeached-before-his-term-ends', 'openai-ipo-closing-market-cap-554'];
 const US_EVENTS = ['nfl-champ-2027-02-14-w', 'btc-hitprice-high-yr-12-31-2026', 'usfed-fomc-2026-12-09', 'btc-pricerange-yr-12-31-2026'];
 const ALL = [...M8.slice(0, 5), ...STOCKS];
 const SHOTS = {
@@ -52,8 +53,8 @@ const SHOTS = {
   'analysis-too-long': { markets: ALL, charts: ['BTC-USDC'], analysis: true, analysisKind: 'ema', emaPeriod: 200 },
   'prediction-analysis': { source: 'polymarket', events: { polymarket: EVENTS.slice(0, 1) }, eventInterval: 60, eventAnalysis: true },
   'prediction-analysis-two-charts': { source: 'polymarket', events: { polymarket: EVENTS }, eventCharts: { polymarket: EVENTS.slice(0, 2) }, eventInterval: 60, eventAnalysis: true },
-  'prediction-analysis-complete': { source: 'polymarket', events: { polymarket: ['fed-decision-in-december-20260729232808632'] }, eventInterval: 60, eventAnalysis: true },
-  'prediction-analysis-binary': { source: 'polymarket', events: { polymarket: ['will-the-us-invade-iran-before-2027'] }, eventInterval: 60, eventAnalysis: true },
+  'prediction-analysis-complete': { source: 'polymarket', events: { polymarket: MORE_EVENTS.slice(1) }, eventInterval: 60, eventAnalysis: true },
+  'prediction-analysis-binary': { source: 'polymarket', events: { polymarket: MORE_EVENTS.slice(0, 1) }, eventInterval: 60, eventAnalysis: true },
   'prediction-us-analysis': { source: 'polymarketus', events: { polymarketus: US_EVENTS.slice(0, 1) }, eventInterval: 60, eventAnalysis: true },
   'prediction-us-analysis-two-charts': { source: 'polymarketus', events: { polymarketus: US_EVENTS }, eventCharts: { polymarketus: US_EVENTS.slice(0, 2) }, eventInterval: 60, eventAnalysis: true },
   'analysis-bollinger-macd': { markets: ALL, charts: ['BTC-USDC'], analysis: true, analysisKind: 'bollinger', analysisSecond: 'macd' },

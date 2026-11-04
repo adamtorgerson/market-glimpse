@@ -38,7 +38,9 @@ refreshes every 2m, chart shown for 12s, narrow candles.
   likeliest outcome's probability and name, its 24h volume where the source
   gives one (Polymarket US doesn't), and a line plot of its top outcomes; or
   as text with **Market List as text**; **Market List** shows the list
-  even with events ticked, as for markets). A link is kept as its slug
+  even with events ticked, as for markets). Volumes are in shares, as Polymarket
+  publishes them, not dollars: a share costs its price and pays $1 if it wins, so
+  4M shares of long shots can be under $200K traded. A link is kept as its slug
   (`https://polymarket.com/event/balance-of-power-2026-midterms` is
   `balance-of-power-2026-midterms`). Polymarket (polymarket.com) and
   Polymarket US (polymarket.us, the US exchange) are separate exchanges with

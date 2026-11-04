@@ -318,7 +318,7 @@ export function buildEventTextList(m: EventTextListModel): TextBox[] {
 
   // Volumes placed after the names, in their container, can land a little right of where they're meant to.
   const right = SCREEN_W - 4 - (m.twoBoxes ? TRAILING_SLACK : 0);
-  const vols = m.items.map((d) => (d.dayVolume === undefined || d.error ? '' : `$${formatVolume(d.dayVolume)}`));
+  const vols = m.items.map((d) => (d.dayVolume === undefined || d.error ? '' : formatVolume(d.dayVolume)));
   const volW = Math.max(0, ...vols.map(textWidth));
   const titles = m.items.map((d) => cut(d.title, TITLE_W - (volW ? volW + 16 : 0)));
   // The likeliest outcome, of those charted.
@@ -485,7 +485,7 @@ function addEventHeader(bright: TextLine, dim: TextLine, m: EventTextChartModel)
   const stamp = m.updated.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   dim.texts.push({ x: 4, text: stamp });
   const left = 4 + textWidth(stamp) + HEADER_GAP;
-  const vol = m.event.dayVolume === undefined || m.event.error ? '' : `$${formatVolume(m.event.dayVolume)}`;
+  const vol = m.event.dayVolume === undefined || m.event.error ? '' : formatVolume(m.event.dayVolume);
   const right = [m.source, vol].filter(Boolean).join('  ');
   if (right) dim.texts.push({ x: SCREEN_W - 4 - textWidth(right), text: right });
   bright.texts.push({ x: left, text: cut(m.event.title, SCREEN_W - 4 - (right ? textWidth(right) + HEADER_GAP : 0) - left) });

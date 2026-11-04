@@ -32,7 +32,7 @@ describe('the prediction text list', () => {
   });
 
   it('has the 24h volume against the right edge, where there is one', () => {
-    expect(volumes![0]).toBe('$8.3M');
+    expect(volumes![0]).toBe('8.3M');
     expect(volumes!.slice(1).every((v) => v === '')).toBe(true);
   });
 
@@ -84,7 +84,7 @@ describe('trend arrows', () => {
     expect(list).toHaveLength(2);
     const [bright, mid] = list.map((b) => b.content.split('\n').map(read));
     expect(bright![0]).toBe('80% ↑');
-    expect(mid![0]).toMatch(/^Fed Decision in December +25 bps Increase +\$1\.2M$/);
+    expect(mid![0]).toMatch(/^Fed Decision in December +25 bps Increase +1\.2M$/);
     expect(mid![1]).toMatch(/^Balance of Power +\.\.\.$/);
   });
 

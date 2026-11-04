@@ -22,8 +22,8 @@ afterAll(() => {
 });
 
 it('charts the likeliest outcomes of each event, with the rest as Other, in two requests', async () => {
-  const markets = ['presidential-election-winner-2028', eventSlug('https://polymarket.com/event/balance-of-power-2026-midterms'), 'no-such-event-xyz'];
-  const [president, midterms, missing] = await polymarket.fetch({ markets, interval: 60, points: 48 }, AbortSignal.timeout(60_000));
+  const markets = ['presidential-election-winner-2028', eventSlug('https://polymarket.com/event/which-party-wins-2028-us-presidential-election'), 'no-such-event-xyz'];
+  const [president, party, missing] = await polymarket.fetch({ markets, interval: 60, points: 48 }, AbortSignal.timeout(60_000));
 
   // Dozens of candidates: the four likeliest, likeliest first, and the rest summed.
   expect(president!.title).toMatch(/Presidential Election/);
@@ -35,7 +35,7 @@ it('charts the likeliest outcomes of each event, with the rest as Other, in two 
   expect(total).toBeGreaterThan(0.8);
   expect(total).toBeLessThan(1.2);
 
-  for (const d of [president!, midterms!]) {
+  for (const d of [president!, party!]) {
     expect(d.error, d.market).toBeUndefined();
     for (const o of d.outcomes) {
       expect(o.price, o.name).toBeGreaterThanOrEqual(0);

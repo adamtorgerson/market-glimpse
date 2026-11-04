@@ -8,6 +8,9 @@ Notable changes to MarketGlimpse, by release tag.
 - Polymarket US: a market quoted on just one side was priced wrongly. A lone
   price with no bid is the ask, not a bid: such a market is now at half of it,
   which brings down long shots' prices and the "others" in a legend.
+- Polymarket's volumes were labelled in dollars but are in shares, which can be
+  many times the dollars traded. They no longer have a "$", and say "shares"
+  where there's room.
 
 ### Added
 - An Analysis section: **Show analysis** draws SMA, EMA, VWAP, Bollinger

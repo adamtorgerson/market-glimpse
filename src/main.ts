@@ -630,7 +630,7 @@ async function exploreEvents(s: Settings, ctrl: AbortController): Promise<Predic
     if (s.exploreBy === 'movers') return f.change === undefined ? '' : formatPoints(f.change);
     // Polymarket's own liquidity is its books; Polymarket US's, the top of its leading market's.
     if (s.exploreBy === 'liquidity') return f.liquidity === undefined ? '' : `$${formatVolume(f.liquidity)} ${s.source === 'polymarket' ? 'book' : 'bid/ask'}`;
-    return f.volume === undefined ? '' : `$${formatVolume(f.volume)}`;
+    return f.volume === undefined ? '' : `${formatVolume(f.volume)} shares`;
   };
   // The list on the phone as soon as they're found, by the titles the ranking gave.
   setExplored(s, found.map((f) => ({ market: f.market, label: f.title ?? f.market, value: value(f) })));

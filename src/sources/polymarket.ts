@@ -21,7 +21,7 @@ export interface GammaMarket {
   clobTokenIds: string;
   active: boolean;
   closed: boolean;
-  /** In dollars. */
+  /** In shares, not dollars: it matches the shares in `/v2/trades`, whatever the trades cost. */
   volume24hr?: number;
   /** Change in the first outcome's probability over a day. */
   oneDayPriceChange?: number;

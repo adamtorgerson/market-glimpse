@@ -147,7 +147,7 @@ export function renderPrediction(ctx: CanvasRenderingContext2D, model: Predictio
   drawLogo(ctx, SCREEN_W - s.pad, SCREEN_H - 2);
   let rowRight = listH ? SCREEN_W - s.pad : SCREEN_W - s.pad - LOGO_W - 6;
   if (one?.dayVolume !== undefined) {
-    const vol = `24h vol $${compact(one.dayVolume)}`;
+    const vol = `24h vol ${compact(one.dayVolume)} shares`;
     ctx.font = small;
     ctx.fillStyle = DIM;
     ctx.textAlign = 'right';
@@ -187,7 +187,7 @@ export function renderPrediction(ctx: CanvasRenderingContext2D, model: Predictio
     const { r, plot } = ps[i]!;
     const top = r.y === 0;
     const corner = [top && r.x === 0 ? time : '', top && r.x + r.w === SCREEN_W ? model.source : ''].filter(Boolean).join('  ');
-    const vol = !one && data.dayVolume !== undefined ? `$${compact(data.dayVolume)}` : '';
+    const vol = !one && data.dayVolume !== undefined ? compact(data.dayVolume) : '';
     drawPanel(ctx, data, r, plot, s, font, end, intervalSec, vol, corner, !!model.analysis);
   });
   ctx.restore();
@@ -297,7 +297,7 @@ function drawPanel(
   ctx.font = small;
   const nameX = s.swatch + 5 + pctW + 5;
   const names = rows.map((row) => fit(ctx, row.name, stats ? s.nameMax * ANALYSIS_NAMES : s.nameMax));
-  const vols = rows.map((row) => (row.volume === undefined ? '' : `$${compact(row.volume)}`));
+  const vols = rows.map((row) => (row.volume === undefined ? '' : compact(row.volume)));
   const volW = Math.ceil(Math.max(0, ...vols.map((v) => ctx.measureText(v).width)));
   // Analysis: a row of headings, and three columns of each outcome's figures, in points.
   const statColumns = stats ? [
@@ -415,7 +415,7 @@ function eventCells(ctx: CanvasRenderingContext2D, d: PredictionData, font: (px:
   const leader = d.error ? undefined : [...d.outcomes].sort((a, b) => b.price - a.price)[0];
   if (!leader) return [title, { text: d.error ?? 'no data', color: DIM }];
   const cells: Cell[] = [title, { text: formatPct(leader.price), color: FG, bold: true, trend: leader.trend }, { text: fit(ctx, leader.name, 64), color: MID }];
-  if (d.dayVolume !== undefined) cells.push({ text: `$${compact(d.dayVolume)}`, color: DIM });
+  if (d.dayVolume !== undefined) cells.push({ text: compact(d.dayVolume), color: DIM });
   return cells;
 }
 
@@ -506,7 +506,7 @@ export function renderPredictionList(ctx: CanvasRenderingContext2D, model: Omit<
   const arrowW = model.items.some((d) => d.outcomes.some((o) => o.trend)) ? ARROW_GAP + arrowWidth(14) : 0;
   const leaderX = pctR + arrowW + 6;
   ctx.font = small;
-  const volR = leaderX + leaderW + 6 + Math.ceil(ctx.measureText('$888.8M').width);
+  const volR = leaderX + leaderW + 6 + Math.ceil(ctx.measureText('888.8M').width);
   const plotX = volR + 10, plotW = SCREEN_W - pad - plotX;
   const end = model.updated.getTime() / 1000;
   const span = (predictionCapacity(1) - 1) * model.interval * 60;
@@ -539,7 +539,7 @@ export function renderPredictionList(ctx: CanvasRenderingContext2D, model: Omit<
       ctx.font = small;
       ctx.fillStyle = DIM;
       ctx.textAlign = 'right';
-      ctx.fillText(`$${compact(d.dayVolume)}`, volR, Math.round(cy + digitMid(small)));
+      ctx.fillText(compact(d.dayVolume), volR, Math.round(cy + digitMid(small)));
     }
 
     // Each outcome's history in the period, ending at its current price.

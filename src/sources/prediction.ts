@@ -19,7 +19,7 @@ export interface Outcome {
   price: number;
   /** Oldest first. */
   history: PricePoint[];
-  /** Its market's 24h volume, in dollars, where it has a market of its own (or is the first of one's two sides). */
+  /** Its market's 24h volume, in shares, where it has a market of its own (or is the first of one's two sides). */
   dayVolume?: number;
   /** The source's own 24h change in probability (0.15 is 15 points), where it gives one. */
   dayChange?: number;
@@ -41,7 +41,7 @@ export interface PredictionData {
    * win, their combined probability (otherwise their prices don't add up).
    */
   other?: { count: number; price?: number };
-  /** 24h volume, in dollars. */
+  /** 24h volume, in shares: each costs its price and pays $1 if it wins, so far more than the dollars traded on long shots. */
   dayVolume?: number;
   /**
    * Where exactly one of its several markets wins and they're all listed, the
@@ -105,7 +105,7 @@ export interface ExploredEvent {
   /** Slug. */
   market: string;
   title?: string;
-  /** Its most traded market's 24h volume, in dollars. */
+  /** Its most traded market's 24h volume, in shares. */
   volume?: number;
   /** Its market that moved most: the 1-day change in probability (0.15 is 15 points). */
   change?: number;
