@@ -4,6 +4,8 @@ Notable changes to MarketGlimpse, by release tag.
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-11-04
+
 ### Changed
 - Explore's "Loading…" counts down to when its list is expected, rather than up
   from when it started.
@@ -219,6 +221,7 @@ schedule.
   gesture (calibrated from the IMU) to trigger an update.
 - Chart tiles sent to the glasses in parallel.
 
+[0.4.4]: https://github.com/adamtorgerson/market-glimpse/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/adamtorgerson/market-glimpse/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/adamtorgerson/market-glimpse/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/adamtorgerson/market-glimpse/compare/v0.4.0...v0.4.1
