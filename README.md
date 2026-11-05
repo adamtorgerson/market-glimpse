@@ -383,6 +383,14 @@ glasses by accident. A double tap still exits, and any of them still ends a
 pause while the glasses aren't in use. With it off, a manual-only chart comes
 from **Show now** or looking up.
 
+**Cycle Favorites** (under **Show now**, off by default) moves on to the next
+**Favorite** data source each time a chart is fetched for the schedule, **Show
+now** (or **Refresh now**), a tap or looking up. A scheduled change has no loading screen of
+its own. Changing a setting, launching and coming back from a pause stay on the
+current source. A favorite the settings can't take is passed over, with the
+reason under the form. It does nothing with no other favorite, and waits while a
+field on the phone has text not yet entered.
+
 ## Public API rules
 
 Every data source follows these rules (`src/sources/http.ts`):

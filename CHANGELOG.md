@@ -13,6 +13,8 @@ Notable changes to MarketGlimpse, by release tag.
   input on the glasses, shows a fresh chart.
 - **Gesture controls**: a checkbox, on by default, to turn off the glasses'
   tap, swipes and long press. A double tap still exits.
+- **Cycle Favorites**: a checkbox under Show now that moves on to the next
+  favorite data source with each scheduled update, Show now, tap or look-up.
 
 ### Changed
 - The phone page's "Fetching…" and Explore's "Loading…" countdowns no longer

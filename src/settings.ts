@@ -145,6 +145,8 @@ export interface Settings {
   alwaysOn: boolean;
   /** The glasses' tap, swipes and long press control the charts. A double tap exits regardless. */
   gestures: boolean;
+  /** Each scheduled update moves on to the next favorite source first. */
+  cycleFavorites: boolean;
 }
 
 /** Exactly what `sanitize` makes of them: a change is spotted by comparing settings, and a difference here would look like one. */
@@ -190,6 +192,7 @@ export const DEFAULT_SETTINGS: Settings = {
   displaySec: 12,
   alwaysOn: false,
   gestures: true,
+  cycleFavorites: false,
 };
 
 export function normalizeMarket(raw: string): string {
@@ -199,12 +202,16 @@ export function normalizeMarket(raw: string): string {
 /** Every source id, exchanges then prediction markets, as the source list shows them. */
 export const ALL_SOURCE_IDS: readonly string[] = [...SOURCES, ...PREDICTION_SOURCES].map((s) => s.id);
 
-/** The favorite after `source` in the source list, wrapping; null without another. */
-export function nextFavorite(s: Settings): string | null {
+/** The favorites other than `source`, in the source list's order from it, wrapping. */
+export function otherFavorites(s: Settings): string[] {
   const at = ALL_SOURCE_IDS.indexOf(s.source);
   const after = (id: string) => (ALL_SOURCE_IDS.indexOf(id) - at + ALL_SOURCE_IDS.length) % ALL_SOURCE_IDS.length;
-  const next = s.favorites.filter((id) => id !== s.source).sort((a, b) => after(a) - after(b))[0];
-  return next ?? null;
+  return s.favorites.filter((id) => id !== s.source).sort((a, b) => after(a) - after(b));
+}
+
+/** The favorite after `source` in the source list, wrapping; null without another. */
+export function nextFavorite(s: Settings): string | null {
+  return otherFavorites(s)[0] ?? null;
 }
 
 /** Coerce arbitrary (possibly stale or hand-edited) input into valid settings. */
@@ -275,6 +282,7 @@ export function sanitize(input: Partial<Settings>): Settings {
   const lookUpCal = isCalibration(input.lookUpCal) ? input.lookUpCal : null;
   const alwaysOn = typeof input.alwaysOn === 'boolean' ? input.alwaysOn : d.alwaysOn;
   const gestures = typeof input.gestures === 'boolean' ? input.gestures : d.gestures;
+  const cycleFavorites = typeof input.cycleFavorites === 'boolean' ? input.cycleFavorites : d.cycleFavorites;
   const explore = typeof input.explore === 'boolean' ? input.explore : d.explore;
   // A ranking the source offers (Polymarket US has only volume).
   const rankings = isPredictionSource(source) ? getPredictionSource(source).exploreRankings : undefined;
@@ -282,7 +290,7 @@ export function sanitize(input: Partial<Settings>): Settings {
   const exploreBy = !rankings || rankings.includes(wantBy) ? wantBy : rankings[0]!;
   const exploreView = (EXPLORE_VIEWS as readonly string[]).includes(input.exploreView as string) ? input.exploreView! : d.exploreView;
 
-  return { source, favorites, currency, markets, charts, interval, events, eventCharts, eventInterval, eventTextChart, eventAnalysis, explore, exploreBy, exploreView, candleWidth, font, showList, textList, showIndex, analysis, analysisKind, analysisSecond, smaPeriod, emaPeriod, rsiPeriod, atrPeriod, bollingerPeriod, donchianPeriod, bollingerK, macdFast, macdSlow, macdSignal, sarStep, sarMax, manualOnly, lookUpUpdate, lookUpCal, refreshSec, displaySec, alwaysOn, gestures };
+  return { source, favorites, currency, markets, charts, interval, events, eventCharts, eventInterval, eventTextChart, eventAnalysis, explore, exploreBy, exploreView, candleWidth, font, showList, textList, showIndex, analysis, analysisKind, analysisSecond, smaPeriod, emaPeriod, rsiPeriod, atrPeriod, bollingerPeriod, donchianPeriod, bollingerK, macdFast, macdSlow, macdSignal, sarStep, sarMax, manualOnly, lookUpUpdate, lookUpCal, refreshSec, displaySec, alwaysOn, gestures, cycleFavorites };
 }
 
 /** The indicators to draw with `s`, in order: none if analysis is off. */

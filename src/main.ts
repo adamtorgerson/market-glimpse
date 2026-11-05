@@ -32,6 +32,7 @@ import {
   nearestInterval,
   nextFavorite,
   normalizeMarket,
+  otherFavorites,
   sanitize,
   type CandleWidth,
   type ChartFont,
@@ -61,6 +62,7 @@ const showNowBtn = $<HTMLButtonElement>('show-now');
 const nextFavoriteBtn = $<HTMLButtonElement>('next-favorite');
 const clearFavoritesBtn = $<HTMLButtonElement>('clear-favorites');
 const alwaysOnBox = $<HTMLInputElement>('always-on');
+const cycleFavoritesBox = $<HTMLInputElement>('cycle-favorites');
 
 let glasses: Glasses | null = null;
 let settings: Settings = DEFAULT_SETTINGS;
@@ -329,18 +331,18 @@ let uploadMs = 1000;
  * side by side, each estimated from its rate limit, request count and recent
  * response times; then drawing and sending the tiles, from recent updates.
  */
-function estimateUpdateMs(): number {
+function estimateUpdateMs(s: Settings = settings): number {
   const after = drawMs + (glasses ? uploadMs : 0);
-  if (isPredictionSource(settings.source)) {
+  if (isPredictionSource(s.source)) {
     // Exploring, finding the events is a request first (or more, for Polymarket US's liquidity).
-    const src = getPredictionSource(settings.source);
-    const finding = settings.explore ? (src.exploreRequests?.(settings.exploreBy) ?? 1) * MIN_GAP_MS : 0;
-    return src.estimateMs(eventRequest(settings)) + finding + after;
+    const src = getPredictionSource(s.source);
+    const finding = s.explore ? (src.exploreRequests?.(s.exploreBy) ?? 1) * MIN_GAP_MS : 0;
+    return src.estimateMs(eventRequest(s)) + finding + after;
   }
-  if (settings.explore) return getSource(settings.source).estimateExploreMs(settings.exploreBy, exploreCandles(settings)) + after;
+  if (s.explore) return getSource(s.source).estimateExploreMs(s.exploreBy, exploreCandles(s)) + after;
   const fetchMs = Math.max(
-    getSource(settings.source).estimateMs(marketRequest(settings)),
-    estimateIndexMs(indexMarkets(settings)),
+    getSource(s.source).estimateMs(marketRequest(s)),
+    estimateIndexMs(indexMarkets(s)),
   );
   return fetchMs + drawMs + (glasses ? uploadMs : 0);
 }
@@ -768,11 +770,48 @@ function scheduleAt(at: number): void {
   nextAt = settings.manualOnly || paused || exited ? 0 : at;
   syncCountdown();
   if (!nextAt) return;
-  const leadMs = estimateUpdateMs() + 1000;
+  // Cycling, the fetch to allow time for is the next favorite's.
+  const upNext = settings.cycleFavorites ? nextFavorite(settings) : null;
+  const leadMs = estimateUpdateMs(upNext ? { ...settings, source: upNext } : settings) + 1000;
   nextTimer = setTimeout(() => {
+    cycleFavorite();
     void update({ showAt: at });
     scheduleAt(at + settings.refreshSec * 1000);
   }, Math.max(0, at - leadMs - Date.now()));
+}
+
+/**
+ * Cycle Favorites, if on: go on to the next favorite the form takes, for the
+ * update about to run. One it refuses (no events yet, or a refresh too short
+ * for its requests) is passed over, with the reason under the form. Waits while
+ * a field has text not yet entered, since applying the form would take it as is.
+ * An update still running would be joined, not fetched for the new source, so
+ * that source stays a turn longer.
+ */
+function cycleFavorite(): void {
+  if (!settings.cycleFavorites || inFlight || typing) return;
+  const start = settings.source;
+  const refused: string[] = [];
+  for (const id of otherFavorites(settings)) {
+    sourceSel.value = id;
+    // Settled before applyForm's first await, so it's known here, and before the update reads it.
+    void applyForm(true);
+    if (settings.source === id) break;
+    refused.push(`${sourceLabel(id)}: ${formError.textContent}`);
+  }
+  if (refused.length === 0) return;
+  // All refused: back to the form as it was.
+  if (settings.source === start) {
+    sourceSel.value = start;
+    void applyForm(true);
+  }
+  formError.textContent = refused.map((r) => `Cycle Favorites skipped ${r}`).join(' ');
+}
+
+/** A chart asked for by the user (Show now, a tap, looking up), from the next favorite if cycling. */
+function showNext(): void {
+  cycleFavorite();
+  restartSchedule({ manual: true });
 }
 
 // ── Pausing while the glasses aren't in use ─────────────────────────────
@@ -1301,6 +1340,7 @@ function fillForm(s: Settings): void {
   renderExplore();
   showIndexBox.checked = s.showIndex;
   gesturesBox.checked = s.gestures;
+  cycleFavoritesBox.checked = s.cycleFavorites;
   analysisSel.value = s.analysisKind;
   showAnalysisParams(s);
   syncAnalysisControls(s);
@@ -1378,6 +1418,7 @@ function readForm(): Settings {
     textList: textListBox.checked,
     showIndex: showIndexBox.checked,
     gestures: gesturesBox.checked,
+    cycleFavorites: cycleFavoritesBox.checked,
     analysis: analysisBox.checked,
     analysisKind: analysisSel.value as Analysis,
     analysisSecond: analysisSecondSel.value as Analysis | 'none',
@@ -1409,8 +1450,9 @@ function readForm(): Settings {
 /**
  * Apply the form as soon as anything changes; no-op if the result is
  * unchanged. False if refused (the reason is shown under the form).
+ * `cycling`: the scheduled update about to run will show the change.
  */
-async function applyForm(): Promise<boolean> {
+async function applyForm(cycling = false): Promise<boolean> {
   syncManualOnlyRows();
   syncFavorite();
   syncKind();
@@ -1447,6 +1489,7 @@ async function applyForm(): Promise<boolean> {
   renderExplore();
   await saveSettings(settings);
   syncLookUp();
+  if (cycling) return true;
   // Changes to what's charted, or how, show the new chart right away, like
   // Show now. Anything else (markets in the list, timings) waits for the
   // schedule, re-timed if the refresh rate changed.
@@ -1478,11 +1521,19 @@ async function applyForm(): Promise<boolean> {
   return true;
 }
 
+/** A field has text not yet entered: `input` fires as it's typed, and `change` once it's entered (not if it's put back as it was, so leaving the field counts too). */
+let typing = false;
+form.addEventListener('input', () => { typing = true; });
+form.addEventListener('focusout', () => { typing = false; });
 // `change` fires immediately for checkboxes and selects, and on blur/Enter for text.
-form.addEventListener('change', () => void applyForm());
+form.addEventListener('change', () => {
+  typing = false;
+  void applyForm();
+});
 // Above Show now, outside the form.
 alwaysOnBox.addEventListener('change', () => void applyForm());
 gesturesBox.addEventListener('change', () => void applyForm());
+cycleFavoritesBox.addEventListener('change', () => void applyForm());
 form.addEventListener('submit', (e) => {
   e.preventDefault();
   void applyForm();
@@ -1509,7 +1560,7 @@ function toggleChart(): void {
     if (loading) inFlight?.abort(); // Dismissed before the chart arrived.
     void hide();
   } else {
-    restartSchedule({ manual: true });
+    showNext();
   }
 }
 
@@ -1605,7 +1656,7 @@ function syncLookUp(): void {
   lookUpDetector = lookUpActive(settings)
     ? new LookUpDetector(settings.lookUpCal!, () => {
       // Like a tap while dark; ignored while a chart (or loading) is up.
-      if (!showing) restartSchedule({ manual: true });
+      if (!showing) showNext();
     })
     : null;
   const want = glasses !== null && !exited && ((lookUpDetector !== null && !paused) || calibrationSamples !== null);
