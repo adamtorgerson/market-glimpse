@@ -4,6 +4,8 @@ Notable changes to MarketGlimpse, by release tag.
 
 ## [Unreleased]
 
+## [0.4.6] - 2026-11-05
+
 ### Added
 - **News**: a section with a checkbox each for CNBC, MarketWatch and
   cryptocurrency.cv, all off by default. Headlines are fetched with the market
@@ -262,6 +264,7 @@ schedule.
   gesture (calibrated from the IMU) to trigger an update.
 - Chart tiles sent to the glasses in parallel.
 
+[0.4.6]: https://github.com/adamtorgerson/market-glimpse/compare/v0.4.5...v0.4.6
 [0.4.5]: https://github.com/adamtorgerson/market-glimpse/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/adamtorgerson/market-glimpse/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/adamtorgerson/market-glimpse/compare/v0.4.2...v0.4.3
