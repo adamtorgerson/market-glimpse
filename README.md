@@ -128,6 +128,17 @@ refreshes every 2m, chart shown for 12s, narrow candles.
   an unlabelled line graph of its closing prices over the period one chart
   would show (the candle size times the candles that fit). Each graph costs
   a candle request, so 8 markets take about 13s to fetch.
+- **Saved watchlist**: named copies of the watchlist, above its rows, up to 20
+  each for exchanges (which share them, as they do the watchlist) and for each
+  prediction market (whose events mean nothing to the others). Enter a name and
+  press **Save** to keep the rows and their Chart ticks; **Save** is enabled
+  while there's something unsaved. Choosing a list replaces the rows and shows
+  it right away; if that would lose rows that aren't saved, a prompt first
+  offers **Save first**, **Discard** or **Keep editing**. With a list chosen,
+  **Save** saves over it, renaming it if the name changed, and **Delete** removes
+  the list but leaves its rows in place. **Unsaved** also leaves the rows in
+  place, so they can be saved as a new list. **Restore defaults** keeps saved
+  lists, but replaces the rows without asking.
 - **Watchlist / Explore**: two tabs under Markets, choosing what's
   monitored. **Watchlist** is the markets (or events) entered by hand, as
   above. **Explore** monitors the data source's top markets instead, ranked
@@ -370,8 +381,12 @@ On the glasses, a tap while the chart is up dismisses it early (with
 **Display always on**, it refreshes it instead). A tap while the display is
 dark fetches and shows a fresh chart. A swipe up switches between
 **Watchlist** and **Explore**; a swipe down turns **Market List** on
-or off. A long press goes on to the next **Favorite** data source (with none
-other, the glasses say so for two seconds). A swipe or long press the settings can't take (an empty watchlist, or a refresh too
+or off. A long press on the right temple (or the ring, which has no sides) goes
+on to the next **Favorite** data source (with none other, the glasses say so for
+two seconds). A long press on the left temple goes on to the next **Saved
+watchlist** for the source, on the **Watchlist** tab even from **Explore** (with
+none other, the glasses say so too). If that would lose unsaved rows, nothing
+changes: the glasses show "Unsaved edits: see phone", and the phone asks. A swipe or long press the settings can't take (an empty watchlist, or a refresh too
 short for the requests it needs) changes nothing: the glasses show "No change:
 see phone" for two seconds, and the reason is under the form. A double tap exits the app: the glasses
 ask to confirm (`shutDownPageContainer(1)`, as Even Hub review requires), and

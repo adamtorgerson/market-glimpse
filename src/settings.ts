@@ -29,6 +29,28 @@ export function exploreCharts(view: ExploreView, max: number): number {
   return view === 'list' ? 0 : Math.min(Number(view), max);
 }
 export const MAX_MARKETS = 8;
+/** Saved watchlists allowed per `watchlistKey`. */
+export const MAX_WATCHLISTS = 20;
+export const MAX_WATCHLIST_NAME = 24;
+
+/** A named watchlist: its markets (or events), and the ones charted. */
+export interface SavedWatchlist {
+  name: string;
+  markets: string[];
+  charts: string[];
+}
+
+const EXCHANGE_WATCHLISTS = 'exchange';
+const WATCHLIST_KEYS = [EXCHANGE_WATCHLISTS, ...PREDICTION_SOURCES.map((src) => src.id)];
+
+/**
+ * Where a source's saved watchlists are kept. Exchanges share theirs, as they
+ * do `markets`; each prediction market has its own, as it does `events`, since
+ * one's slugs mean nothing to another.
+ */
+export function watchlistKey(source: string): string {
+  return isPredictionSource(source) ? source : EXCHANGE_WATCHLISTS;
+}
 
 /** Text candles are drawn in the glasses' font instead of sent as images. */
 export function isTextWidth(width: CandleWidth): width is TextWidth {
@@ -71,6 +93,10 @@ export interface Settings {
   events: Record<string, string[]>;
   /** Subset of each source's `events` charted (0–4), as `charts` is of `markets`. */
   eventCharts: Record<string, string[]>;
+  /** Saved watchlists, by `watchlistKey`. Choosing one copies it into `markets` and `charts`, or the source's `events` and `eventCharts`. */
+  watchlists: Record<string, SavedWatchlist[]>;
+  /** The name of the saved watchlist chosen, by `watchlistKey`: '' for none. */
+  activeWatchlist: Record<string, string>;
   /** Spacing of the events' history, in minutes (`EVENT_INTERVALS`). */
   eventInterval: number;
   /** Draw an event's chart in the glasses' font rather than send it as images (one chart only). */
@@ -159,6 +185,8 @@ export const DEFAULT_SETTINGS: Settings = {
   interval: 5,
   events: Object.fromEntries(PREDICTION_SOURCES.map((src) => [src.id, []])),
   eventCharts: Object.fromEntries(PREDICTION_SOURCES.map((src) => [src.id, []])),
+  watchlists: Object.fromEntries(WATCHLIST_KEYS.map((key) => [key, []])),
+  activeWatchlist: Object.fromEntries(WATCHLIST_KEYS.map((key) => [key, ''])),
   eventInterval: 5,
   eventTextChart: false,
   eventAnalysis: false,
@@ -214,6 +242,46 @@ export function nextFavorite(s: Settings): string | null {
   return otherFavorites(s)[0] ?? null;
 }
 
+/** A watchlist name as stored: trimmed and within the limit; '' if it isn't text. */
+export function cleanWatchlistName(raw: unknown): string {
+  return typeof raw === 'string' ? raw.trim().slice(0, MAX_WATCHLIST_NAME).trim() : '';
+}
+
+/**
+ * `lists` with `list` saved: over the one named `current` (renaming it if the
+ * name differs), or added if `current` is ''. Throws, with a reason for the
+ * form, if another list has the name or there's no room for a new one.
+ */
+export function storeWatchlist(lists: SavedWatchlist[], current: string, list: SavedWatchlist): SavedWatchlist[] {
+  const clash = lists.find((l) => l.name !== current && l.name.toLowerCase() === list.name.toLowerCase());
+  if (clash) throw new Error(`There's already a watchlist named ${clash.name}.`);
+  if (current) return lists.map((l) => (l.name === current ? list : l));
+  if (lists.length >= MAX_WATCHLISTS) throw new Error(`Up to ${MAX_WATCHLISTS} watchlists: delete one first.`);
+  return [...lists, list];
+}
+
+/** The name of the saved watchlist after `current`, wrapping (the first if `current` is ''); null without another. */
+export function nextWatchlist(lists: SavedWatchlist[], current: string): string | null {
+  const next = lists[(lists.findIndex((l) => l.name === current) + 1) % lists.length]?.name ?? null;
+  return next === current ? null : next;
+}
+
+/** Valid saved watchlists from `raw`: named, uniquely, with something in them. `clean` makes valid markets (or events) of a list. */
+function sanitizeWatchlists(raw: unknown, clean: (raw: unknown) => string[]): SavedWatchlist[] {
+  if (!Array.isArray(raw)) return [];
+  const names = new Set<string>();
+  const lists: SavedWatchlist[] = [];
+  for (const w of raw as (Partial<SavedWatchlist> | null)[]) {
+    const name = cleanWatchlistName(w?.name);
+    const markets = clean(w?.markets).slice(0, MAX_MARKETS);
+    if (!name || markets.length === 0 || names.has(name.toLowerCase())) continue;
+    names.add(name.toLowerCase());
+    // Every tick is kept, whatever the current width allows: the form limits them as it shows them.
+    lists.push({ name, markets, charts: clean(w?.charts).filter((m) => markets.includes(m)).slice(0, MAX_CHARTS) });
+  }
+  return lists.slice(0, MAX_WATCHLISTS);
+}
+
 /** Coerce arbitrary (possibly stale or hand-edited) input into valid settings. */
 export function sanitize(input: Partial<Settings>): Settings {
   const d = DEFAULT_SETTINGS;
@@ -241,6 +309,12 @@ export function sanitize(input: Partial<Settings>): Settings {
   const eventCharts = Object.fromEntries(PREDICTION_SOURCES.map((src) =>
     [src.id, slugs(rawCharts[src.id]).filter((e) => events[src.id]!.includes(e)).slice(0, maxEventCharts(eventTextChart, eventAnalysis))]));
   const eventInterval = nearestInterval(EVENT_INTERVALS, Number(input.eventInterval) || d.eventInterval);
+  const symbols = (raw: unknown) => (Array.isArray(raw) ? dedupe(raw.filter((m): m is string => typeof m === 'string').map(normalizeMarket).filter(Boolean)) : []);
+  const watchlists = Object.fromEntries(WATCHLIST_KEYS.map((key) => [key, sanitizeWatchlists(input.watchlists?.[key], key === EXCHANGE_WATCHLISTS ? symbols : slugs)]));
+  const activeWatchlist = Object.fromEntries(WATCHLIST_KEYS.map((key) => {
+    const name = input.activeWatchlist?.[key];
+    return [key, watchlists[key]!.some((l) => l.name === name) ? name! : ''];
+  }));
 
   // 'text' was the only text width before there were three.
   const width = (input.candleWidth as string) === 'text' ? 'text-wide' : input.candleWidth;
@@ -290,7 +364,7 @@ export function sanitize(input: Partial<Settings>): Settings {
   const exploreBy = !rankings || rankings.includes(wantBy) ? wantBy : rankings[0]!;
   const exploreView = (EXPLORE_VIEWS as readonly string[]).includes(input.exploreView as string) ? input.exploreView! : d.exploreView;
 
-  return { source, favorites, currency, markets, charts, interval, events, eventCharts, eventInterval, eventTextChart, eventAnalysis, explore, exploreBy, exploreView, candleWidth, font, showList, textList, showIndex, analysis, analysisKind, analysisSecond, smaPeriod, emaPeriod, rsiPeriod, atrPeriod, bollingerPeriod, donchianPeriod, bollingerK, macdFast, macdSlow, macdSignal, sarStep, sarMax, manualOnly, lookUpUpdate, lookUpCal, refreshSec, displaySec, alwaysOn, gestures, cycleFavorites };
+  return { source, favorites, currency, markets, charts, interval, events, eventCharts, watchlists, activeWatchlist, eventInterval, eventTextChart, eventAnalysis, explore, exploreBy, exploreView, candleWidth, font, showList, textList, showIndex, analysis, analysisKind, analysisSecond, smaPeriod, emaPeriod, rsiPeriod, atrPeriod, bollingerPeriod, donchianPeriod, bollingerK, macdFast, macdSlow, macdSignal, sarStep, sarMax, manualOnly, lookUpUpdate, lookUpCal, refreshSec, displaySec, alwaysOn, gestures, cycleFavorites };
 }
 
 /** The indicators to draw with `s`, in order: none if analysis is off. */

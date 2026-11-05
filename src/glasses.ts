@@ -1,6 +1,7 @@
 import {
   CreateStartUpPageContainer,
   EvenAppBridge,
+  EventSourceType,
   ImageContainerProperty,
   ImageRawDataUpdate,
   ImageRawDataUpdateResult,
@@ -155,11 +156,14 @@ export class Glasses {
     });
   }
 
-  /** Touchpad long press, as it starts (not on release). */
-  onLongPress(cb: () => void): () => void {
+  /**
+   * Touchpad long press, as it starts (not on release). `left` is the left
+   * temple's; the right temple, the ring, or an event not saying are not.
+   */
+  onLongPress(cb: (left: boolean) => void): () => void {
     return this.bridge.onEvenHubEvent((e) => {
       const ev = e.textEvent ?? e.sysEvent ?? e.listEvent;
-      if (ev?.eventType === OsEventTypeList.LONG_PRESS_EVENT) cb();
+      if (ev?.eventType === OsEventTypeList.LONG_PRESS_EVENT) cb(e.sysEvent?.eventSource === EventSourceType.TOUCH_EVENT_FROM_GLASSES_L);
     });
   }
 

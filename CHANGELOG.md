@@ -15,6 +15,15 @@ Notable changes to MarketGlimpse, by release tag.
   tap, swipes and long press. A double tap still exits.
 - **Cycle Favorites**: a checkbox under Show now that moves on to the next
   favorite data source with each scheduled update, Show now, tap or look-up.
+- **Saved watchlist**: a dropdown above the watchlist's rows, with a name field
+  and **Save** and **Delete** buttons, to keep named watchlists for exchanges
+  and for each prediction market. Going to another list asks before losing
+  unsaved rows.
+- A long press on the left temple goes on to the next saved watchlist.
+
+### Changed
+- A long press goes on to the next favorite from the right temple or the ring
+  only, as the left temple's goes to the next saved watchlist.
 
 ### Changed
 - The phone page's "Fetching…" and Explore's "Loading…" countdowns no longer

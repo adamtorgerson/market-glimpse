@@ -21,6 +21,7 @@ import {
   CHART_FONTS,
   DEFAULT_SETTINGS,
   analysisSpecs,
+  cleanWatchlistName,
   exploreCharts,
   formatInterval,
   isTextWidth,
@@ -31,12 +32,16 @@ import {
   maxEventCharts,
   nearestInterval,
   nextFavorite,
+  nextWatchlist,
   normalizeMarket,
   otherFavorites,
   sanitize,
+  storeWatchlist,
+  watchlistKey,
   type CandleWidth,
   type ChartFont,
   type ExploreView,
+  type SavedWatchlist,
   type Settings,
 } from './settings';
 
@@ -998,6 +1003,15 @@ const favoriteBox = $<HTMLInputElement>('favorite');
 const currencySel = $<HTMLSelectElement>('currency');
 const marketList = $<HTMLUListElement>('markets');
 const addMarketBtn = $<HTMLButtonElement>('add-market');
+const watchlistSel = $<HTMLSelectElement>('watchlist-select');
+const watchlistName = $<HTMLInputElement>('watchlist-name');
+const saveWatchlistBtn = $<HTMLButtonElement>('save-watchlist');
+const deleteWatchlistBtn = $<HTMLButtonElement>('delete-watchlist');
+const guardPanel = $('watchlist-guard');
+const guardText = $('watchlist-guard-text');
+const guardSaveBtn = $<HTMLButtonElement>('watchlist-guard-save');
+const guardDiscardBtn = $<HTMLButtonElement>('watchlist-guard-discard');
+const guardCancelBtn = $<HTMLButtonElement>('watchlist-guard-cancel');
 const intervalSel = $<HTMLSelectElement>('interval');
 const candleWidthSel = $<HTMLSelectElement>('candle-width');
 const fontSel = $<HTMLSelectElement>('font');
@@ -1137,7 +1151,157 @@ function syncKind(s: Settings = settings): void {
   } else {
     for (const m of s.markets) addMarketRow(m, s.charts.includes(m));
   }
+  syncWatchlists(s);
 }
+
+/** The saved watchlists for the chosen source's kind (a prediction market's are its own). */
+function savedWatchlists(s: Settings = settings): SavedWatchlist[] {
+  return s.watchlists[watchlistKey(sourceSel.value)] ?? [];
+}
+
+/** Offer the saved watchlists for the chosen source, with the one last chosen for it. */
+function syncWatchlists(s: Settings = settings): void {
+  watchlistSel.replaceChildren(new Option('Unsaved', ''), ...savedWatchlists(s).map((l) => new Option(l.name, l.name)));
+  watchlistSel.value = s.activeWatchlist[watchlistKey(sourceSel.value)] ?? '';
+  watchlistName.value = watchlistSel.value;
+  shownWatchlist = watchlistSel.value;
+  pendingWatchlist = null;
+  syncWatchlistButtons();
+}
+
+/** The saved watchlist the rows are of, whichever the dropdown has just been moved to: '' for none. */
+let shownWatchlist = '';
+/** The saved watchlist waiting on the unsaved-edits prompt; null with no prompt up. */
+let pendingWatchlist: string | null = null;
+
+/** The watchlist's rows as entered, normalized, leaving out empty ones. */
+function watchlistRows(): { market: string; charted: boolean }[] {
+  const events = marketList.dataset.kind === 'events';
+  return [...marketList.children].map((li) => ({
+    market: (events ? eventSlug : normalizeMarket)(li.querySelector<HTMLInputElement>('input[type=text]')!.value),
+    charted: li.querySelector<HTMLInputElement>('input[type=checkbox]')?.checked ?? false,
+  })).filter((r) => r.market);
+}
+
+/** Charts the form's current choices allow. */
+function formChartLimit(): number {
+  return marketList.dataset.kind === 'events' ? maxEventCharts(eventStyleSel.value === 'text', eventAnalysisBox.checked) : maxCharts(candleWidthSel.value as CandleWidth, analysisBox.checked);
+}
+
+/** The rows are `list`'s, as saved. */
+function rowsMatch(list: SavedWatchlist, rows: { market: string; charted: boolean }[]): boolean {
+  return list.markets.join() === rows.map((r) => r.market).join()
+    // Ticks past what the form allows aren't edits: it unticked them itself.
+    && list.charts.slice(0, formChartLimit()).join() === rows.filter((r) => r.charted).map((r) => r.market).join();
+}
+
+/** Replacing the rows would lose something: they differ from their list, or with none chosen, from every list. */
+function rowsUnsaved(): boolean {
+  const rows = watchlistRows();
+  if (rows.length === 0) return false;
+  const chosen = savedWatchlists().find((l) => l.name === shownWatchlist);
+  return chosen ? !rowsMatch(chosen, rows) : !savedWatchlists().some((l) => rowsMatch(l, rows));
+}
+
+/** Save needs a name, a row and something to save (so it being enabled shows there are unsaved edits); Delete, a saved watchlist. */
+function syncWatchlistButtons(): void {
+  const chosen = savedWatchlists().find((l) => l.name === watchlistSel.value);
+  const name = cleanWatchlistName(watchlistName.value);
+  const rows = watchlistRows();
+  saveWatchlistBtn.disabled = !name || rows.length === 0 || (chosen?.name === name && rowsMatch(chosen, rows));
+  deleteWatchlistBtn.disabled = !chosen;
+  // The edits the prompt is about may have just been saved, or undone.
+  if (pendingWatchlist !== null && !rowsUnsaved()) pendingWatchlist = null;
+  guardPanel.hidden = pendingWatchlist === null;
+  if (pendingWatchlist === null) return;
+  const edited = shownWatchlist ? `${shownWatchlist} has unsaved edits` : 'These markets aren\'t saved';
+  guardText.textContent = `${edited}. Going to ${pendingWatchlist} replaces them.${name ? '' : ' Enter a name on the Watchlist tab to save them.'}`;
+  guardSaveBtn.disabled = !name;
+}
+
+/** Put a saved watchlist in the rows, on the Watchlist tab. It's for the caller to apply them. */
+function fillWatchlist(list: SavedWatchlist): void {
+  selectTab(false);
+  watchlistSel.value = list.name;
+  watchlistName.value = list.name;
+  shownWatchlist = list.name;
+  pendingWatchlist = null;
+  marketList.replaceChildren();
+  for (const m of list.markets) addMarketRow(m, list.charts.includes(m));
+}
+
+// Fills the rows; the change then reaches the form's handler, which applies them,
+// unless that would lose edits, when it waits on the prompt with the dropdown put back.
+// Unsaved leaves them as they are, so a list can be saved as a new one.
+watchlistSel.addEventListener('change', () => {
+  const chosen = savedWatchlists().find((l) => l.name === watchlistSel.value);
+  if (chosen && rowsUnsaved()) {
+    pendingWatchlist = chosen.name;
+    watchlistSel.value = shownWatchlist;
+    syncWatchlistButtons();
+    return;
+  }
+  pendingWatchlist = null;
+  if (chosen) return fillWatchlist(chosen);
+  watchlistName.value = shownWatchlist = '';
+});
+
+/** Save the rows under the name entered; false if refused (the reason is shown under the form). It's for the caller to apply them. */
+function saveWatchlist(): boolean {
+  const key = watchlistKey(sourceSel.value);
+  const rows = watchlistRows();
+  const name = cleanWatchlistName(watchlistName.value);
+  let lists: SavedWatchlist[];
+  try {
+    lists = storeWatchlist(savedWatchlists(), watchlistSel.value, { name, markets: rows.map((r) => r.market), charts: rows.filter((r) => r.charted).map((r) => r.market) });
+  } catch (err) {
+    formError.textContent = (err as Error).message;
+    return false;
+  }
+  settings = sanitize({ ...settings, watchlists: { ...settings.watchlists, [key]: lists }, activeWatchlist: { ...settings.activeWatchlist, [key]: name } });
+  syncWatchlists();
+  void saveSettings(settings);
+  return true;
+}
+
+// Applying clears any old error, and takes in rows not yet entered.
+saveWatchlistBtn.addEventListener('click', () => {
+  if (saveWatchlist()) void applyForm();
+});
+
+/** Go on to the saved watchlist the prompt was waiting on, and apply it. */
+function goToPendingWatchlist(target: string | null): void {
+  const list = savedWatchlists().find((l) => l.name === target);
+  if (list) fillWatchlist(list);
+  void applyForm();
+}
+
+guardSaveBtn.addEventListener('click', () => {
+  const target = pendingWatchlist;
+  // Saving dismisses the prompt, and a clash with the name entered keeps it up.
+  if (saveWatchlist()) goToPendingWatchlist(target);
+});
+guardDiscardBtn.addEventListener('click', () => goToPendingWatchlist(pendingWatchlist));
+guardCancelBtn.addEventListener('click', () => {
+  pendingWatchlist = null;
+  syncWatchlistButtons();
+});
+
+// Enter saves, rather than submitting the form.
+watchlistName.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  saveWatchlistBtn.click();
+  watchlistName.blur();
+});
+
+// The rows stay as they are, so it can be saved again under a name, and nothing charted changes.
+deleteWatchlistBtn.addEventListener('click', () => {
+  const key = watchlistKey(sourceSel.value);
+  settings = sanitize({ ...settings, watchlists: { ...settings.watchlists, [key]: savedWatchlists().filter((l) => l.name !== watchlistSel.value) }, activeWatchlist: { ...settings.activeWatchlist, [key]: '' } });
+  syncWatchlists();
+  void saveSettings(settings);
+});
 
 function formatSpan(minutes: number): string {
   const h = minutes / 60, d = h / 24;
@@ -1176,7 +1340,7 @@ function syncMarketControls(): void {
   const rows = [...marketList.children];
   const checks = rows.flatMap((li) => li.querySelector<HTMLInputElement>('input[type=checkbox]') ?? []);
   // Text candles are for exchanges' charts; a prediction market's has a text chart of its own.
-  const max = marketList.dataset.kind === 'events' ? maxEventCharts(eventStyleSel.value === 'text', eventAnalysisBox.checked) : maxCharts(candleWidthSel.value as CandleWidth, analysisBox.checked);
+  const max = formChartLimit();
   // A width or analysis that allows fewer charts keeps the first ones ticked.
   checks.filter((c) => c.checked).slice(max).forEach((c) => { c.checked = false; });
   const nChecked = checks.filter((c) => c.checked).length;
@@ -1184,6 +1348,7 @@ function syncMarketControls(): void {
   for (const c of checks) c.disabled = showListBox.checked || (!c.checked && nChecked >= max);
   addMarketBtn.disabled = rows.length >= MAX_MARKETS;
   refreshWidthLabels();
+  syncWatchlistButtons();
   // Explore's "+" buttons show while there's room.
   renderExplore();
 }
@@ -1377,10 +1542,7 @@ function syncAnalysisControls(s: Settings): void {
 function readForm(): Settings {
   // The rows are one kind's list; the other kind's is kept as saved.
   const events = marketList.dataset.kind === 'events';
-  const rows = [...marketList.children].map((li) => ({
-    market: (events ? eventSlug : normalizeMarket)(li.querySelector<HTMLInputElement>('input[type=text]')!.value),
-    charted: li.querySelector<HTMLInputElement>('input[type=checkbox]')?.checked ?? false,
-  })).filter((r) => r.market);
+  const rows = watchlistRows();
   // Exploring, the watchlist may be empty: it's kept as it was.
   const explore = tabExplore.getAttribute('aria-selected') === 'true';
   if (rows.length === 0 && !explore) throw new Error(events ? 'Add at least one event.' : 'Add at least one market.');
@@ -1406,6 +1568,8 @@ function readForm(): Settings {
     interval: events ? settings.interval : Number(intervalSel.value),
     events: events && watchlist ? { ...settings.events, [sourceSel.value]: watchlist.map((r) => r.market) } : settings.events,
     eventCharts: events && watchlist ? { ...settings.eventCharts, [sourceSel.value]: watchlist.filter((r) => r.charted).map((r) => r.market) } : settings.eventCharts,
+    watchlists: settings.watchlists,
+    activeWatchlist: { ...settings.activeWatchlist, [watchlistKey(sourceSel.value)]: watchlistSel.value },
     eventInterval: events ? Number(intervalSel.value) : settings.eventInterval,
     eventTextChart: eventStyleSel.value === 'text',
     eventAnalysis: eventAnalysisBox.checked,
@@ -1491,9 +1655,10 @@ async function applyForm(cycling = false): Promise<boolean> {
   syncLookUp();
   if (cycling) return true;
   // Changes to what's charted, or how, show the new chart right away, like
-  // Show now. Anything else (markets in the list, timings) waits for the
-  // schedule, re-timed if the refresh rate changed.
-  const chartChanged = next.source !== prev.source || next.currency !== prev.currency || next.interval !== prev.interval
+  // Show now, as does choosing a saved watchlist. Anything else (markets in
+  // the list, timings) waits for the schedule, re-timed if the refresh rate changed.
+  const key = watchlistKey(next.source);
+  const chartChanged = (next.activeWatchlist[key] && next.activeWatchlist[key] !== prev.activeWatchlist[key]) || next.source !== prev.source || next.currency !== prev.currency || next.interval !== prev.interval
     || next.candleWidth !== prev.candleWidth || shownCharts(next).join() !== shownCharts(prev).join()
     || next.showIndex !== prev.showIndex || next.showList !== prev.showList || next.textList !== prev.textList
     || JSON.stringify(next.events) !== JSON.stringify(prev.events) || JSON.stringify(next.eventCharts) !== JSON.stringify(prev.eventCharts)
@@ -1523,7 +1688,10 @@ async function applyForm(cycling = false): Promise<boolean> {
 
 /** A field has text not yet entered: `input` fires as it's typed, and `change` once it's entered (not if it's put back as it was, so leaving the field counts too). */
 let typing = false;
-form.addEventListener('input', () => { typing = true; });
+form.addEventListener('input', () => {
+  typing = true;
+  syncWatchlistButtons();
+});
 form.addEventListener('focusout', () => { typing = false; });
 // `change` fires immediately for checkboxes and selects, and on blur/Enter for text.
 form.addEventListener('change', () => {
@@ -1540,8 +1708,8 @@ form.addEventListener('submit', (e) => {
 });
 
 $('reset').addEventListener('click', () => {
-  // Favorites are kept, like the look-up calibration.
-  fillForm({ ...DEFAULT_SETTINGS, favorites: settings.favorites });
+  // Favorites and saved watchlists are kept, like the look-up calibration.
+  fillForm({ ...DEFAULT_SETTINGS, favorites: settings.favorites, watchlists: settings.watchlists });
   void applyForm();
 });
 // Nothing charted changes, so this saves without going through the form.
@@ -1584,15 +1752,37 @@ function syncNextFavorite(): void {
   nextFavoriteBtn.disabled = !next;
   nextFavoriteBtn.textContent = next ? `Next: ${sourceLabel(next)}` : 'No favorites saved';
 }
-// As a long press on the glasses does.
+// As a long press on the right temple does.
 nextFavoriteBtn.addEventListener('click', () => void onLongPress());
 
-/** A long press on the glasses (or Next favorite): on to the next favorite data source. */
+/** A long press on the right temple or ring (or Next favorite): on to the next favorite data source. */
 async function onLongPress(): Promise<void> {
   const next = nextFavorite(settings);
   if (!next) return void glassesNotice('No other favorite source');
   const prev = sourceSel.value;
   await changeFromGlasses(() => (sourceSel.value = next), () => (sourceSel.value = prev));
+}
+
+/**
+ * A long press on the left temple: on to the next saved watchlist, on the
+ * Watchlist tab. Unsaved edits aren't lost: the phone asks, and the glasses say so.
+ */
+async function onNextWatchlist(): Promise<void> {
+  const next = savedWatchlists().find((l) => l.name === nextWatchlist(savedWatchlists(), shownWatchlist));
+  if (!next) return void glassesNotice('No other watchlist');
+  if (rowsUnsaved()) {
+    pendingWatchlist = next.name;
+    syncWatchlistButtons();
+    return void glassesNotice('Unsaved edits: see phone');
+  }
+  const was = { explore: tabExplore.getAttribute('aria-selected') === 'true', name: shownWatchlist, rows: watchlistRows() };
+  await changeFromGlasses(() => fillWatchlist(next), () => {
+    selectTab(was.explore);
+    watchlistSel.value = watchlistName.value = shownWatchlist = was.name;
+    marketList.replaceChildren();
+    for (const r of was.rows) addMarketRow(r.market, r.charted);
+    if (was.rows.length === 0) addMarketRow();
+  });
 }
 
 /** Make a change on the glasses' behalf; if the form refuses it, `undo` it and say so on the glasses. */
@@ -1823,8 +2013,8 @@ async function boot(): Promise<void> {
   glasses?.onDoubleTap(() => void glasses!.exit().catch(() => {}));
   // Swipes act as if on the phone: up switches Watchlist / Explore, down flips Market List.
   glasses?.onSwipe((dir) => { usedGlasses(); if (settings.gestures) void onSwipe(dir); });
-  // A long press goes on to the next favorite data source.
-  glasses?.onLongPress(() => { usedGlasses(); if (settings.gestures) void onLongPress(); });
+  // A long press on the left temple goes on to the next saved watchlist; otherwise, to the next favorite data source.
+  glasses?.onLongPress((left) => { usedGlasses(); if (settings.gestures) void (left ? onNextWatchlist() : onLongPress()); });
   glasses?.onImu(onImuReading);
   glasses?.onExit(stop);
   settings = await loadSettings();

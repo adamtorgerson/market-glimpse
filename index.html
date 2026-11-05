@@ -26,7 +26,7 @@
       <label>Gesture controls
         <input type="checkbox" id="gestures" />
       </label>
-      <p class="muted small">Tap for a chart, swipe up to switch between Watchlist and Explore, swipe down to turn Market List on or off, long press for the next favorite. A double tap always exits.</p>
+      <p class="muted small">Tap for a chart, swipe up to switch between Watchlist and Explore, swipe down to turn Market List on or off. Long press left for the next saved watchlist, right for the next favorite. A double tap always exits.</p>
       <div class="actions">
         <button id="show-now" type="button">Show now</button>
         <button id="next-favorite" type="button" class="secondary" disabled>No favorites saved</button>
@@ -42,7 +42,23 @@
             <button type="button" role="tab" id="tab-watchlist" aria-controls="watchlist" aria-selected="true">Watchlist</button>
             <button type="button" role="tab" id="tab-explore" aria-controls="explore" aria-selected="false">Explore</button>
           </div>
+          <div id="watchlist-guard" class="guard" role="alert" hidden>
+            <p id="watchlist-guard-text" class="small"></p>
+            <div class="actions">
+              <button id="watchlist-guard-save" type="button" class="secondary">Save first</button>
+              <button id="watchlist-guard-discard" type="button" class="secondary">Discard</button>
+              <button id="watchlist-guard-cancel" type="button" class="secondary">Keep editing</button>
+            </div>
+          </div>
           <div id="watchlist" role="tabpanel" aria-labelledby="tab-watchlist">
+            <label>Saved watchlist
+              <select name="watchlist" id="watchlist-select"></select>
+            </label>
+            <div class="row">
+              <input type="text" name="watchlist-name" id="watchlist-name" placeholder="Name" aria-label="Watchlist name" maxlength="24" spellcheck="false" />
+              <button id="save-watchlist" type="button" class="secondary" disabled>Save</button>
+              <button id="delete-watchlist" type="button" class="secondary" disabled>Delete</button>
+            </div>
             <p id="markets-hint" class="muted small">Up to 4 charts; 8 markets</p>
             <ul id="markets"></ul>
             <button id="add-market" type="button" class="secondary">+ Add market</button>
@@ -178,7 +194,7 @@
           <label>Data source
             <select name="source" id="source"></select>
           </label>
-          <label class="sub">Favorite (long press cycles)
+          <label class="sub">Favorite (long press right cycles)
             <input type="checkbox" name="favorite" id="favorite" />
           </label>
           <label data-exchange>Currency type

@@ -112,6 +112,13 @@ label > input:disabled { opacity: 0.4; }
 .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 10px 0; }
 .row button { padding: 6px 12px; }
 
+#watchlist-name { flex: 1; }
+#watchlist-select { max-width: 60%; }
+.guard { border: 1px solid var(--error); border-radius: 8px; padding: 10px; margin: 0 0 10px; }
+.guard p { margin: 0; overflow-wrap: anywhere; }
+.guard .actions { flex-wrap: wrap; margin: 8px 0 0; }
+.guard button { padding: 6px 10px; }
+
 #markets { list-style: none; margin: 10px 0; padding: 0; }
 #markets li { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 #markets li input[type="text"] { flex: 1; text-transform: uppercase; }
