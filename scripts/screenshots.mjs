@@ -36,6 +36,8 @@ const EVENTS = ['presidential-election-winner-2028', 'democratic-presidential-no
 const MORE_EVENTS = ['will-trump-be-impeached-before-his-term-ends', 'openai-ipo-closing-market-cap-554'];
 const US_EVENTS = ['nfl-champ-2027-02-14-w', 'btc-hitprice-high-yr-12-31-2026', 'usfed-fomc-2026-12-09', 'btc-pricerange-yr-12-31-2026'];
 const ALL = [...M8.slice(0, 5), ...STOCKS];
+// Non-political Polymarket events for the store listing. They end, so these may need replacing when retaken.
+const STORE_EVENTS = ['largest-company-end-of-december-2026', 'worlds-2026-winner', 'uefa-champions-league-2027-champion-20260701202025549', 'nba-2027-champion', 'pro-football-2027-champion-20260729185915366', 'what-price-will-bitcoin-hit-before-2027', 'will-the-us-confirm-that-aliens-exist-before-2027', 'what-price-will-wti-hit-in-november-2026'];
 const SHOTS = {
   'one-chart': { markets: ALL, charts: ['BTC-USDC'] },
   'two-charts': { markets: ALL, charts: M8.slice(0, 2) },
@@ -101,10 +103,12 @@ const SHOTS = {
   'prediction-hl-explore-liquid-list': { source: 'hyperliquidoutcomes', explore: true, exploreBy: 'liquidity', exploreView: 'list', eventInterval: 60 },
   'prediction-hl-ladder': { source: 'hyperliquidoutcomes', events: { hyperliquidoutcomes: ['ipo-cap-anthropic-20270501-0359'] }, eventInterval: 60, eventAnalysis: true },
   'prediction-us-four-charts': { source: 'polymarketus', events: { polymarketus: US_EVENTS }, eventInterval: 60 },
+  'store-prediction-two-charts': { source: 'polymarket', events: { polymarket: STORE_EVENTS.slice(0, 2) }, eventInterval: 60 },
+  'store-prediction-list': { source: 'polymarket', events: { polymarket: STORE_EVENTS }, eventCharts: { polymarket: [] }, eventInterval: 60 },
 };
 
-// The Even Hub store listing: Kraken (the default source) and one prediction market.
-const STORE = ['one-chart', 'two-charts', 'four-charts', 'analysis-bollinger-macd', 'market-list', 'text-blocks-chart', 'prediction-two-charts'];
+// The Even Hub store listing: Kraken (the default source) and Polymarket.
+const STORE = ['one-chart', 'two-charts', 'four-charts', 'analysis-bollinger-macd', 'market-list', 'text-blocks-chart', 'text-chart', 'store-prediction-two-charts', 'store-prediction-list'];
 
 const args = process.argv.slice(2);
 const store = args.includes('--store');

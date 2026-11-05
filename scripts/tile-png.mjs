@@ -1,6 +1,7 @@
-// Tiles same-sized PNGs into one, keeping transparency: the gaps, and whatever
-// is left of the last row, are transparent. For the 8-bit RGBA, non-interlaced
-// PNGs the simulator writes; anything else is refused.
+// Tiles same-sized PNGs into one, flattened onto opaque black: the gaps, whatever
+// is left of the last row, and the tiles' own transparency all show black. For
+// the 8-bit RGBA, non-interlaced PNGs the simulator writes; anything else is
+// refused.
 import { crc32, deflateSync, inflateSync } from 'node:zlib';
 
 const SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -70,12 +71,17 @@ export function tilePngs(pngs, { columns, gap }) {
   if (tiles.some((t) => t.width !== width || t.height !== height)) throw new Error('PNGs to tile must be the same size');
   const across = Math.min(columns, tiles.length), rows = Math.ceil(tiles.length / columns);
   const outW = across * width + (across - 1) * gap, outH = rows * height + (rows - 1) * gap;
-  const pixels = Buffer.alloc(outW * outH * BYTES); // All transparent.
+  const pixels = Buffer.alloc(outW * outH * BYTES); // All transparent, until flattened below.
   tiles.forEach((tile, i) => {
     const left = (i % columns) * (width + gap), top = Math.floor(i / columns) * (height + gap);
     for (let y = 0; y < height; y++) {
       tile.pixels.copy(pixels, ((top + y) * outW + left) * BYTES, y * width * BYTES, (y + 1) * width * BYTES);
     }
   });
+  for (let at = 0; at < pixels.length; at += BYTES) {
+    const alpha = pixels[at + 3];
+    for (let channel = 0; channel < 3; channel++) pixels[at + channel] = Math.round((pixels[at + channel] * alpha) / 255);
+    pixels[at + 3] = 255;
+  }
   return encode(outW, outH, pixels);
 }
