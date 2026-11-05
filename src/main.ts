@@ -8,12 +8,14 @@ import { onTraffic, tapBridge, traffic, type Counter } from './traffic';
 import { predictionCapacity, renderPrediction, renderPredictionList } from './predictchart';
 import { calibrate, LookUpDetector, type Vec } from './lookup';
 import { encodeTiles } from './png';
-import { buildEventLoadingList, buildEventTextChart, buildEventTextList, eventTextPoints, buildLoadingList, buildTextChart, buildTextList, drawTextChart, serializeBox, textCandles, type TextBox } from './textchart';
+import { cleanNewsFilter, eventTarget, filterTarget, headlineTime, marketTarget, MAX_NEWS_FILTER, MAX_NEWS_LIST, newsMarks, type NewsMatch, type NewsTarget } from './news';
+import { buildEventLoadingList, buildEventTextChart, buildEventTextList, buildNewsText, eventTextPoints, buildLoadingList, buildTextChart, buildTextList, drawTextChart, serializeBox, textCandles, type TextBox } from './textchart';
 import { average, describeError, isAbort, MIN_GAP_MS } from './sources/http';
 import { DOLLARS } from './sources/symbols';
 import { getPredictionSource, getSource, isPredictionSource, PREDICTION_SOURCES, sourceCurrencies, sourceLabel, SOURCES } from './sources';
 import { EVENT_INTERVALS, eventSlug, type ExploredEvent, type PredictionData, type PredictionRequest } from './sources/prediction';
 import { estimateIndexMs, fetchIndexPrices } from './sources/coingecko';
+import { NEWS_SOURCES, NewsFeeds } from './sources/news';
 import { EXPLORE_COUNT, type ExploreBy, type ExploreItem, type MarketData, type MarketRequest } from './sources/types';
 import { WearTracker, type GlassesStatus } from './wear';
 import {
@@ -28,6 +30,7 @@ import {
   MAX_ANALYSIS_CHARTS,
   MAX_CHARTS,
   MAX_MARKETS,
+  MAX_NEWS_FILTERS,
   maxCharts,
   maxEventCharts,
   nearestInterval,
@@ -449,6 +452,259 @@ function expectRest(ctrl: AbortController, requestsMs: number): void {
   loadingEtaSec = Math.max(1, Math.round((inFlightEta - Date.now()) / 1000));
 }
 
+// ── News ────────────────────────────────────────────────────────────────
+
+/** When headlines last went up, kept between launches: what's "new" after a relaunch. */
+const NEWS_SEEN_KEY = 'kraken-candles.news-seen-until';
+/** How long a chart waits on headlines once its market data is in: any later are in time for the next. */
+const NEWS_GRACE_MS = 1500;
+
+const newsFeeds = new NewsFeeds();
+/** Stops requests for headlines when the app closes; an update being replaced leaves them to finish, as they're for the next one too. */
+const newsCtrl = new AbortController();
+/** What the last chart monitored, for the phone's list. */
+let newsTargets: NewsTarget[] = [];
+
+const filterTargets = (s: Settings) => s.newsFilters.map(filterTarget);
+/** Headlines waiting to go up: taken from the feeds, and kept here until they're on the display. */
+let heldPopup: NewsMatch[] = [];
+/** True while headlines are up in place of the chart. */
+let popupUp = false;
+let popupTimer: ReturnType<typeof setTimeout> | undefined;
+let popupShownAt = 0;
+/** What's left of the show-for time for the chart coming back after headlines; null for all of it. */
+let chartShowMs: number | null = null;
+/** Diagnostics: bring up the popup with every fetch, new headlines or not. */
+let alwaysNewsPopup = false;
+
+async function loadNewsSeen(): Promise<number> {
+  try {
+    const raw = glasses ? await glasses.bridge.getLocalStorage(NEWS_SEEN_KEY) : localStorage.getItem(NEWS_SEEN_KEY);
+    const sec = Number(raw);
+    return Number.isFinite(sec) && sec > 0 ? sec : 0;
+  } catch {
+    return 0;
+  }
+}
+
+async function saveNewsSeen(sec: number): Promise<void> {
+  try {
+    if (glasses) await glasses.bridge.setLocalStorage(NEWS_SEEN_KEY, String(sec));
+    else localStorage.setItem(NEWS_SEEN_KEY, String(sec));
+  } catch (e) {
+    console.warn('Could not save when news was last seen', e);
+  }
+}
+
+/** `market` (the update's data), once its headlines are in too, or shortly after if they aren't. */
+async function withNews<T>(s: Settings, market: Promise<T>): Promise<T> {
+  const news = newsFeeds.refresh(s.newsSources, newsCtrl.signal).then(renderNews);
+  const data = await market;
+  await Promise.race([news, new Promise((r) => setTimeout(r, NEWS_GRACE_MS))]);
+  return data;
+}
+
+/**
+ * What's being drawn, for its headlines: the phone's list updated, any new ones
+ * to put up, and the rest to fill the screen with them. Returns each item's
+ * marks, by its market or slug, and whether to `show` the popup. A redraw of the
+ * last data (`reuse`) never forces it: that's how the chart comes back after it.
+ */
+function takeNews(s: Settings, targets: NewsTarget[], reuse: boolean): { marks: (key: string) => ReturnType<typeof newsMarks>; popup: NewsMatch[]; earlier: NewsMatch[]; show: boolean } {
+  newsTargets = targets;
+  renderNews();
+  const filters = filterTargets(s);
+  const hits = [...targets, ...filters];
+  const found = newsFeeds.store.matches(s.newsSources, hits);
+  const now = Math.floor(Date.now() / 1000);
+  const byKey = new Map(targets.map((t) => [t.key, newsMarks(found, t, now, filters)]));
+  heldPopup = [...newsFeeds.store.takeNew(s.newsSources, hits), ...heldPopup];
+  const shown = new Set(heldPopup.map((a) => a.title));
+  const show = heldPopup.length > 0 || (DIAGNOSTICS && alwaysNewsPopup && !reuse && found.length > 0);
+  return { marks: (key) => byKey.get(key), popup: heldPopup, earlier: found.filter((a) => !shown.has(a.title)), show };
+}
+
+/**
+ * The text screen to send: the headlines (also drawn on the canvas, for the
+ * phone's preview), if they're to be shown. They're text whatever the chart is, so
+ * they go up at once, and clear as soon as the chart comes back. An image chart
+ * isn't sent until then.
+ */
+function popupOr(ctx: CanvasRenderingContext2D, news: ReturnType<typeof takeNews>, textBoxes: TextBox[] | null): TextBox[] | null {
+  if (!news.show) return textBoxes;
+  const boxes = buildNewsText(news.popup, news.earlier);
+  drawTextChart(ctx, boxes);
+  return boxes;
+}
+
+/** Headlines have gone up (`shown`), for half the show-for time; or whatever's up now has none, so forget any timing. */
+function setPopup(shown: boolean): void {
+  clearTimeout(popupTimer);
+  popupUp = shown;
+  if (!shown) return;
+  heldPopup = [];
+  popupShownAt = Date.now();
+  newsFeeds.store.seenUntil = Math.floor(popupShownAt / 1000);
+  void saveNewsSeen(newsFeeds.store.seenUntil);
+  popupTimer = setTimeout(dismissPopup, settings.displaySec * 500);
+}
+
+/** The chart in place of the headlines, redrawn from its data, for the rest of the show-for time. An update under way will replace them anyway. */
+function dismissPopup(): void {
+  const left = settings.displaySec * 1000 - (Date.now() - popupShownAt);
+  setPopup(false);
+  if (inFlight) return;
+  chartShowMs = Math.max(1000, left);
+  void update({ reuse: true });
+}
+
+const newsSourcesEl = $('news-sources');
+const newsHintEl = $('news-hint');
+const newsListEl = $<HTMLUListElement>('news-list');
+const newsFilterList = $<HTMLUListElement>('news-filters');
+const addNewsFilterBtn = $<HTMLButtonElement>('add-news-filter');
+
+function addNewsFilterRow(filter = ''): void {
+  const li = document.createElement('li');
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.placeholder = 'e.g. Fed, or rate cut';
+  input.maxLength = MAX_NEWS_FILTER;
+  input.spellcheck = false;
+  input.autocapitalize = 'off';
+  input.setAttribute('aria-label', 'News filter');
+  input.value = filter;
+  const remove = document.createElement('button');
+  remove.type = 'button';
+  remove.className = 'secondary';
+  remove.textContent = '✕';
+  remove.setAttribute('aria-label', 'Remove');
+  remove.addEventListener('click', () => {
+    li.remove();
+    syncNewsFilterControls();
+    void applyForm();
+  });
+  li.append(input, remove);
+  newsFilterList.append(li);
+  syncNewsFilterControls();
+}
+
+function syncNewsFilterControls(): void {
+  addNewsFilterBtn.disabled = newsFilterList.children.length >= MAX_NEWS_FILTERS;
+}
+
+addNewsFilterBtn.addEventListener('click', () => {
+  addNewsFilterRow();
+  newsFilterList.querySelector<HTMLInputElement>('li:last-child input')!.focus();
+});
+
+const newsBoxes = new Map(NEWS_SOURCES.map((src) => {
+  const label = document.createElement('label');
+  const box = document.createElement('input');
+  box.type = 'checkbox';
+  box.name = `news-${src.id}`;
+  label.append(src.label, box);
+  newsSourcesEl.append(label);
+  return [src.id, box];
+}));
+
+/** The link that couldn't be copied, shown as text to select by hand, as the list is redrawn with each update. */
+let manualCopyLink = '';
+
+/**
+ * Put `text` on the clipboard; false if the WebView won't. The old way goes
+ * first: it needs the tap still in progress, which waiting on the new one would
+ * end, and WebViews may not offer or allow the new one.
+ */
+async function copyText(text: string): Promise<boolean> {
+  const field = document.createElement('input');
+  field.value = text;
+  // Big enough that a phone doesn't zoom in on it, and out of sight.
+  field.style.cssText = 'position:fixed;left:-1000px;top:0;font-size:16px';
+  document.body.append(field);
+  field.focus({ preventScroll: true });
+  field.setSelectionRange(0, text.length);
+  let copied = false;
+  try {
+    copied = document.execCommand('copy');
+  } catch { /* falls through to the clipboard API */ }
+  field.remove();
+  if (copied) return true;
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** A small button for a headline's row. */
+function newsAction(label: string, describe: string, act: (btn: HTMLButtonElement) => void): HTMLButtonElement {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'secondary';
+  btn.textContent = label;
+  btn.setAttribute('aria-label', describe);
+  btn.addEventListener('click', () => act(btn));
+  return btn;
+}
+
+/** Copy and, where the WebView offers it, Share: how to get to an article, as the app can't open one itself. */
+function newsActions(item: NewsMatch): HTMLElement {
+  const row = document.createElement('div');
+  row.className = 'news-actions';
+  row.append(newsAction('Copy link', `Copy the link to ${item.title}`, (btn) => {
+    void copyText(item.link).then((copied) => {
+      if (!copied) {
+        manualCopyLink = item.link;
+        renderNews();
+        return;
+      }
+      btn.textContent = 'Copied';
+      setTimeout(() => { btn.textContent = 'Copy link'; }, 2000);
+    });
+  }));
+  if (typeof navigator.share === 'function') {
+    row.append(newsAction('Share', `Share ${item.title}`, () => {
+      // Cancelled, or refused: Copy link is beside it.
+      navigator.share({ title: item.title, url: item.link }).catch(() => {});
+    }));
+  }
+  return row;
+}
+
+/** The phone's News section: up to `MAX_NEWS_LIST` headlines mentioning what's monitored, newest first, each with a way to pass on its link; or why there are none. */
+function renderNews(): void {
+  const on = settings.newsSources;
+  const items = newsFeeds.store.matches(on, [...newsTargets, ...filterTargets(settings)]).slice(0, MAX_NEWS_LIST);
+  const labels = new Map(NEWS_SOURCES.map((src) => [src.id, src.label]));
+  const failures = on.flatMap((id) => (newsFeeds.errors.has(id) ? [`${labels.get(id)}: ${newsFeeds.errors.get(id)}`] : []));
+  const empty = on.length === 0 ? 'Tick a source to fetch headlines with each update.' : items.length ? '' : 'No headlines are hits yet.';
+  newsHintEl.textContent = [empty, ...failures].filter(Boolean).join(' ');
+  newsHintEl.hidden = !newsHintEl.textContent;
+  newsListEl.replaceChildren(...items.map((item) => {
+    const li = document.createElement('li');
+    // Text from the feeds goes in as such, never as markup. Not a link: in the
+    // Even app, following one takes over the app, with no way back.
+    const title = document.createElement('span');
+    title.textContent = item.title;
+    const meta = document.createElement('span');
+    meta.className = 'meta';
+    const today = new Date(item.time * 1000).toDateString() === new Date().toDateString();
+    const when = today ? headlineTime(item.time) : new Date(item.time * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    meta.textContent = [labels.get(item.source), when, ...item.about.map((a) => shorten(a, 24))].join(' · ');
+    li.append(title, meta);
+    if (item.link) li.append(newsActions(item));
+    if (item.link && item.link === manualCopyLink) {
+      const url = document.createElement('span');
+      url.className = 'url';
+      url.textContent = item.link;
+      li.append(url);
+    }
+    return li;
+  }));
+}
+
 async function runUpdate(ctrl: AbortController, showAt: number, reuse: boolean): Promise<void> {
   if (isPredictionSource(settings.source)) return runEventsUpdate(ctrl, showAt, reuse);
   const s = settings;
@@ -459,7 +715,7 @@ async function runUpdate(ctrl: AbortController, showAt: number, reuse: boolean):
   } else {
     showFetching();
     try {
-      data = s.explore ? await exploreMarkets(s, ctrl) : await watchlistMarkets(s, ctrl);
+      data = await withNews(s, s.explore ? exploreMarkets(s, ctrl) : watchlistMarkets(s, ctrl));
       data = data.map((d) => ({ ...d, trend: trend(`${s.source}:${s.currency}:${d.market}`, d.error ? undefined : d.last ?? d.candles.at(-1)?.close) }));
     } catch {
       return; // superseded by a newer update
@@ -473,6 +729,8 @@ async function runUpdate(ctrl: AbortController, showAt: number, reuse: boolean):
   if (ctrl.signal.aborted) return;
 
   const drawStart = Date.now();
+  const news = takeNews(s, data.map((d) => marketTarget(d.market)), reuse);
+  data = data.map((d) => ({ ...d, news: news.marks(d.market) }));
   const byMarket = new Map(data.map((d) => [d.market, d]));
   const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
   // Explore's top markets are charted (or none, for the list), and the rest listed, in their order.
@@ -495,12 +753,13 @@ async function runUpdate(ctrl: AbortController, showAt: number, reuse: boolean):
     const model = { charts, ticker, interval: s.interval, candleWidth: s.candleWidth, updated, source, font: s.font, analysis: analysisSpecs(s) };
     lastAxisW = DIAGNOSTICS && supersample ? renderSupersampled(ctx, model) : renderScreen(ctx, model);
   }
+  textBoxes = popupOr(ctx, news, textBoxes);
   refreshWidthLabels();
   // Drawn, so it goes up as soon as it's due (or now, if late) without a loading screen.
   notDue();
 
   const failed = data.filter((d) => d.error).map((d) => `${d.market}: ${d.error}`);
-  await present(ctrl, showAt, textBoxes, failed, updated, drawStart);
+  await present(ctrl, showAt, textBoxes, failed, updated, drawStart, news.show);
 }
 
 /** The watchlist's markets, with the index for the charts. Rejects only with an AbortError. */
@@ -610,7 +869,7 @@ async function runEventsUpdate(ctrl: AbortController, showAt: number, reuse: boo
   } else {
     showFetching();
     try {
-      data = s.explore ? await exploreEvents(s, ctrl) : await getPredictionSource(s.source).fetch(eventRequest(s), ctrl.signal, (partial) => onEventProgress(ctrl, partial));
+      data = await withNews(s, s.explore ? exploreEvents(s, ctrl) : getPredictionSource(s.source).fetch(eventRequest(s), ctrl.signal, (partial) => onEventProgress(ctrl, partial)));
       data = data.map((d) => ({ ...d, outcomes: d.outcomes.map((o) => ({ ...o, trend: trend(`${s.source}:${d.market}:${o.name}`, o.price) })) }));
     } catch {
       return; // superseded by a newer update
@@ -623,6 +882,8 @@ async function runEventsUpdate(ctrl: AbortController, showAt: number, reuse: boo
   if (ctrl.signal.aborted) return;
 
   const drawStart = Date.now();
+  const news = takeNews(s, data.map((d) => eventTarget(d.market, d.title)), reuse);
+  data = data.map((d) => ({ ...d, news: news.marks(d.market) }));
   const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
   const model = { interval: s.eventInterval, updated, source: sourceLabel(s.source), font: s.font };
   // The charted events, and the rest listed under them; with none charted,
@@ -640,8 +901,9 @@ async function runEventsUpdate(ctrl: AbortController, showAt: number, reuse: boo
   } else {
     renderPrediction(ctx, { ...model, charts: charted, ticker: data.filter((d) => !charted.includes(d)), analysis: s.eventAnalysis });
   }
+  textBoxes = popupOr(ctx, news, textBoxes);
   notDue();
-  await present(ctrl, showAt, textBoxes, data.filter((d) => d.error).map((d) => `${d.market}: ${d.error}`), updated, drawStart);
+  await present(ctrl, showAt, textBoxes, data.filter((d) => d.error).map((d) => `${d.market}: ${d.error}`), updated, drawStart, news.show);
 }
 
 /** Explore for a prediction market: its top events, charted. Rejects only with an AbortError. */
@@ -682,15 +944,17 @@ async function exploreEvents(s: Settings, ctrl: AbortController): Promise<Predic
 
 /**
  * Put the screen drawn on the canvas (or `textBoxes`) on the glasses once
- * it's due, then set it to come down after the show-for time.
+ * it's due, then set it to come down after the show-for time. If it's headlines
+ * (`popup`), they're timed out instead, and the chart gets the rest of that time.
  */
-async function present(ctrl: AbortController, showAt: number, textBoxes: TextBox[] | null, failed: string[], updated: Date, drawStart: number): Promise<void> {
+async function present(ctrl: AbortController, showAt: number, textBoxes: TextBox[] | null, failed: string[], updated: Date, drawStart: number, popup: boolean): Promise<void> {
   // Plain spaces: some WebView fonts lack the narrow no-break space before
   // "PM", and the fallback font would shift the line.
   const stamp = updated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }).replace(/\s/g, ' ');
 
   if (!glasses) {
     setStatus('Browser preview (glasses not connected)', failed, stamp);
+    setPopup(popup);
     return;
   }
 
@@ -724,8 +988,11 @@ async function present(ctrl: AbortController, showAt: number, textBoxes: TextBox
     if (ctrl.signal.aborted) return;
     setShowing(true);
     setStatus('Display on', failed, stamp);
+    setPopup(popup);
+    const showMs = chartShowMs ?? settings.displaySec * 1000;
+    chartShowMs = null;
     // Read now, not from `s`: the option may have changed while this update ran.
-    if (!settings.alwaysOn) hideTimer = setTimeout(hideUnlessAlwaysOn, settings.displaySec * 1000);
+    if (!settings.alwaysOn && !popup) hideTimer = setTimeout(hideUnlessAlwaysOn, showMs);
   } catch (e) {
     if (ctrl.signal.aborted) return;
     setStatus(`Glasses error: ${(e as Error).message}`, failed);
@@ -745,6 +1012,7 @@ function hideUnlessAlwaysOn(): void {
 
 async function hide(): Promise<void> {
   clearTimeout(hideTimer);
+  setPopup(false);
   setShowing(false);
   loading = false;
   if (!glasses || exited) return;
@@ -841,6 +1109,7 @@ function pause(status: GlassesStatus): void {
   } else {
     // Nothing to blank, and no answer to wait for.
     clearTimeout(hideTimer);
+    setPopup(false);
     setShowing(false);
     loading = false;
   }
@@ -1503,6 +1772,10 @@ function fillForm(s: Settings): void {
   textListBox.checked = s.textList;
   syncMarketControls();
   renderExplore();
+  for (const [id, box] of newsBoxes) box.checked = s.newsSources.includes(id);
+  newsFilterList.replaceChildren();
+  for (const f of s.newsFilters) addNewsFilterRow(f);
+  syncNewsFilterControls();
   showIndexBox.checked = s.showIndex;
   gesturesBox.checked = s.gestures;
   cycleFavoritesBox.checked = s.cycleFavorites;
@@ -1583,6 +1856,8 @@ function readForm(): Settings {
     showIndex: showIndexBox.checked,
     gestures: gesturesBox.checked,
     cycleFavorites: cycleFavoritesBox.checked,
+    newsSources: [...newsBoxes].filter(([, box]) => box.checked).map(([id]) => id),
+    newsFilters: [...newsFilterList.querySelectorAll('input')].map((i) => i.value),
     analysis: analysisBox.checked,
     analysisKind: analysisSel.value as Analysis,
     analysisSecond: analysisSecondSel.value as Analysis | 'none',
@@ -1637,6 +1912,8 @@ async function applyForm(cycling = false): Promise<boolean> {
     const text = li.querySelector<HTMLInputElement>('input[type=text]')!;
     if (text.value) text.value = marketList.dataset.kind === 'events' ? eventSlug(text.value) : normalizeMarket(text.value);
   }
+  // Without rebuilding rows, as for the markets above: empty ones wait to be filled in.
+  for (const input of newsFilterList.querySelectorAll('input')) input.value = cleanNewsFilter(input.value);
   refreshInput.value = formatDuration(next.refreshSec);
   refreshInput.disabled = next.manualOnly;
   displayInput.disabled = next.alwaysOn;
@@ -1651,6 +1928,7 @@ async function applyForm(cycling = false): Promise<boolean> {
   settings = next;
   syncNextFavorite();
   renderExplore();
+  renderNews();
   await saveSettings(settings);
   syncLookUp();
   if (cycling) return true;
@@ -1663,11 +1941,12 @@ async function applyForm(cycling = false): Promise<boolean> {
     || next.showIndex !== prev.showIndex || next.showList !== prev.showList || next.textList !== prev.textList
     || JSON.stringify(next.events) !== JSON.stringify(prev.events) || JSON.stringify(next.eventCharts) !== JSON.stringify(prev.eventCharts)
     || next.eventInterval !== prev.eventInterval || next.eventTextChart !== prev.eventTextChart
-    || next.explore !== prev.explore || next.exploreBy !== prev.exploreBy || next.exploreView !== prev.exploreView;
+    || next.explore !== prev.explore || next.exploreBy !== prev.exploreBy || next.exploreView !== prev.exploreView
+    || next.newsSources.join() !== prev.newsSources.join();
   if (chartChanged) restartSchedule({ cancel: true, manual: true });
-  // A new font or analysis needs no new data: redraw the last, sparing the APIs
+  // A new font, analysis or news filter needs no new data: redraw the last, sparing the APIs
   // (CoinGecko drops the index when asked too often). Without data to reuse, this fetches.
-  else if (next.font !== prev.font || next.eventAnalysis !== prev.eventAnalysis || JSON.stringify(analysisSpecs(next)) !== JSON.stringify(analysisSpecs(prev))) void update({ cancel: true, manual: true, reuse: true });
+  else if (next.font !== prev.font || next.eventAnalysis !== prev.eventAnalysis || next.newsFilters.join('\n') !== prev.newsFilters.join('\n') || JSON.stringify(analysisSpecs(next)) !== JSON.stringify(analysisSpecs(prev))) void update({ cancel: true, manual: true, reuse: true });
   // Leaving manual-only: fetch in the background now and start the schedule.
   else if (prev.manualOnly && !next.manualOnly) restartSchedule();
   else scheduleAt(nextAt - prev.refreshSec * 1000 + next.refreshSec * 1000);
@@ -1724,6 +2003,8 @@ showNowBtn.addEventListener('click', toggleChart);
 
 /** Show now / Hide now, from the button or a tap on the glasses. */
 function toggleChart(): void {
+  // A first tap clears the headlines, for the chart.
+  if (popupUp) return dismissPopup();
   if (showing && !settings.alwaysOn) {
     if (loading) inFlight?.abort(); // Dismissed before the chart arrived.
     void hide();
@@ -1970,6 +2251,14 @@ if (DIAGNOSTICS) halvingBox.addEventListener('change', (e) => {
   if (supersample) void update({ cancel: true, manual: true, reuse: true });
 });
 
+if (DIAGNOSTICS) $<HTMLInputElement>('always-news-popup').addEventListener('change', (e) => {
+  // Not a setting: keep it from the form's change handler.
+  e.stopPropagation();
+  alwaysNewsPopup = (e.target as HTMLInputElement).checked;
+  // Fetched, as a redraw doesn't force it, so it can be seen straight away.
+  if (alwaysNewsPopup) void update({ cancel: true, manual: true });
+});
+
 if (DIAGNOSTICS) speedTestBtn.addEventListener('click', async () => {
   if (!glasses) return;
   speedTestBtn.disabled = true;
@@ -2018,8 +2307,10 @@ async function boot(): Promise<void> {
   glasses?.onImu(onImuReading);
   glasses?.onExit(stop);
   settings = await loadSettings();
+  newsFeeds.store.seenUntil = await loadNewsSeen();
   void loadFont(settings.font).catch(() => {});
   fillForm(settings);
+  renderNews();
   syncNextFavorite();
   setShowing(showing); // Label the button for the saved settings.
   // The motion sensor only starts once the glasses have a page, and in
@@ -2050,6 +2341,8 @@ function stop(): void {
   exited = true;
   inFlight?.abort();
   inFlight = null;
+  newsCtrl.abort();
+  setPopup(false);
   clearTimeout(nextTimer);
   clearTimeout(hideTimer);
   notDue();

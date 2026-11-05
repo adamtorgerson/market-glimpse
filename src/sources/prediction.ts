@@ -1,4 +1,4 @@
-import type { ExploreBy } from './types';
+import type { ExploreBy, NewsMarks } from './types';
 /**
  * Prediction markets: a different kind of source from the exchanges. A market
  * is an event ("Man City vs. Brighton") whose outcomes ("Man City", "Draw",
@@ -34,6 +34,7 @@ export interface PredictionData {
   market: string;
   /** The event's question or title. */
   title: string;
+  news?: NewsMarks;
   /** At most `MAX_OUTCOMES`, in the order to draw them (see `pick` in polymarket.ts). */
   outcomes: Outcome[];
   /**

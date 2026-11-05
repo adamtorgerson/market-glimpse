@@ -8,7 +8,7 @@
   "permissions": [
     {
       "name": "network",
-      "desc": "Fetches public market data from the selected exchange (Kraken, OKX, Coinbase, Gate, Binance, Binance.US, Bitget, Hyperliquid or Aster) or prediction market (Polymarket, Polymarket US, Hyperliquid Outcomes), and index prices from CoinGecko.",
+      "desc": "Fetches public market data from the selected exchange (Kraken, OKX, Coinbase, Gate, Binance, Binance.US, Bitget, Hyperliquid or Aster) or prediction market (Polymarket, Polymarket US, Hyperliquid Outcomes), index prices from CoinGecko, and headlines from the news sources you tick (CNBC, MarketWatch, cryptocurrency.cv).",
       "whitelist": [
         "https://api.kraken.com",
         "https://www.okx.com",
@@ -22,7 +22,10 @@
         "https://gamma-api.polymarket.com",
         "https://clob.polymarket.com",
         "https://gateway.polymarket.us",
-        "https://api.coingecko.com"
+        "https://api.coingecko.com",
+        "https://www.cnbc.com",
+        "https://feeds.content.dowjones.io",
+        "https://cryptocurrency.cv"
       ]
     }
   ],

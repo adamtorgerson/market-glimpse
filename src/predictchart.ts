@@ -6,7 +6,7 @@
  * least of the lines, gives each line's price and name beside a sample of its
  * style. Outcomes left out are one more row, "Other", with no line.
  */
-import { arrowWidth, DIM, drawArrow, LIST_ARROW, drawLogo, FAINT, FG, formatStamp, formatTime, layout, LOGO_INK, MID, SCREEN_H, SCREEN_W, timeTicks } from './chart';
+import { arrowWidth, DIM, drawArrow, drawListNewsMark, drawNewsMark, LIST_ARROW, drawLogo, FAINT, FG, formatStamp, formatTime, layout, LOGO_INK, MID, newsMarkWidth, SCREEN_H, SCREEN_W, timeTicks } from './chart';
 import { cssFont, digitMid, digitTop } from './fonts';
 import type { ChartFont } from './settings';
 import { eventStats } from './predictanalysis';
@@ -134,6 +134,7 @@ export function renderPrediction(ctx: CanvasRenderingContext2D, model: Predictio
           drawArrow(ctx, x + ARROW_GAP, y - digitMid(listFont), LIST_PX, c.trend, c.color, LIST_ARROW);
           x += ARROW_GAP + arrowWidth(LIST_PX, LIST_ARROW);
         }
+        if (c.news) x += drawListNewsMark(ctx, x, y - digitMid(listFont), LIST_PX);
         x += CELL_GAP;
       }
       x += ITEM_GAP - CELL_GAP;
@@ -282,6 +283,10 @@ function drawPanel(
   }
   ctx.restore();
 
+  // News: a mark along the plot's bottom, under the time of each headline (one per column).
+  const newsColumns = new Set((data.news?.times ?? []).map((t) => Math.round(xOf(Math.min(t, end)))));
+  for (const x of newsColumns) if (x >= plot.x) drawNewsMark(ctx, x, Math.round(plot.y + plot.h) + 1, 3);
+
   // The legend, in the outcomes' order (likeliest first, a ladder's rungs in
   // order, a match's home, draw, away), then "Other": priced if exactly one
   // outcome can win, else just counted. A row is a sample of the line's
@@ -403,15 +408,15 @@ function emptiest(ctx: CanvasRenderingContext2D, plot: Rect, w: number, h: numbe
   return { x: px + best.x, y: py + best.y, covered: best.n > 0 };
 }
 
-/** A cell of text; `trend` adds an arrow after it, up or down. */
-type Cell = { text: string; color: string; bold?: boolean; trend?: number };
+/** A cell of text; `trend` adds an arrow after it, up or down, and `news` a news mark. */
+type Cell = { text: string; color: string; bold?: boolean; trend?: number; news?: boolean };
 const ARROW_GAP = 5;
 
 /** An event under the charts: its title, then its likeliest outcome's probability and name, and its 24h volume; or its error. */
 function eventCells(ctx: CanvasRenderingContext2D, d: PredictionData, font: (px: number, bold?: boolean) => string): Cell[] {
   ctx.font = font(LIST_PX);
   // Short, so two events fit on a line.
-  const title: Cell = { text: fit(ctx, d.title, 90), color: MID };
+  const title: Cell = { text: fit(ctx, d.title, 90), color: MID, news: d.news?.recent };
   const leader = d.error ? undefined : [...d.outcomes].sort((a, b) => b.price - a.price)[0];
   if (!leader) return [title, { text: d.error ?? 'no data', color: DIM }];
   const cells: Cell[] = [title, { text: formatPct(leader.price), color: FG, bold: true, trend: leader.trend }, { text: fit(ctx, leader.name, 64), color: MID }];
@@ -427,7 +432,7 @@ function flowEvents(ctx: CanvasRenderingContext2D, items: PredictionData[], widt
     const cells = eventCells(ctx, d, font);
     const w = cells.reduce((sum, c, i) => {
       ctx.font = font(LIST_PX, c.bold);
-      return sum + ctx.measureText(c.text).width + (c.trend ? ARROW_GAP + arrowWidth(LIST_PX, LIST_ARROW) : 0) + (i ? CELL_GAP : 0);
+      return sum + ctx.measureText(c.text).width + (c.trend ? ARROW_GAP + arrowWidth(LIST_PX, LIST_ARROW) : 0) + (c.news ? newsMarkWidth(LIST_PX) : 0) + (i ? CELL_GAP : 0);
     }, 0);
     if (lines.length && lineW + ITEM_GAP + w <= width) {
       lines.at(-1)!.push(cells);
@@ -518,7 +523,9 @@ export function renderPredictionList(ctx: CanvasRenderingContext2D, model: Omit<
     ctx.font = name;
     ctx.fillStyle = MID;
     ctx.textAlign = 'left';
-    ctx.fillText(fit(ctx, d.title, titleW), pad, Math.round(cy + digitMid(name)));
+    const shownTitle = fit(ctx, d.title, titleW - (d.news?.recent ? newsMarkWidth(14) : 0));
+    ctx.fillText(shownTitle, pad, Math.round(cy + digitMid(name)));
+    if (d.news?.recent) drawListNewsMark(ctx, pad + ctx.measureText(shownTitle).width, cy, 14);
     if (d.error || d.outcomes.length === 0) {
       ctx.font = small;
       ctx.fillStyle = DIM;

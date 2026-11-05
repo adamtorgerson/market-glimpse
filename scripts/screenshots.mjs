@@ -103,12 +103,15 @@ const SHOTS = {
   'prediction-hl-explore-liquid-list': { source: 'hyperliquidoutcomes', explore: true, exploreBy: 'liquidity', exploreView: 'list', eventInterval: 60 },
   'prediction-hl-ladder': { source: 'hyperliquidoutcomes', events: { hyperliquidoutcomes: ['ipo-cap-anthropic-20270501-0359'] }, eventInterval: 60, eventAnalysis: true },
   'prediction-us-four-charts': { source: 'polymarketus', events: { polymarketus: US_EVENTS }, eventInterval: 60 },
+  // Live headlines, on a first launch (the simulator keeps no storage between runs), so all new. Broad
+  // filters fill it, whatever's mentioning the markets today; waits for the popup, a text page, not a chart.
+  'store-news-popup': { markets: ALL, charts: ['BTC-USDC'], newsSources: ['cnbc', 'marketwatch', 'cv'], newsFilters: ['stocks', 'Nasdaq', 'crypto', 'Wall Street', 'earnings', 'S&P 500', 'Fed', 'shares'], waitFor: 'text' },
   'store-prediction-two-charts': { source: 'polymarket', events: { polymarket: STORE_EVENTS.slice(0, 2) }, eventInterval: 60 },
   'store-prediction-list': { source: 'polymarket', events: { polymarket: STORE_EVENTS }, eventCharts: { polymarket: [] }, eventInterval: 60 },
 };
 
 // The Even Hub store listing: Kraken (the default source) and Polymarket.
-const STORE = ['one-chart', 'two-charts', 'four-charts', 'analysis-bollinger-macd', 'market-list', 'text-blocks-chart', 'text-chart', 'store-prediction-two-charts', 'store-prediction-list'];
+const STORE = ['store-news-popup', 'two-charts', 'four-charts', 'analysis-bollinger-macd', 'market-list', 'text-blocks-chart', 'text-chart', 'store-prediction-two-charts', 'store-prediction-list'];
 
 const args = process.argv.slice(2);
 const store = args.includes('--store');
@@ -150,10 +153,11 @@ async function automation(path) {
   return res;
 }
 
-async function uploaded() {
+/** The first upload's in, and if the shot's waiting on a kind, it's that (`UploadStats.encoding`). */
+async function uploaded(encoding) {
   try {
     const { entries } = await (await automation('/api/console')).json();
-    return entries.some((e) => e.message.includes('Glasses upload'));
+    return entries.some((e) => e.message.includes('Glasses upload') && (!encoding || e.message.includes(`"encoding":"${encoding}"`)));
   } catch {
     return false; // Not up yet.
   }
@@ -162,14 +166,15 @@ async function uploaded() {
 mkdirSync(OUT, { recursive: true });
 try {
   for (const name of names.length ? names : Object.keys(SHOTS)) {
-    const settings = { displaySec: 60, refreshSec: 600, ...SHOTS[name] };
+    const { waitFor, ...shot } = SHOTS[name];
+    const settings = { displaySec: 60, refreshSec: 600, ...shot };
     const url = `http://localhost:${VITE_PORT}/seed?s=${encodeURIComponent(JSON.stringify(settings))}`;
     // Its own process group, so killing it also ends the WebView processes.
     const sim = spawn('node_modules/.bin/evenhub-simulator', [url, '--automation-port', '9898'],
       { cwd: ROOT, stdio: 'ignore', detached: true });
     try {
       const start = Date.now();
-      while (!(await uploaded())) {
+      while (!(await uploaded(waitFor))) {
         if (Date.now() - start > TIMEOUT_MS) throw new Error(`${name}: no glasses upload in ${TIMEOUT_MS / 1000}s`);
         await sleep(150);
       }

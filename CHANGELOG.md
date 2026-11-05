@@ -4,6 +4,18 @@ Notable changes to MarketGlimpse, by release tag.
 
 ## [Unreleased]
 
+### Added
+- **News**: a section with a checkbox each for CNBC, MarketWatch and
+  cryptocurrency.cv, all off by default. Headlines are fetched with the market
+  data. New ones mentioning a monitored market or event bring up a text page,
+  including on launch, for half the show-for time or until a tap, then the chart
+  has the rest. It shows as many headlines as fit, new ones first, marked "*".
+  Up to 8 filters, words or phrases of your own, also count as hits. Up to 25
+  are listed in the section, each with a Copy link button, and Share where the
+  phone's WebView offers it. A mark along the bottom of a chart shows when each
+  was published, and a mark in the market lists shows what's been in the news in
+  the last day.
+
 ## [0.4.5] - 2026-11-05
 
 ### Added

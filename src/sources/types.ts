@@ -9,8 +9,15 @@ export interface Candle {
   volume: number;
 }
 
+/** Headlines mentioning a market or event: when each was published (unix seconds), and whether any is recent enough to mark it in a list. */
+export interface NewsMarks {
+  times: number[];
+  recent: boolean;
+}
+
 export interface MarketData {
   market: string;
+  news?: NewsMarks;
   /** Only for charted markets and those with a line graph; empty for the rest. */
   candles: Candle[];
   /** Latest trade price. */

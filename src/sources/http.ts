@@ -23,15 +23,20 @@ export class PublicApi {
 
   /** GET `path` and parse the JSON body. Network and HTTP errors reject. */
   get<T>(path: string, signal: AbortSignal): Promise<T> {
-    return this.request(path, undefined, signal);
+    return this.request(path, undefined, signal, (text) => JSON.parse(text) as T);
+  }
+
+  /** GET `path` and return the body as text, for feeds that aren't JSON; otherwise like `get`. */
+  getText(path: string, signal: AbortSignal): Promise<string> {
+    return this.request(path, undefined, signal, (text) => text);
   }
 
   /** POST `body` as JSON to `path`, for APIs whose only multi-item endpoint is a POST; otherwise like `get`. */
   post<T>(path: string, body: unknown, signal: AbortSignal): Promise<T> {
-    return this.request(path, JSON.stringify(body), signal);
+    return this.request(path, JSON.stringify(body), signal, (text) => JSON.parse(text) as T);
   }
 
-  private request<T>(path: string, payload: string | undefined, signal: AbortSignal): Promise<T> {
+  private request<T>(path: string, payload: string | undefined, signal: AbortSignal, parse: (text: string) => T): Promise<T> {
     const run = this.queue.then(async () => {
       signal.throwIfAborted();
       await sleep(this.nextAt - Date.now(), signal);
@@ -47,7 +52,7 @@ export class PublicApi {
       countNetwork(byteSize(url) + byteSize(payload), bytes.length);
       const text = new TextDecoder().decode(bytes);
       if (!res.ok) throw new HttpError(res.status, text);
-      const body = JSON.parse(text) as T;
+      const body = parse(text);
       this.responseMs = average(this.responseMs, Date.now() - sent);
       return body;
     });

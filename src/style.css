@@ -144,6 +144,18 @@ label > input:disabled { opacity: 0.4; }
 #explore-list button { padding: 4px 12px; }
 #explore-list .added { width: 2.6em; text-align: center; color: var(--muted); }
 
+#news-filters { list-style: none; margin: 10px 0; padding: 0; }
+#news-filters li { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+#news-filters input { flex: 1; }
+#news-filters button { padding: 6px 12px; }
+#news-list { list-style: none; margin: 10px 0 0; padding: 0; }
+#news-list li { padding: 8px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+#news-list .meta { display: block; margin-top: 2px; color: var(--muted); font-size: 0.8rem; }
+.news-actions { display: flex; gap: 8px; margin-top: 6px; }
+.news-actions button { padding: 4px 10px; font-size: 0.8rem; }
+/* The link to select by hand, where it couldn't be copied. */
+#news-list .url { display: block; margin-top: 6px; font-size: 0.8rem; user-select: all; -webkit-user-select: all; }
+
 code { color: var(--fg); }
 
 #speed-results { width: 100%; border-collapse: collapse; }

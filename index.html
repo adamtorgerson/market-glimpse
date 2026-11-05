@@ -203,6 +203,16 @@
           <p data-exchange class="muted small">For markets entered without a quote: TSLA is a stock if the exchange has it, else a coin in this currency.</p>
         </fieldset>
 
+        <fieldset>
+          <legend>News</legend>
+          <div id="news-sources"></div>
+          <p class="muted small">Headlines are hits if they mention your markets, or any of these filters: up to 8 words or phrases, matched whole, in any case.</p>
+          <ul id="news-filters"></ul>
+          <button id="add-news-filter" type="button" class="secondary">+ Add filter</button>
+          <p id="news-hint" class="muted small"></p>
+          <ul id="news-list"></ul>
+        </fieldset>
+
         <fieldset data-dev-only>
           <legend>Diagnostics</legend>
           <p id="upload-stats" class="muted small">No chart sent to the glasses yet.</p>
@@ -215,6 +225,7 @@
           <table id="speed-results" class="small"></table>
           <label>Draw charts at 8× and scale down <input id="supersample" type="checkbox" /></label>
           <label>Scale down in halving steps <input id="supersample-halving" type="checkbox" disabled /></label>
+          <label>Always show the news popup <input id="always-news-popup" type="checkbox" /></label>
         </fieldset>
 
         <p id="form-error" class="error" role="alert"></p>

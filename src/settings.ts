@@ -3,7 +3,9 @@ import {
   MIN_K, MIN_PERIOD, MIN_SAR, RSI_PERIOD, SAR_MAX, SAR_STEP, SMA_PERIOD, type Analysis, type AnalysisSpec,
 } from './analysis';
 import { isCalibration, type LookUpCalibration } from './lookup';
+import { cleanNewsFilter } from './news';
 import { DEFAULT_SOURCE, getPredictionSource, getSource, isPredictionSource, PREDICTION_SOURCES, sourceCurrencies, SOURCES } from './sources';
+import { NEWS_SOURCE_IDS } from './sources/news';
 import { EVENT_INTERVALS, eventSlug } from './sources/prediction';
 import { DEFAULT_CURRENCY } from './sources/symbols';
 import type { ExploreBy } from './sources/types';
@@ -29,6 +31,8 @@ export function exploreCharts(view: ExploreView, max: number): number {
   return view === 'list' ? 0 : Math.min(Number(view), max);
 }
 export const MAX_MARKETS = 8;
+/** News filters allowed. */
+export const MAX_NEWS_FILTERS = 8;
 /** Saved watchlists allowed per `watchlistKey`. */
 export const MAX_WATCHLISTS = 20;
 export const MAX_WATCHLIST_NAME = 24;
@@ -173,6 +177,10 @@ export interface Settings {
   gestures: boolean;
   /** Each scheduled update moves on to the next favorite source first. */
   cycleFavorites: boolean;
+  /** News source ids to fetch headlines from with each update, in the sources' order. None by default. */
+  newsSources: string[];
+  /** Words or phrases that make a headline a hit, as a market or event it mentions does. */
+  newsFilters: string[];
 }
 
 /** Exactly what `sanitize` makes of them: a change is spotted by comparing settings, and a difference here would look like one. */
@@ -221,6 +229,8 @@ export const DEFAULT_SETTINGS: Settings = {
   alwaysOn: false,
   gestures: true,
   cycleFavorites: false,
+  newsSources: [],
+  newsFilters: [],
 };
 
 export function normalizeMarket(raw: string): string {
@@ -357,6 +367,14 @@ export function sanitize(input: Partial<Settings>): Settings {
   const alwaysOn = typeof input.alwaysOn === 'boolean' ? input.alwaysOn : d.alwaysOn;
   const gestures = typeof input.gestures === 'boolean' ? input.gestures : d.gestures;
   const cycleFavorites = typeof input.cycleFavorites === 'boolean' ? input.cycleFavorites : d.cycleFavorites;
+  const newsSources = Array.isArray(input.newsSources) ? NEWS_SOURCE_IDS.filter((id) => input.newsSources!.includes(id)) : d.newsSources;
+  const seenFilters = new Set<string>();
+  const newsFilters = (Array.isArray(input.newsFilters) ? input.newsFilters : d.newsFilters).map(cleanNewsFilter).filter((f) => {
+    const key = f.toLowerCase();
+    if (!f || seenFilters.has(key)) return false;
+    seenFilters.add(key);
+    return true;
+  }).slice(0, MAX_NEWS_FILTERS);
   const explore = typeof input.explore === 'boolean' ? input.explore : d.explore;
   // A ranking the source offers (Polymarket US has only volume).
   const rankings = isPredictionSource(source) ? getPredictionSource(source).exploreRankings : undefined;
@@ -364,7 +382,7 @@ export function sanitize(input: Partial<Settings>): Settings {
   const exploreBy = !rankings || rankings.includes(wantBy) ? wantBy : rankings[0]!;
   const exploreView = (EXPLORE_VIEWS as readonly string[]).includes(input.exploreView as string) ? input.exploreView! : d.exploreView;
 
-  return { source, favorites, currency, markets, charts, interval, events, eventCharts, watchlists, activeWatchlist, eventInterval, eventTextChart, eventAnalysis, explore, exploreBy, exploreView, candleWidth, font, showList, textList, showIndex, analysis, analysisKind, analysisSecond, smaPeriod, emaPeriod, rsiPeriod, atrPeriod, bollingerPeriod, donchianPeriod, bollingerK, macdFast, macdSlow, macdSignal, sarStep, sarMax, manualOnly, lookUpUpdate, lookUpCal, refreshSec, displaySec, alwaysOn, gestures, cycleFavorites };
+  return { source, favorites, currency, markets, charts, interval, events, eventCharts, watchlists, activeWatchlist, eventInterval, eventTextChart, eventAnalysis, explore, exploreBy, exploreView, candleWidth, font, showList, textList, showIndex, analysis, analysisKind, analysisSecond, smaPeriod, emaPeriod, rsiPeriod, atrPeriod, bollingerPeriod, donchianPeriod, bollingerK, macdFast, macdSlow, macdSignal, sarStep, sarMax, manualOnly, lookUpUpdate, lookUpCal, refreshSec, displaySec, alwaysOn, gestures, cycleFavorites, newsSources, newsFilters };
 }
 
 /** The indicators to draw with `s`, in order: none if analysis is off. */

@@ -1,6 +1,6 @@
 # MarketGlimpse privacy policy
 
-Effective 24 October 2026.
+Effective 5 November 2026.
 
 MarketGlimpse shows public market data on Even G2 glasses. It
 has no accounts, no analytics, no advertising and no server of its own. This
@@ -14,25 +14,40 @@ public market data. Each update makes plain HTTPS requests, with no cookies,
 credentials or account details, to:
 
 - **The exchange you choose as the data source**: Kraken (`api.kraken.com`),
-  OKX (`www.okx.com`), Coinbase (`api.exchange.coinbase.com`) or Gate
-  (`api.gateio.ws`). The requests name the markets you've added (for example
-  `BTC-USDC`) and the candle size.
+  OKX (`www.okx.com`), Coinbase (`api.exchange.coinbase.com`), Gate
+  (`api.gateio.ws`), Binance (`api.binance.com`), Binance.US
+  (`api.binance.us`), Bitget (`api.bitget.com`), Hyperliquid
+  (`api.hyperliquid.xyz`) or Aster (`sapi.asterdex.com`). The requests name the
+  markets you've added (for example `BTC-USDC`) and the candle size.
+- **The prediction market you choose as the data source**: Polymarket
+  (`gamma-api.polymarket.com` and `clob.polymarket.com`), Polymarket US
+  (`gateway.polymarket.us`) or Hyperliquid's outcome markets
+  (`api.hyperliquid.xyz`). The requests name the events you've added and the
+  spacing of their history.
 - **CoinGecko** (`api.coingecko.com`), for the index price shown on charts,
   unless you turn **Show index price** off. The requests name the assets of
   the charted markets.
+- **The news sources you tick**, if any (none by default): CNBC
+  (`www.cnbc.com`), MarketWatch (`feeds.content.dowjones.io`) and
+  cryptocurrency.cv (`cryptocurrency.cv`). The requests fetch each source's
+  general headlines: they don't name your markets or news filters, which are
+  matched against the headlines on your phone.
 
 These are the only hosts the app can reach (the network permission's
 whitelist). As with any internet request, those services receive your IP
 address and basic request details such as the browser's user agent, and
 handle them under their own privacy policies. MarketGlimpse sends them
-nothing that identifies you.
+nothing that identifies you. If you copy or share a headline's link from the
+phone page and open it, that's on the publisher's site, under its own privacy
+policy.
 
 ## What the app stores
 
-Your settings (data source, markets, chart options, timings and the
-look-up calibration) are saved on your phone, in the Even Realities app's
-storage for MarketGlimpse, so they're kept between launches. They never leave
-the device. Market data is kept in memory only while the app runs.
+Your settings (data source, markets, chart options, news sources and filters, timings and
+the look-up calibration), and the time headlines last went up on the glasses,
+are saved on your phone, in the Even Realities app's storage for MarketGlimpse,
+so they're kept between launches. They never leave the device. Market data and
+headlines are kept in memory only while the app runs.
 
 ## Motion sensor
 

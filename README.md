@@ -198,6 +198,52 @@ refreshes every 2m, chart shown for 12s, narrow candles.
   full-screen market list is shown, the glasses draw it in their own font
   (name, price and 24h volume, no line graphs). It goes up in one step, and
   only the ticker is fetched.
+- **News** (its own section, under **Data**): a checkbox each for **CNBC** (Top News),
+  **MarketWatch** (Top Stories) and **cryptocurrency.cv** (`/api/breaking`, from
+  the crypto press), all off by default. Headlines are fetched with the market
+  data, one request per source, and a chart waits at most 1.5s for them: any
+  later are in time for the next update. Since feeds are cached for about a
+  minute, CNBC and MarketWatch are asked at most once a minute, and
+  cryptocurrency.cv, which allows 10 requests an hour, at most every 6 minutes,
+  however often the charts update. A source's failure only shows in the section.
+  - **Filters**: up to 8 words or phrases of your own, up to 40 characters each.
+    A headline with one in it, whole and in any case ("Fed", not "federal"), is a
+    hit like one mentioning a market: it can bring up the popup, and it's listed
+    on the phone, with the filter beside it. It's marked on every chart, as a
+    filter isn't about any one market, but marks nothing in the market lists.
+    Changing a filter redraws the last data without fetching. A headline already
+    fetched doesn't count as new because a filter now hits it, though it's listed.
+  - **What matches**: a headline's words, not its summary. A market matches by
+    its asset's ticker, in capitals and as a whole word (BTC, not BTCUSD; words
+    headlines capitalize anyway, like AI, aren't taken as tickers), or for common
+    assets, its name in any case (Bitcoin, Tesla). An event matches by an asset
+    its title names, or else two of its title's distinctive words, so a match can
+    be off.
+  - **New headlines** bring up a popup on the glasses for half of **Show chart
+    for**, or until a tap, and the chart has the rest of that time. It shows as
+    many headlines mentioning what's monitored as fit: the new ones first, each
+    marked with a `*`, then the rest, newest first, each with its time. That's
+    ten, one line each, cut short to fit; with fewer, the first that need it run
+    on to a second line. It's a text page, which goes up in one step and clears as
+    soon as the page is rebuilt. Text containers have no background to cover a chart with,
+    so it takes the whole screen, and an image chart's tiles are sent only once it
+    clears, which takes the usual seconds. Popups can come up on launch. A headline
+    is new if it was published in the last day and not fetched before since
+    launch; in a source's first fetch, it must also be newer than when headlines
+    last went up, which is kept between launches, so a relaunch doesn't repeat
+    them. A story two sources word alike counts once.
+  - **On the phone**: up to 25 headlines mentioning what's monitored, newest
+    first, with their source, time and what they mention. Each has **Copy link**
+    and, where the WebView offers sharing, **Share**. If the WebView won't copy,
+    the link appears as text to select by hand. Headlines aren't links themselves:
+    the SDK has no call to open a browser, and in the Even app, following a link
+    takes over the app.
+  - **On the charts**: a mark along the bottom of each chart, under the candle
+    (or a prediction chart's time) a headline was published in: a small triangle
+    in the images, a bright tick in the text charts. Several in a candle are one
+    mark.
+  - **In the market lists**: a market or event mentioned in the last day has a
+    diamond after its name, or " *" in the glasses' font.
 - **Candle size**: whatever the source offers. Kraken has 1m to 15d, OKX 1m
   to 1w, Coinbase 1m to 1d, Gate 1m to 1w, Binance and Binance.US 1m to 1w, Bitget
   1m to 1w, Hyperliquid 1m to 1w, and Aster 1m to 1w. Switching source keeps the size
@@ -307,7 +353,7 @@ Changes apply as you make them. Changing what's charted or how updates the
 glasses at once, like **Show now**: ticking or unticking a chart, the data
 source, currency type, candle size or history spacing, candle width, chart
 style, index price, **Market List** or **Market List as text**, the events
-entered, or Explore's tab, ranking and Show. A font or analysis change redraws
+entered, the news sources, or Explore's tab, ranking and Show. A font or analysis change redraws
 the last data without fetching, unless it changes what's charted. Other changes (markets in the list, refresh rate,
 show-for time) wait for the next scheduled update. A new refresh rate
 re-times that update.
@@ -376,6 +422,9 @@ the bundle. Upload stats are still logged to the console.
   size, compressibility, base64 vs byte array, pixel count, PNG vs raw 4-bit
   data), three times each, to show what an upload's time depends on. The
   results are also logged as `Upload speed test`.
+- **Always show the news popup** brings up the popup with every fetch, new
+  headlines or not, as long as a news source is ticked and a headline mentions
+  what's monitored. It's not saved, so it's off after a reload.
 
 On the glasses, a tap while the chart is up dismisses it early (with
 **Display always on**, it refreshes it instead). A tap while the display is

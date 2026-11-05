@@ -564,7 +564,47 @@ function drawPanel(
     tag(ctx, needsText(a), plot.x + 2, plot.y + box / 2 + n * box, 'left', MID);
   });
 
+  // News: a mark under the candle of each headline, in the margin under the
+  // strips, where it covers nothing. Several in a candle are one mark.
+  const stripsBottom = g.osc ? g.osc.y + g.osc.h : vol.y + vol.h;
+  const slots = new Set((data.news?.times ?? []).map((t) => newsSlot(t, frame.lastTime, frame.intervalSec)));
+  for (const k of slots) if (k < g.count) drawNewsMark(ctx, slotCenter(g, k), stripsBottom + 1, NEWS_MARK_ROWS);
+
   ctx.restore();
+}
+
+/** Rows of the news mark under a chart: all the margin there is. */
+const NEWS_MARK_ROWS = 3;
+
+/** The candle slot (0 = latest) of the candle a headline at `time` falls in; one newer than the latest candle is in it. */
+export function newsSlot(time: number, lastTime: number, intervalSec: number): number {
+  return Math.max(0, Math.ceil((lastTime - time) / intervalSec));
+}
+
+/** A small triangle pointing up, `rows` tall and centred on `cx`, its tip's row at `top`: there's news here. */
+export function drawNewsMark(ctx: CanvasRenderingContext2D, cx: number, top: number, rows: number): void {
+  ctx.fillStyle = FG;
+  for (let i = 0; i < rows; i++) ctx.fillRect(cx - i, top + i, i * 2 + 1, 1);
+}
+
+/** Half a list's news mark's width and height, less a pixel, for text `px` tall. */
+const newsMarkReach = (px: number) => Math.max(2, Math.round(px * 0.2));
+/** Room a news mark takes after a name in a list. */
+export const newsMarkWidth = (px: number) => 5 + newsMarkReach(px) * 2 + 1;
+
+/**
+ * A news mark after a name in a list, at `x`, centred on `cy`: a diamond, as
+ * a triangle by a price would read as the price going up. Returns the room it took.
+ */
+export function drawListNewsMark(ctx: CanvasRenderingContext2D, x: number, cy: number, px: number): number {
+  const reach = newsMarkReach(px);
+  const cx = Math.round(x + 5 + reach), mid = Math.round(cy);
+  ctx.fillStyle = FG;
+  for (let d = -reach; d <= reach; d++) {
+    const half = reach - Math.abs(d);
+    ctx.fillRect(cx - half, mid + d, half * 2 + 1, 1);
+  }
+  return newsMarkWidth(px);
 }
 
 type Point = { k: number; v: number };
@@ -882,8 +922,8 @@ function drawCorner(ctx: CanvasRenderingContext2D, r: Rect, font: string, pad: n
   return side === 'left' ? x + w : x - w;
 }
 
-/** A cell of text; `trend` adds an arrow after it, up or down. */
-type Cell = { text: string; color: string; bold?: boolean; trend?: number };
+/** A cell of text; `trend` adds an arrow after it, up or down, and `news` a news mark. */
+type Cell = { text: string; color: string; bold?: boolean; trend?: number; news?: boolean };
 
 /** Space before a trend arrow, and its width for text `px` tall. */
 const ARROW_GAP = 5;
@@ -918,14 +958,15 @@ export function drawArrow(ctx: CanvasRenderingContext2D, x: number, cy: number, 
 /** Width of a cell's text, and its arrow if any. */
 function cellWidth(ctx: CanvasRenderingContext2D, c: Cell, px: number, scale = 1): number {
   ctx.font = cellFont(c, px);
-  return ctx.measureText(c.text).width + (c.trend ? ARROW_GAP + arrowWidth(px, scale) : 0);
+  return ctx.measureText(c.text).width + (c.trend ? ARROW_GAP + arrowWidth(px, scale) : 0) + (c.news ? newsMarkWidth(px) : 0);
 }
 
 /** Name, price (with which way it moved since the last update) and 24h volume (unlabelled), or 24h change if given; or name and error. */
 function marketCells(m: MarketData): Cell[] {
   const last = m.last ?? m.candles.at(-1)?.close;
-  if (m.error || last === undefined) return [{ text: m.market, color: MID }, { text: m.error ?? 'no data', color: DIM }];
-  const cells: Cell[] = [{ text: m.market, color: MID }, { text: formatPrice(last), color: FG, bold: true, trend: m.trend }];
+  const name: Cell = { text: m.market, color: MID, news: m.news?.recent };
+  if (m.error || last === undefined) return [name, { text: m.error ?? 'no data', color: DIM }];
+  const cells: Cell[] = [name, { text: formatPrice(last), color: FG, bold: true, trend: m.trend }];
   if (m.dayChange !== undefined) cells.push({ text: formatChange(m.dayChange), color: MID });
   else if (m.dayVolume !== undefined) cells.push({ text: formatVolume(m.dayVolume), color: MID });
   return cells;
@@ -971,7 +1012,8 @@ function drawMarketList(ctx: CanvasRenderingContext2D, items: MarketData[], r: R
     ctx.fillText(c.text, x, cy);
     const w = ctx.measureText(c.text).width;
     if (c.trend) drawArrow(ctx, (ctx.textAlign === 'right' ? x : x + w) + ARROW_GAP, cy, px, c.trend, c.color, scale);
-    return w + (c.trend ? ARROW_GAP + arrowWidth(px, scale) : 0);
+    if (c.news) drawListNewsMark(ctx, x + w, cy, px);
+    return w + (c.trend ? ARROW_GAP + arrowWidth(px, scale) : 0) + (c.news ? newsMarkWidth(px) : 0);
   };
 
   if (!full) {
@@ -997,7 +1039,7 @@ function drawMarketList(ctx: CanvasRenderingContext2D, items: MarketData[], r: R
   const colW = (i: number) => Math.max(...rows.map((row) => {
     if (!row[i] || (i > 0 && row[1]!.color === DIM)) return 0; // Errors span the columns.
     ctx.font = cellFont(row[i]!, px);
-    return ctx.measureText(row[i]!.text).width;
+    return ctx.measureText(row[i]!.text).width + (row[i]!.news ? newsMarkWidth(px) : 0);
   }));
   const priceR = x0 + colW(0) + gap + colW(1);
   // Room after the prices for their arrows, if any has one.

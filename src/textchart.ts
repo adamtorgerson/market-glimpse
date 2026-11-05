@@ -1,4 +1,5 @@
-import { formatChange, formatPrice, formatTime, formatVolume, SCREEN_H, SCREEN_W, timeTicks } from './chart';
+import { formatChange, formatPrice, formatTime, formatVolume, newsSlot, SCREEN_H, SCREEN_W, timeTicks } from './chart';
+import { layoutHeadlines, type NewsMatch } from './news';
 import { formatInterval, type TextWidth } from './settings';
 import type { PredictionData } from './sources/prediction';
 import type { MarketData } from './sources/types';
@@ -158,7 +159,7 @@ export function buildTextChart(m: TextChartModel): TextBox[] {
   const nameW = name ? HEADER_GAP + textWidth(name) : 0;
   const others = m.ticker.flatMap((t) => {
     const price = t.last ?? t.candles.at(-1)?.close;
-    return price === undefined ? [] : [`${t.market} ${formatPrice(price)}${t.trend ? ` ${arrow(t.trend)}` : ''}`];
+    return price === undefined ? [] : [`${t.market}${newsTag(t)} ${formatPrice(price)}${t.trend ? ` ${arrow(t.trend)}` : ''}`];
   });
   const sep = '  ·  ';
   const fits = (items: string[], room: number) => textWidth(items.join(sep)) <= SCREEN_W - 8 - room;
@@ -218,6 +219,34 @@ const TRAILING_SLACK = 12;
 const ARROW_W = 16;
 const arrow = (trend: number) => (trend > 0 ? '↑' : '↓');
 
+/** After a name in a list: it's in the news. */
+const NEWS_TAG = ' *';
+const newsTag = (d: { news?: { recent: boolean } }) => (d.news?.recent ? NEWS_TAG : '');
+/** `text` cut to `max` px, with room kept for its news mark, and the mark. */
+const withNewsTag = (text: string, max: number, d: { news?: { recent: boolean } }) => cut(text, max - textWidth(newsTag(d))) + newsTag(d);
+
+/** Rows a `'` covers, by where it can go: its container's phase, its line, and its ink's top row, lowest first. */
+const TICKS = PHASES.flatMap((dy, phase) => Array.from({ length: Math.ceil((SCREEN_H - dy) / LINE_H) }, (_, line) =>
+  ({ phase, line, top: dy + line * LINE_H + STROKES[2]!.top }))).sort((a, b) => b.top - a.top);
+/** Rows a `'` covers, less one. */
+const TICK_H = STROKES[2]!.bottom - STROKES[2]!.top;
+
+/**
+ * A news mark: a bright `'` in column `col`, as low as it'll go within rows
+ * `minTop`–`maxBottom`, in the first of up to three places left free by what's
+ * drawn there (a candle's own stroke in that column leaves the next one up).
+ */
+function newsTick(bright: TextBox[], col: number, minTop: number, maxBottom: number, blocks: Block[] = []): void {
+  const places = TICKS.filter((p) => p.top >= minTop && p.top + TICK_H <= maxBottom
+    && !blocks.some((k) => col <= k.right && p.top <= k.bottom && p.top + TICK_H >= k.top)).slice(0, 3);
+  for (const p of places) {
+    const line = bright[p.phase]!.lines[p.line];
+    if (!line || !free(line, col, 1)) continue;
+    line.strokes.set(col, "'");
+    return;
+  }
+}
+
 /**
  * The market list (nothing charted) as text: one market per line, with the
  * name and 24h volume (or change, if given) mid-bright and the price bright
@@ -242,11 +271,11 @@ export function buildTextList(m: TextListModel): TextBox[] {
     const last = d.last ?? d.candles.at(-1)?.close;
     return d.error || last === undefined ? null : formatPrice(last);
   });
-  const nameR = 4 + Math.max(...m.items.map((d) => textWidth(d.market)));
+  const nameR = 4 + Math.max(...m.items.map((d) => textWidth(d.market + newsTag(d))));
   const arrows = m.items.some((d) => d.trend);
   const priceR = nameR + 24 + Math.max(0, ...prices.map((p) => (p ? textWidth(p) : 0)));
   m.items.forEach((d, i) => {
-    mid.lines[i]!.texts.push({ x: 4, text: d.market });
+    mid.lines[i]!.texts.push({ x: 4, text: d.market + newsTag(d) });
     const price = prices[i];
     if (!price) {
       mid.lines[i]!.texts.push({ x: nameR + 24, text: d.error ?? (m.pending ? '...' : 'no data') });
@@ -320,7 +349,7 @@ export function buildEventTextList(m: EventTextListModel): TextBox[] {
   const right = SCREEN_W - 4 - (m.twoBoxes ? TRAILING_SLACK : 0);
   const vols = m.items.map((d) => (d.dayVolume === undefined || d.error ? '' : formatVolume(d.dayVolume)));
   const volW = Math.max(0, ...vols.map(textWidth));
-  const titles = m.items.map((d) => cut(d.title, TITLE_W - (volW ? volW + 16 : 0)));
+  const titles = m.items.map((d) => withNewsTag(d.title, TITLE_W - (volW ? volW + 16 : 0), d));
   // The likeliest outcome, of those charted.
   const leaders = m.items.map((d) => (d.error ? undefined : [...d.outcomes].sort((a, b) => b.price - a.price)[0]));
   const pcts = leaders.map((o) => (o ? formatPct(o.price) : null));
@@ -577,7 +606,7 @@ function listRows(ticker: PredictionData[], maxRows: number, named: boolean): Ro
   const arrowW = leaders.some((o) => o?.trend) ? ARROW_W : 0;
   const room = LIST_COL_W - 8 - pctW - arrowW - NAME_GAP;
   const names = leaders.map((o) => (o ? cut(o.name, Math.min(textWidth(o.name), Math.floor(room * 0.4))) : ''));
-  const titles = shown.map((d) => cut(d.title, room - Math.max(0, ...names.map(textWidth))));
+  const titles = shown.map((d) => withNewsTag(d.title, room - Math.max(0, ...names.map(textWidth)), d));
   // Every row's probability ends at `pctR`, and its name starts at `nameX`.
   const pctR = Math.max(...titles.map(textWidth)) + 8 + pctW;
   const nameX = pctR + arrowW + NAME_GAP;
@@ -658,6 +687,11 @@ function drawLines(boxes: TextBox[], m: EventTextChartModel, layout: EventLayout
       if (!near && free(dots, col, 1)) dots.strokes.set(col, "'");
     }
   }
+  // News: a mark between the plot and the time keys, under the time of each headline.
+  const timeTop = PHASES[layout.time.phase]! + layout.time.line * LINE_H + STROKES[2]!.top;
+  for (const col of new Set((m.event.news?.times ?? []).map((t) => EVENT_LAST_COL - Math.max(0, Math.round((end - t) / intervalSec))))) {
+    if (col >= firstCol) newsTick(boxes.slice(0, 4), col, Math.ceil(layout.bottom) + 2, timeTop - 1);
+  }
   return count;
 }
 
@@ -701,6 +735,31 @@ export function buildLoadingList(items: MarketData[]): { y: number; h: number; c
   const [bright, mid] = buildTextList({ items, updated: new Date(), source: '', pending: true, right: true });
   return [bright!, mid!].map((b) => ({ y: b.y, h: b.lines.length * LINE_H, color: b.color, content: serializeBox(b) }));
 }
+
+/**
+ * Headlines as text, so they go up in one rebuild and clear in another. Text
+ * containers have no background to cover a chart with, so these take the whole
+ * screen until it comes back: `fresh` first, each marked with a "*", then
+ * `earlier`, each with its time. Every line holds a headline if there are enough.
+ * The marks have a container of their own, so they don't shift the text after them.
+ */
+export function buildNewsText(fresh: NewsMatch[], earlier: NewsMatch[]): TextBox[] {
+  const rows = Math.floor(SCREEN_H / LINE_H);
+  const box = (color: number): TextBox => ({ y: 0, color, lines: Array.from({ length: rows }, () => ({ strokes: new Map<number, string>(), texts: [] })) });
+  const bright = box(BRIGHT), dim = box(DIM), marks = box(BRIGHT);
+  const timeX = 4 + NEWS_MARK_W;
+  const textX = timeX + textWidth('00:00') + HEADER_GAP;
+  const items = [...fresh.map((a) => ({ ...a, fresh: true })), ...earlier];
+  layoutHeadlines(items, textWidth, SCREEN_W - textX - 4 - TRAILING_SLACK, rows).forEach((line, i) => {
+    if (line.fresh) marks.lines[i]!.texts.push({ x: 4, text: '*' });
+    if (line.time) dim.lines[i]!.texts.push({ x: timeX, text: line.time });
+    bright.lines[i]!.texts.push({ x: textX, text: line.text });
+  });
+  return [bright, dim, marks];
+}
+
+/** Room for a new headline's "*", on every line, so the columns line up. */
+const NEWS_MARK_W = 16;
 
 /** The text a container shows. */
 export function serializeBox(box: TextBox): string {
@@ -852,6 +911,10 @@ function drawCandles(boxes: TextBox[], data: MarketData, interval: number, style
       // A block's 20px advance can run over the column.
       if (col > blocks[i]!.right && free(dots, col, 1) && !nearCandle(col, top, top + DOT.bottom - DOT.top)) dots.strokes.set(col, "'");
     });
+  }
+  // News: a mark along the plot's bottom, under the candle of each headline.
+  for (const k of new Set((data.news?.times ?? []).map((t) => newsSlot(t, lastTime, intervalSec)))) {
+    if (k < count) newsTick(boxes.slice(0, 4), firstCol - k * pitch + Math.floor(span / 2), 0, layout.bottom, blocks);
   }
   return count;
 }
