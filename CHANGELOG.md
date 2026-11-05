@@ -4,6 +4,8 @@ Notable changes to MarketGlimpse, by release tag.
 
 ## [Unreleased]
 
+## [0.4.5] - 2026-11-05
+
 ### Added
 - Binance (binance.com) as a data source, alongside Binance.US. It refuses
   connections from some regions, including the US. It has its own currency
@@ -24,8 +26,6 @@ Notable changes to MarketGlimpse, by release tag.
 ### Changed
 - A long press goes on to the next favorite from the right temple or the ring
   only, as the left temple's goes to the next saved watchlist.
-
-### Changed
 - The phone page's "Fetching…" and Explore's "Loading…" countdowns no longer
   tick while the page is hidden.
 
@@ -250,6 +250,7 @@ schedule.
   gesture (calibrated from the IMU) to trigger an update.
 - Chart tiles sent to the glasses in parallel.
 
+[0.4.5]: https://github.com/adamtorgerson/market-glimpse/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/adamtorgerson/market-glimpse/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/adamtorgerson/market-glimpse/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/adamtorgerson/market-glimpse/compare/v0.4.1...v0.4.2
