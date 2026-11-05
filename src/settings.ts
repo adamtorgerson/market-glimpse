@@ -143,8 +143,11 @@ export interface Settings {
   displaySec: number;
   /** Keep the chart up instead of blanking after `displaySec`; each update replaces it. */
   alwaysOn: boolean;
+  /** The glasses' tap, swipes and long press control the charts. A double tap exits regardless. */
+  gestures: boolean;
 }
 
+/** Exactly what `sanitize` makes of them: a change is spotted by comparing settings, and a difference here would look like one. */
 export const DEFAULT_SETTINGS: Settings = {
   source: DEFAULT_SOURCE,
   favorites: [],
@@ -152,8 +155,8 @@ export const DEFAULT_SETTINGS: Settings = {
   markets: ['BTC-USDC', 'ETH-USDC'],
   charts: ['BTC-USDC'],
   interval: 5,
-  events: {},
-  eventCharts: {},
+  events: Object.fromEntries(PREDICTION_SOURCES.map((src) => [src.id, []])),
+  eventCharts: Object.fromEntries(PREDICTION_SOURCES.map((src) => [src.id, []])),
   eventInterval: 5,
   eventTextChart: false,
   eventAnalysis: false,
@@ -186,6 +189,7 @@ export const DEFAULT_SETTINGS: Settings = {
   refreshSec: 120,
   displaySec: 12,
   alwaysOn: false,
+  gestures: true,
 };
 
 export function normalizeMarket(raw: string): string {
@@ -270,6 +274,7 @@ export function sanitize(input: Partial<Settings>): Settings {
   const lookUpUpdate = typeof input.lookUpUpdate === 'boolean' ? input.lookUpUpdate : d.lookUpUpdate;
   const lookUpCal = isCalibration(input.lookUpCal) ? input.lookUpCal : null;
   const alwaysOn = typeof input.alwaysOn === 'boolean' ? input.alwaysOn : d.alwaysOn;
+  const gestures = typeof input.gestures === 'boolean' ? input.gestures : d.gestures;
   const explore = typeof input.explore === 'boolean' ? input.explore : d.explore;
   // A ranking the source offers (Polymarket US has only volume).
   const rankings = isPredictionSource(source) ? getPredictionSource(source).exploreRankings : undefined;
@@ -277,7 +282,7 @@ export function sanitize(input: Partial<Settings>): Settings {
   const exploreBy = !rankings || rankings.includes(wantBy) ? wantBy : rankings[0]!;
   const exploreView = (EXPLORE_VIEWS as readonly string[]).includes(input.exploreView as string) ? input.exploreView! : d.exploreView;
 
-  return { source, favorites, currency, markets, charts, interval, events, eventCharts, eventInterval, eventTextChart, eventAnalysis, explore, exploreBy, exploreView, candleWidth, font, showList, textList, showIndex, analysis, analysisKind, analysisSecond, smaPeriod, emaPeriod, rsiPeriod, atrPeriod, bollingerPeriod, donchianPeriod, bollingerK, macdFast, macdSlow, macdSignal, sarStep, sarMax, manualOnly, lookUpUpdate, lookUpCal, refreshSec, displaySec, alwaysOn };
+  return { source, favorites, currency, markets, charts, interval, events, eventCharts, eventInterval, eventTextChart, eventAnalysis, explore, exploreBy, exploreView, candleWidth, font, showList, textList, showIndex, analysis, analysisKind, analysisSecond, smaPeriod, emaPeriod, rsiPeriod, atrPeriod, bollingerPeriod, donchianPeriod, bollingerK, macdFast, macdSlow, macdSignal, sarStep, sarMax, manualOnly, lookUpUpdate, lookUpCal, refreshSec, displaySec, alwaysOn, gestures };
 }
 
 /** The indicators to draw with `s`, in order: none if analysis is off. */

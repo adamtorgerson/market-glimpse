@@ -11,10 +11,16 @@ Notable changes to MarketGlimpse, by release tag.
 - Scheduled updates pause while the glasses are off, in their case or
   disconnected, saving battery on both devices. Putting them back on, or any
   input on the glasses, shows a fresh chart.
+- **Gesture controls**: a checkbox, on by default, to turn off the glasses'
+  tap, swipes and long press. A double tap still exits.
 
 ### Changed
 - The phone page's "Fetching…" and Explore's "Loading…" countdowns no longer
   tick while the page is hidden.
+
+### Fixed
+- With no settings saved yet, the first change of any setting fetched and showed
+  a chart, even one that should wait for the next update.
 
 ## [0.4.4] - 2026-11-04
 

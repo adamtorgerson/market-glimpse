@@ -377,6 +377,12 @@ see phone" for two seconds, and the reason is under the form. A double tap exits
 ask to confirm (`shutDownPageContainer(1)`, as Even Hub review requires), and
 the Even app then closes the phone page.
 
+**Gesture controls** (under **Display always on**, on by default) can be
+unticked to ignore the tap, swipes and long press, for example if you touch the
+glasses by accident. A double tap still exits, and any of them still ends a
+pause while the glasses aren't in use. With it off, a manual-only chart comes
+from **Show now** or looking up.
+
 ## Public API rules
 
 Every data source follows these rules (`src/sources/http.ts`):

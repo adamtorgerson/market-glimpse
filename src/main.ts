@@ -963,6 +963,7 @@ const intervalSel = $<HTMLSelectElement>('interval');
 const candleWidthSel = $<HTMLSelectElement>('candle-width');
 const fontSel = $<HTMLSelectElement>('font');
 const showIndexBox = $<HTMLInputElement>('show-index');
+const gesturesBox = $<HTMLInputElement>('gestures');
 const analysisBox = $<HTMLInputElement>('analysis');
 const eventAnalysisBox = $<HTMLInputElement>('event-analysis');
 const analysisSel = $<HTMLSelectElement>('analysis-kind');
@@ -1299,6 +1300,7 @@ function fillForm(s: Settings): void {
   syncMarketControls();
   renderExplore();
   showIndexBox.checked = s.showIndex;
+  gesturesBox.checked = s.gestures;
   analysisSel.value = s.analysisKind;
   showAnalysisParams(s);
   syncAnalysisControls(s);
@@ -1375,6 +1377,7 @@ function readForm(): Settings {
     showList: showListBox.checked,
     textList: textListBox.checked,
     showIndex: showIndexBox.checked,
+    gestures: gesturesBox.checked,
     analysis: analysisBox.checked,
     analysisKind: analysisSel.value as Analysis,
     analysisSecond: analysisSecondSel.value as Analysis | 'none',
@@ -1479,6 +1482,7 @@ async function applyForm(): Promise<boolean> {
 form.addEventListener('change', () => void applyForm());
 // Above Show now, outside the form.
 alwaysOnBox.addEventListener('change', () => void applyForm());
+gesturesBox.addEventListener('change', () => void applyForm());
 form.addEventListener('submit', (e) => {
   e.preventDefault();
   void applyForm();
@@ -1762,13 +1766,14 @@ async function boot(): Promise<void> {
   if (DIAGNOSTICS && glasses) tapBridge();
   if (DIAGNOSTICS) speedTestBtn.disabled = !glasses;
   // Tap while the chart is up dismisses it (always on: refreshes it); tap while dark pulls a fresh one.
-  glasses?.onTap(() => { if (!usedGlasses(true)) toggleChart(); });
+  // Gestures can be turned off, but any input still ends a pause: the status may have been wrong.
+  glasses?.onTap(() => { if (!usedGlasses(settings.gestures || undefined) && settings.gestures) toggleChart(); });
   // Even Hub's exit gesture on the root page: the glasses ask to confirm.
   glasses?.onDoubleTap(() => void glasses!.exit().catch(() => {}));
   // Swipes act as if on the phone: up switches Watchlist / Explore, down flips Market List.
-  glasses?.onSwipe((dir) => { usedGlasses(); void onSwipe(dir); });
+  glasses?.onSwipe((dir) => { usedGlasses(); if (settings.gestures) void onSwipe(dir); });
   // A long press goes on to the next favorite data source.
-  glasses?.onLongPress(() => { usedGlasses(); void onLongPress(); });
+  glasses?.onLongPress(() => { usedGlasses(); if (settings.gestures) void onLongPress(); });
   glasses?.onImu(onImuReading);
   glasses?.onExit(stop);
   settings = await loadSettings();
