@@ -199,13 +199,16 @@ refreshes every 2m, chart shown for 12s, narrow candles.
   (name, price and 24h volume, no line graphs). It goes up in one step, and
   only the ticker is fetched.
 - **News** (its own section, under **Data**): a checkbox each for **CNBC** (Top News),
-  **MarketWatch** (Top Stories) and **cryptocurrency.cv** (`/api/breaking`, from
-  the crypto press), all off by default. Headlines are fetched with the market
-  data, one request per source, and a chart waits at most 1.5s for them: any
-  later are in time for the next update. Since feeds are cached for about a
-  minute, CNBC and MarketWatch are asked at most once a minute, and
-  cryptocurrency.cv, which allows 10 requests an hour, at most every 6 minutes,
-  however often the charts update. A source's failure only shows in the section.
+  **MarketWatch** (Top Stories), **WSJ Markets**, **Bitcoin.com** and
+  **cryptocurrency.cv** (`/api/breaking`, from the crypto press), all off by
+  default. Headlines are fetched with the market data, one request per source,
+  and a chart waits at most 1.5s for them: any later are in time for the next
+  update. MarketWatch and WSJ share a host, so they share its rate limit, and
+  with both ticked the second is usually in time only for the next update. Since
+  feeds are cached for about a minute, the RSS sources are asked at most once a
+  minute, and cryptocurrency.cv, which allows 10 requests an hour, at most every
+  6 minutes, however often the charts update. A source's failure only shows in
+  the section.
   - **Filters**: up to 8 words or phrases of your own, up to 40 characters each.
     A headline with one in it, whole and in any case ("Fed", not "federal"), is a
     hit like one mentioning a market: it can bring up the popup, and it's listed

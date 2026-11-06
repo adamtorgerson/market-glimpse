@@ -5,6 +5,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import app from '../../app.json';
 import { cleanNewsFilter, eventTarget, filterTarget, layoutHeadlines, marketTarget, newsMarks, NewsStore, parseNewsTime, parseRss, plainHeadline, safeLink, type NewsArticle } from '../../src/news';
+import { MIN_GAP_MS } from '../../src/sources/http';
 import { NEWS_SOURCES, NewsFeeds, type NewsSource } from '../../src/sources/news';
 import { sanitize } from '../../src/settings';
 
@@ -318,11 +319,29 @@ describe('fetching', () => {
   });
 
   it('whitelists every source\'s host', async () => {
-    const hosts = new Set<string>();
-    vi.stubGlobal('fetch', async (url: string) => { hosts.add(new URL(url).origin); return new Response('<rss></rss>'); });
+    const urls: string[] = [];
+    vi.stubGlobal('fetch', async (url: string) => { urls.push(url); return new Response('<rss></rss>'); });
     await Promise.allSettled(NEWS_SOURCES.map((s) => s.fetch(new AbortController().signal)));
-    expect(hosts.size).toBe(NEWS_SOURCES.length);
-    for (const host of hosts) expect(app.permissions[0]!.whitelist).toContain(host);
+    expect(new Set(urls).size).toBe(NEWS_SOURCES.length);
+    for (const url of urls) expect(app.permissions[0]!.whitelist).toContain(new URL(url).origin);
+  });
+
+  it('keeps sources on the same host to its rate limit', async () => {
+    const sent = new Map<string, number[]>();
+    vi.stubGlobal('fetch', async (url: string) => {
+      const { origin } = new URL(url);
+      sent.set(origin, [...(sent.get(origin) ?? []), Date.now()]);
+      return new Response('<rss></rss>');
+    });
+    await Promise.allSettled(NEWS_SOURCES.map((s) => s.fetch(new AbortController().signal)));
+    expect(sent.get('https://feeds.content.dowjones.io')).toHaveLength(2);
+    for (const times of sent.values()) {
+      for (let i = 1; i < times.length; i++) expect(times[i]! - times[i - 1]!).toBeGreaterThanOrEqual(MIN_GAP_MS - 5);
+    }
+  });
+
+  it('fits the network permission description within the store limit', () => {
+    expect(app.permissions[0]!.desc.length).toBeLessThanOrEqual(300);
   });
 });
 

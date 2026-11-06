@@ -4,6 +4,10 @@ Notable changes to MarketGlimpse, by release tag.
 
 ## [Unreleased]
 
+### Added
+- **News**: WSJ Markets and Bitcoin.com, each with its own checkbox, off by
+  default.
+
 ## [0.4.6] - 2026-11-05
 
 ### Added

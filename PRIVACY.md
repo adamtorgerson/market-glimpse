@@ -28,7 +28,8 @@ credentials or account details, to:
   unless you turn **Show index price** off. The requests name the assets of
   the charted markets.
 - **The news sources you tick**, if any (none by default): CNBC
-  (`www.cnbc.com`), MarketWatch (`feeds.content.dowjones.io`) and
+  (`www.cnbc.com`), MarketWatch and WSJ Markets (both
+  `feeds.content.dowjones.io`), Bitcoin.com (`news.bitcoin.com`) and
   cryptocurrency.cv (`cryptocurrency.cv`). The requests fetch each source's
   general headlines: they don't name your markets or news filters, which are
   matched against the headlines on your phone.

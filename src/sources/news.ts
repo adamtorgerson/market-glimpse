@@ -18,8 +18,7 @@ export interface NewsSource {
   fetch(signal: AbortSignal): Promise<NewsArticle[]>;
 }
 
-function rssSource(id: string, label: string, base: string, path: string): NewsSource {
-  const api = new PublicApi(base);
+function rssSource(id: string, label: string, api: PublicApi, path: string): NewsSource {
   return { id, label, minAgeMs: 60_000, fetch: async (signal) => parseRss(await api.getText(path, signal), id) };
 }
 
@@ -51,9 +50,14 @@ const cryptocurrencyCv: NewsSource = {
   },
 };
 
+/** Serves both MarketWatch and WSJ, so they share its rate limit. */
+const dowJonesApi = new PublicApi('https://feeds.content.dowjones.io');
+
 export const NEWS_SOURCES: readonly NewsSource[] = [
-  rssSource('cnbc', 'CNBC', 'https://www.cnbc.com', '/id/100003114/device/rss/rss.html'),
-  rssSource('marketwatch', 'MarketWatch', 'https://feeds.content.dowjones.io', '/public/rss/mw_topstories'),
+  rssSource('cnbc', 'CNBC', new PublicApi('https://www.cnbc.com'), '/id/100003114/device/rss/rss.html'),
+  rssSource('marketwatch', 'MarketWatch', dowJonesApi, '/public/rss/mw_topstories'),
+  rssSource('wsj', 'WSJ Markets', dowJonesApi, '/public/rss/RSSMarketsMain'),
+  rssSource('bitcoincom', 'Bitcoin.com', new PublicApi('https://news.bitcoin.com'), '/feed/'),
   cryptocurrencyCv,
 ];
 
