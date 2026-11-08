@@ -1205,8 +1205,11 @@ function onGlassesStatus(status: GlassesStatus): void {
   const was = wear.inUse;
   const now = wear.update(status);
   logGlassesStatus(status, now);
-  if (exited || now === was) return;
-  if (!now) pause(status);
+  if (exited) return;
+  // Just put on: a chart straight away, even in manual-only mode or if never paused.
+  if (wear.putOn) resume(true);
+  else if (now === was) return;
+  else if (!now) pause(status);
   // A tap may have resumed already; going on would restart its chart.
   else if (paused) resume();
 }

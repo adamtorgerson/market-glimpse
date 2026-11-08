@@ -43,4 +43,25 @@ describe('WearTracker', () => {
     expect(after(worn, off, { connectType: 'none', isWearing: true })).toBe(false);
     expect(after(worn, {})).toBe(true);
   });
+
+  it('reports being put on only when worn after a status that said not worn', () => {
+    const t = new WearTracker();
+    const putOn = (s: GlassesStatus) => (t.update(s), t.putOn);
+    expect(putOn(worn)).toBe(false); // The first status: already on.
+    expect(putOn(worn)).toBe(false);
+    expect(putOn(off)).toBe(false);
+    expect(putOn({ connectType: 'none' })).toBe(false);
+    expect(putOn(worn)).toBe(true);
+    expect(putOn(worn)).toBe(false);
+    expect(putOn({ ...off, isInCase: true })).toBe(false);
+    expect(putOn({ ...worn, isInCase: true })).toBe(false); // Worn in the case: not in use.
+  });
+
+  it('reports being put on after launching off, though that never paused', () => {
+    const t = new WearTracker();
+    t.update(off);
+    expect(t.inUse).toBe(true);
+    t.update(worn);
+    expect(t.putOn).toBe(true);
+  });
 });
