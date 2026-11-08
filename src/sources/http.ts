@@ -26,9 +26,12 @@ export class PublicApi {
     return this.request(path, undefined, signal, (text) => JSON.parse(text) as T);
   }
 
-  /** GET `path` and return the body as text, for feeds that aren't JSON; otherwise like `get`. */
-  getText(path: string, signal: AbortSignal): Promise<string> {
-    return this.request(path, undefined, signal, (text) => text);
+  /**
+   * GET `path` and return the body as text, for feeds that aren't JSON;
+   * otherwise like `get`. Any `headers` must be ones the API's CORS preflight allows.
+   */
+  getText(path: string, signal: AbortSignal, headers?: Record<string, string>): Promise<string> {
+    return this.request(path, undefined, signal, (text) => text, headers);
   }
 
   /** POST `body` as JSON to `path`, for APIs whose only multi-item endpoint is a POST; otherwise like `get`. */
@@ -36,7 +39,7 @@ export class PublicApi {
     return this.request(path, JSON.stringify(body), signal, (text) => JSON.parse(text) as T);
   }
 
-  private request<T>(path: string, payload: string | undefined, signal: AbortSignal, parse: (text: string) => T): Promise<T> {
+  private request<T>(path: string, payload: string | undefined, signal: AbortSignal, parse: (text: string) => T, headers?: Record<string, string>): Promise<T> {
     const run = this.queue.then(async () => {
       signal.throwIfAborted();
       await sleep(this.nextAt - Date.now(), signal);
@@ -44,7 +47,7 @@ export class PublicApi {
       this.nextAt = sent + this.minGapMs;
       const url = this.base + path;
       const res = await fetch(url, payload === undefined
-        ? { signal, cache: 'no-store' }
+        ? { signal, cache: 'no-store', ...(headers && { headers }) }
         : { signal, cache: 'no-store', method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload });
       // Read as bytes to count them; headers aren't visible to the page, so
       // only the URL, any body sent and the (decompressed) body received are counted.

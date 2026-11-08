@@ -5,7 +5,7 @@ import {
 import { isCalibration, type LookUpCalibration } from './lookup';
 import { cleanNewsFilter } from './news';
 import { DEFAULT_SOURCE, getPredictionSource, getSource, isPredictionSource, PREDICTION_SOURCES, sourceCurrencies, SOURCES } from './sources';
-import { NEWS_SOURCE_IDS } from './sources/news';
+import { JINA_SOURCE_IDS, MAX_JINA_SOURCES, NEWS_SOURCE_IDS } from './sources/news';
 import { EVENT_INTERVALS, eventSlug } from './sources/prediction';
 import { DEFAULT_CURRENCY } from './sources/symbols';
 import type { ExploreBy } from './sources/types';
@@ -387,7 +387,10 @@ export function sanitize(input: Partial<Settings>): Settings {
   const alwaysOn = typeof input.alwaysOn === 'boolean' ? input.alwaysOn : d.alwaysOn;
   const gestures = typeof input.gestures === 'boolean' ? input.gestures : d.gestures;
   const cycleFavorites = typeof input.cycleFavorites === 'boolean' ? input.cycleFavorites : d.cycleFavorites;
-  const newsSources = Array.isArray(input.newsSources) ? NEWS_SOURCE_IDS.filter((id) => input.newsSources!.includes(id)) : d.newsSources;
+  // Jina Reader's sources share its rate limit: the first few ticked, in their order, are kept.
+  let jina = 0;
+  const newsSources = (Array.isArray(input.newsSources) ? NEWS_SOURCE_IDS.filter((id) => input.newsSources!.includes(id)) : d.newsSources)
+    .filter((id) => !JINA_SOURCE_IDS.has(id) || ++jina <= MAX_JINA_SOURCES);
   const filterList = (raw: unknown, fallback: string[]) => {
     const seen = new Set<string>();
     return (Array.isArray(raw) ? raw : fallback).map(cleanNewsFilter).filter((f) => {

@@ -16,6 +16,8 @@ export interface NewsSource {
    * asked at most 10 times an hour.
    */
   minAgeMs: number;
+  /** Fetched through Jina Reader: these share its rate limit, so at most `MAX_JINA_SOURCES` can be ticked. */
+  viaJina?: boolean;
   fetch(signal: AbortSignal): Promise<NewsArticle[]>;
 }
 
@@ -54,15 +56,47 @@ const cryptocurrencyCv: NewsSource = {
 /** Serves both MarketWatch and WSJ, so they share its rate limit. */
 const dowJonesApi = new PublicApi('https://feeds.content.dowjones.io');
 
+/**
+ * Jina Reader fetches a feed for us, for those that send no CORS headers. All
+ * its feeds share one rate limit: 20 requests a minute without a key. Kept to
+ * well under that: one request every 5s at most, each feed asked at most every
+ * 5 minutes, and at most 3 ticked. That also has the third sent by 10s, in time
+ * for `REQUEST_TIMEOUT_MS`, which counts its wait in the queue.
+ */
+const jinaApi = new PublicApi('https://r.jina.ai', 5_000);
+export const JINA_MIN_AGE_MS = 5 * 60_000;
+export const MAX_JINA_SOURCES = 3;
+
+/** `url`'s RSS through Jina Reader, which returns it as is when asked for "html". */
+function jinaRssSource(id: string, label: string, url: string): NewsSource {
+  return {
+    id,
+    label,
+    minAgeMs: JINA_MIN_AGE_MS,
+    viaJina: true,
+    fetch: async (signal) => parseRss(await jinaApi.getText(`/${url}`, signal, { 'X-Return-Format': 'html' }), id),
+  };
+}
+
 export const NEWS_SOURCES: readonly NewsSource[] = [
   rssSource('cnbc', 'CNBC', new PublicApi('https://www.cnbc.com'), '/id/100003114/device/rss/rss.html'),
   rssSource('marketwatch', 'MarketWatch', dowJonesApi, '/public/rss/mw_topstories'),
   rssSource('wsj', 'WSJ Markets', dowJonesApi, '/public/rss/RSSMarketsMain'),
   rssSource('bitcoincom', 'Bitcoin.com', new PublicApi('https://news.bitcoin.com'), '/feed/'),
   cryptocurrencyCv,
+  jinaRssSource('coindesk', 'CoinDesk', 'https://www.coindesk.com/arc/outboundfeeds/rss/'),
+  jinaRssSource('theblock', 'The Block', 'https://www.theblock.co/rss.xml'),
+  jinaRssSource('cryptoslate', 'CryptoSlate', 'https://cryptoslate.com/feed/'),
+  jinaRssSource('decrypt', 'Decrypt', 'https://decrypt.co/feed'),
+  jinaRssSource('cointelegraph', 'Cointelegraph', 'https://cointelegraph.com/rss'),
+  jinaRssSource('ft', 'FT Markets', 'https://www.ft.com/markets?format=rss'),
+  jinaRssSource('elitetrader', 'Elite Trader', 'https://www.elitetrader.com/et/forums/-/index.rss'),
+  jinaRssSource('sntrading', 'Stacker News ~trading', 'https://stacker.news/~trading/rss'),
+  jinaRssSource('snbitcoin', 'Stacker News ~bitcoin', 'https://stacker.news/~bitcoin/rss'),
 ];
 
 export const NEWS_SOURCE_IDS: readonly string[] = NEWS_SOURCES.map((s) => s.id);
+export const JINA_SOURCE_IDS: ReadonlySet<string> = new Set(NEWS_SOURCES.filter((s) => s.viaJina).map((s) => s.id));
 
 /** A source that hasn't answered by then is left to the next update. */
 const REQUEST_TIMEOUT_MS = 15_000;

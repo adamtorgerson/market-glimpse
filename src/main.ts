@@ -15,7 +15,7 @@ import { DOLLARS } from './sources/symbols';
 import { getPredictionSource, getSource, isPredictionSource, PREDICTION_SOURCES, sourceCurrencies, sourceLabel, SOURCES } from './sources';
 import { EVENT_INTERVALS, eventSlug, type ExploredEvent, type PredictionData, type PredictionRequest } from './sources/prediction';
 import { estimateIndexMs, fetchIndexPrices } from './sources/coingecko';
-import { NEWS_SOURCES, NewsFeeds } from './sources/news';
+import { JINA_SOURCE_IDS, MAX_JINA_SOURCES, NEWS_SOURCES, NewsFeeds } from './sources/news';
 import { EXPLORE_COUNT, type ExploreBy, type ExploreItem, type MarketData, type MarketRequest } from './sources/types';
 import { WearTracker, type GlassesStatus } from './wear';
 import {
@@ -572,6 +572,7 @@ function dismissPopup(): void {
 }
 
 const newsSourcesEl = $('news-sources');
+const newsJinaSourcesEl = $('news-jina-sources');
 const newsHintEl = $('news-hint');
 const newsListEl = $<HTMLUListElement>('news-list');
 
@@ -671,9 +672,17 @@ const newsBoxes = new Map(NEWS_SOURCES.map((src) => {
   box.type = 'checkbox';
   box.name = `news-${src.id}`;
   label.append(src.label, box);
-  newsSourcesEl.append(label);
+  (src.viaJina ? newsJinaSourcesEl : newsSourcesEl).append(label);
+  if (src.viaJina) box.addEventListener('change', syncJinaBoxes);
   return [src.id, box];
 }));
+
+/** Once `MAX_JINA_SOURCES` of Jina Reader's sources are ticked, the rest are greyed out. */
+function syncJinaBoxes(): void {
+  const boxes = [...newsBoxes].filter(([id]) => JINA_SOURCE_IDS.has(id)).map(([, box]) => box);
+  const full = boxes.filter((b) => b.checked).length >= MAX_JINA_SOURCES;
+  for (const b of boxes) b.disabled = full && !b.checked;
+}
 
 /** The link that couldn't be copied, shown as text to select by hand, as the list is redrawn with each update. */
 let manualCopyLink = '';
@@ -1851,6 +1860,7 @@ function fillForm(s: Settings): void {
   syncMarketControls();
   renderExplore();
   for (const [id, box] of newsBoxes) box.checked = s.newsSources.includes(id);
+  syncJinaBoxes();
   newsFilterRows.show(s.newsFilters);
   newsExcludeRows.show(s.newsExcludes);
   newsOffKept = s.newsOff;

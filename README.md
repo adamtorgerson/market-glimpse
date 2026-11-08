@@ -198,10 +198,17 @@ refreshes every 2m, chart shown for 12s, narrow candles.
   full-screen market list is shown, the glasses draw it in their own font
   (name, price and 24h volume, no line graphs). It goes up in one step, and
   only the ticker is fetched.
-- **News** (its own section, under **Data**): a checkbox each for **CNBC** (Top News),
+- **News** (its own section, under **Data**): under **Direct Access**, a checkbox each for **CNBC** (Top News),
   **MarketWatch** (Top Stories), **WSJ Markets**, **Bitcoin.com** and
-  **cryptocurrency.cv** (`/api/breaking`, from the crypto press), all off by
-  default. Headlines are fetched with the market data, one request per source,
+  **cryptocurrency.cv** (`/api/breaking`, from the crypto press), all off by default.
+  Under its own heading, **Via Jina Reader**, are sites that send no CORS
+  headers, so **Jina Reader** (`r.jina.ai`) fetches them: **CoinDesk**,
+  **The Block**, **CryptoSlate**, **Decrypt**, **Cointelegraph**,
+  **FT Markets**, and the forums **Elite Trader**, **Stacker News ~trading** and
+  **Stacker News ~bitcoin** (Stacker News headlines link to the article a post
+  shares, not the discussion). Up to 3 can be ticked, as they share Jina's rate
+  limit: one request every 5 seconds at most, and each feed at most every 5
+  minutes, well under the 20 a minute it allows without a key. Headlines are fetched with the market data, one request per source,
   and a chart waits at most 1.5s for them: any later are in time for the next
   update. MarketWatch and WSJ share a host, so they share its rate limit, and
   with both ticked the second is usually in time only for the next update. Since

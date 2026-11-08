@@ -7,6 +7,11 @@ Notable changes to MarketGlimpse, by release tag.
 ### Added
 - **News**: WSJ Markets and Bitcoin.com, each with its own checkbox, off by
   default.
+- **News**: under a new heading, **Via Jina Reader**, CoinDesk, The Block,
+  CryptoSlate, Decrypt, Cointelegraph, FT Markets, and the forums Elite Trader,
+  Stacker News ~trading and Stacker News ~bitcoin, off by default. They send no
+  CORS headers, so Jina Reader fetches them. Up to 3 can be ticked; each is
+  asked at most every 5 minutes, and Jina at most once every 5 seconds.
 - **News**: the automatic filters, one per monitored market or event, are
   listed in the section with what each matches, and a checkbox to turn each off.
 - **News excludes**: up to 8 words or phrases that keep a headline out of the

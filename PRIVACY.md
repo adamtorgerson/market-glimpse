@@ -29,8 +29,11 @@ credentials or account details, to:
   the charted markets.
 - **The news sources you tick**, if any (none by default): CNBC
   (`www.cnbc.com`), MarketWatch and WSJ Markets (both
-  `feeds.content.dowjones.io`), Bitcoin.com (`news.bitcoin.com`) and
-  cryptocurrency.cv (`cryptocurrency.cv`). The requests fetch each source's
+  `feeds.content.dowjones.io`), Bitcoin.com (`news.bitcoin.com`),
+  cryptocurrency.cv (`cryptocurrency.cv`), and the sources under "Via Jina Reader" (CoinDesk, The
+  Block, CryptoSlate, Decrypt, Cointelegraph, FT Markets, Elite Trader and
+  Stacker News), whose feeds are fetched through Jina Reader (`r.jina.ai`): Jina
+  receives the request and fetches the feed from the source. The requests fetch each source's
   general headlines: they don't name your markets or news filters, which are
   matched against the headlines on your phone.
 

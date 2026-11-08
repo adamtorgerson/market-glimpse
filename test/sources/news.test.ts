@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import app from '../../app.json';
 import { cleanNewsFilter, eventTarget, filterTarget, layoutHeadlines, marketTarget, newsMarks, NewsStore, parseNewsTime, parseRss, plainHeadline, safeLink, type NewsArticle } from '../../src/news';
 import { MIN_GAP_MS } from '../../src/sources/http';
-import { NEWS_SOURCES, NewsFeeds, type NewsSource } from '../../src/sources/news';
+import { JINA_MIN_AGE_MS, MAX_JINA_SOURCES, NEWS_SOURCES, NewsFeeds, type NewsSource } from '../../src/sources/news';
 import { sanitize } from '../../src/settings';
 
 const NOW = Date.UTC(2026, 10, 5, 21) / 1000;
@@ -344,10 +344,25 @@ describe('fetching', () => {
     expect(got[0]!.link).toBe('https://decrypt.co/1?a=1&b=2');
   });
 
+  /**
+   * `sources`' fetches, with the rate limits' waits run on fake timers. All
+   * use them: a limit's next turn set on the fake clock is far ahead of the real one.
+   */
+  async function fetchAll(sources = NEWS_SOURCES) {
+    vi.useFakeTimers();
+    try {
+      const all = Promise.allSettled(sources.map((s) => s.fetch(new AbortController().signal)));
+      await vi.runAllTimersAsync();
+      return await all;
+    } finally {
+      vi.useRealTimers();
+    }
+  }
+
   it('whitelists every source\'s host', async () => {
     const urls: string[] = [];
     vi.stubGlobal('fetch', async (url: string) => { urls.push(url); return new Response('<rss></rss>'); });
-    await Promise.allSettled(NEWS_SOURCES.map((s) => s.fetch(new AbortController().signal)));
+    await fetchAll();
     expect(new Set(urls).size).toBe(NEWS_SOURCES.length);
     for (const url of urls) expect(app.permissions[0]!.whitelist).toContain(new URL(url).origin);
   });
@@ -359,11 +374,42 @@ describe('fetching', () => {
       sent.set(origin, [...(sent.get(origin) ?? []), Date.now()]);
       return new Response('<rss></rss>');
     });
-    await Promise.allSettled(NEWS_SOURCES.map((s) => s.fetch(new AbortController().signal)));
+    await fetchAll();
     expect(sent.get('https://feeds.content.dowjones.io')).toHaveLength(2);
     for (const times of sent.values()) {
-      for (let i = 1; i < times.length; i++) expect(times[i]! - times[i - 1]!).toBeGreaterThanOrEqual(MIN_GAP_MS - 5);
+      for (let i = 1; i < times.length; i++) expect(times[i]! - times[i - 1]!).toBeGreaterThanOrEqual(MIN_GAP_MS);
     }
+  });
+
+  it('keeps Jina Reader\'s feeds well under its 20 requests a minute, together', async () => {
+    const times: number[] = [];
+    vi.stubGlobal('fetch', async (url: string) => {
+      if (url.startsWith('https://r.jina.ai/')) times.push(Date.now());
+      return new Response('<rss></rss>');
+    });
+    await fetchAll();
+    const jina = NEWS_SOURCES.filter((s) => s.minAgeMs === JINA_MIN_AGE_MS);
+    expect(times).toHaveLength(jina.length);
+    for (let i = 1; i < times.length; i++) expect(times[i]! - times[i - 1]!).toBeGreaterThanOrEqual(5_000);
+    // Each asked at most every 5 minutes, and only so many ticked: under one request a minute.
+    expect(jina.every((s) => s.viaJina)).toBe(true);
+    expect(MAX_JINA_SOURCES * 60_000 / JINA_MIN_AGE_MS).toBeLessThan(1);
+    // The last one ticked is sent in time, though it waits for the others.
+    expect((MAX_JINA_SOURCES - 1) * 5_000).toBeLessThan(15_000 - 3_000);
+  });
+
+  it('asks Jina Reader for the feed as it is, not turned into Markdown', async () => {
+    const asked: [string, RequestInit][] = [];
+    vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
+      asked.push([url, init]);
+      return new Response(`<rss><item><title>Bitcoin rallies</title><link>https://www.coindesk.com/a</link>
+        <pubDate>Sun, 08 Nov 2026 12:55:59 +0000</pubDate></item></rss>`);
+    });
+    const [result] = await fetchAll(NEWS_SOURCES.filter((s) => s.id === 'coindesk'));
+    const got = result!.status === 'fulfilled' ? result!.value : [];
+    expect(asked[0]![0]).toBe('https://r.jina.ai/https://www.coindesk.com/arc/outboundfeeds/rss/');
+    expect(asked[0]![1].headers).toEqual({ 'X-Return-Format': 'html' });
+    expect(got.map((a) => [a.title, a.source])).toEqual([['Bitcoin rallies', 'coindesk']]);
   });
 
   it('fits the network permission description within the store limit', () => {
@@ -403,5 +449,10 @@ describe('settings', () => {
   it('keep known sources, in their order, and drop the rest', () => {
     expect(sanitize({ newsSources: ['cv', 'gone', 'cnbc'] }).newsSources).toEqual(['cnbc', 'cv']);
     expect(sanitize({ newsSources: 'cnbc' as unknown as string[] }).newsSources).toEqual([]);
+  });
+
+  it('keep only the first 3 of Jina Reader\'s sources, and all the others', () => {
+    const ticked = ['snbitcoin', 'cnbc', 'coindesk', 'ft', 'theblock', 'decrypt', 'cv', 'wsj'];
+    expect(sanitize({ newsSources: ticked }).newsSources).toEqual(['cnbc', 'wsj', 'cv', 'coindesk', 'theblock', 'decrypt']);
   });
 });

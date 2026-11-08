@@ -8,7 +8,7 @@
   "permissions": [
     {
       "name": "network",
-      "desc": "Fetches market data from your exchange (Kraken, OKX, Coinbase, Gate, Binance, Binance.US, Bitget, Hyperliquid, Aster) or prediction market (Polymarket, Hyperliquid Outcomes), index prices from CoinGecko, and headlines from sources you tick (CNBC, MarketWatch, WSJ, Bitcoin.com, cryptocurrency.cv).",
+      "desc": "Fetches market data from your exchange (Kraken, OKX, Coinbase, Gate, Binance, Binance.US, Bitget, Hyperliquid, Aster) or prediction market (Polymarket, Hyperliquid Outcomes), index prices from CoinGecko, and headlines from the news sources you tick (some fetched via Jina Reader).",
       "whitelist": [
         "https://api.kraken.com",
         "https://www.okx.com",
@@ -26,7 +26,8 @@
         "https://www.cnbc.com",
         "https://feeds.content.dowjones.io",
         "https://news.bitcoin.com",
-        "https://cryptocurrency.cv"
+        "https://cryptocurrency.cv",
+        "https://r.jina.ai"
       ]
     }
   ],
