@@ -161,3 +161,7 @@ code { color: var(--fg); }
 #speed-results { width: 100%; border-collapse: collapse; }
 #speed-results td { padding: 4px 0; border-top: 1px solid var(--line); }
 #speed-results td + td { text-align: right; padding-left: 12px; white-space: nowrap; }
+
+/* Diagnostic build's heartbeat panel (src/probe.ts). */
+.probe { font-size: 0.8rem; color: var(--fg); background: #000; border: 1px solid #fbbf24; border-radius: 6px; padding: 8px; margin-top: 8px; overflow-wrap: anywhere; }
+.probe p { margin: 0 0 6px; }

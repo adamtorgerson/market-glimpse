@@ -15,6 +15,7 @@ import {
 } from '@evenrealities/even_hub_sdk';
 import type { Vec } from './lookup';
 import { toBase64, type Rect, type Tile } from './png';
+import { glassesCall, glassesCallStarted } from './probe';
 import { textWidth } from './textchart';
 import type { GlassesStatus } from './wear';
 
@@ -402,9 +403,13 @@ export class Glasses {
 
   /** Bridge page operations must not interleave, and none run once the app is closed. */
   private serial<T>(fn: () => Promise<T>): Promise<T> {
-    const guarded = () => this.closed ? Promise.reject(new Error('App closed on the glasses')) : fn();
+    const guarded = () => {
+      glassesCallStarted();
+      return this.closed ? Promise.reject(new Error('App closed on the glasses')) : fn();
+    };
+    glassesCall(1);
     const run = this.queue.then(guarded, guarded);
-    this.queue = run.catch(() => {});
+    this.queue = run.catch(() => {}).finally(() => glassesCall(-1));
     return run;
   }
 }

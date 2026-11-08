@@ -47,6 +47,7 @@ import {
   type SavedWatchlist,
   type Settings,
 } from './settings';
+import { launchSource, phase, startProbe } from './probe';
 
 /**
  * The Diagnostics section on the phone page, in development builds only; the
@@ -298,12 +299,14 @@ async function update({ cancel = false, manual = false, showAt = 0, reuse = fals
   if (manual) showLoading(Math.max(1, Math.round((inFlightEta - Date.now()) / 1000)));
   if (joining) return;
   const ctrl = (inFlight = new AbortController());
+  phase('fetch');
   try {
     await runUpdate(ctrl, showAt, reuse);
   } finally {
     if (inFlight === ctrl) {
       inFlight = null;
       notDue();
+      phase('idle');
     }
   }
 }
@@ -729,6 +732,7 @@ async function runUpdate(ctrl: AbortController, showAt: number, reuse: boolean):
   if (ctrl.signal.aborted) return;
 
   const drawStart = Date.now();
+  phase('draw');
   const news = takeNews(s, data.map((d) => marketTarget(d.market)), reuse);
   data = data.map((d) => ({ ...d, news: news.marks(d.market) }));
   const byMarket = new Map(data.map((d) => [d.market, d]));
@@ -882,6 +886,7 @@ async function runEventsUpdate(ctrl: AbortController, showAt: number, reuse: boo
   if (ctrl.signal.aborted) return;
 
   const drawStart = Date.now();
+  phase('draw');
   const news = takeNews(s, data.map((d) => eventTarget(d.market, d.title)), reuse);
   data = data.map((d) => ({ ...d, news: news.marks(d.market) }));
   const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
@@ -970,6 +975,7 @@ async function present(ctrl: AbortController, showAt: number, textBoxes: TextBox
     clearTimeout(hideTimer);
     const wasLoading = loading;
     loading = false;
+    phase('upload');
     if (textBoxes) {
       drawMs = average(drawMs, renderMs);
       const uploadStart = Date.now();
@@ -2293,6 +2299,11 @@ async function boot(): Promise<void> {
   drawPlaceholder('Loading…');
   setStatus('Connecting to glasses…');
   glasses = await Glasses.connect();
+  glasses?.bridge.onLaunchSource(launchSource);
+  void startProbe(glasses && {
+    get: (key) => glasses!.bridge.getLocalStorage(key),
+    set: (key, value) => glasses!.bridge.setLocalStorage(key, value),
+  }, copyText);
   if (DIAGNOSTICS && glasses) tapBridge();
   if (DIAGNOSTICS) speedTestBtn.disabled = !glasses;
   // Tap while the chart is up dismisses it (always on: refreshes it); tap while dark pulls a fresh one.
