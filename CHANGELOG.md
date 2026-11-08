@@ -7,6 +7,9 @@ Notable changes to MarketGlimpse, by release tag.
 ### Added
 - **News**: WSJ Markets and Bitcoin.com, each with its own checkbox, off by
   default.
+- **News excludes**: up to 8 words or phrases that keep a headline out of the
+  popup, the phone's list and the charts' marks, even if it mentions a market,
+  event or filter.
 - **Image dimming** and **Image thinning**: image charts can be sent dimmer
   (every grey level scaled down) or thinned (a share of the lit pixels turned
   off, in an even pattern), each from 10% to 90% in steps of 10.

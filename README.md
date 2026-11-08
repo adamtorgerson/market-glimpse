@@ -216,6 +216,11 @@ refreshes every 2m, chart shown for 12s, narrow candles.
     filter isn't about any one market, but marks nothing in the market lists.
     Changing a filter redraws the last data without fetching. A headline already
     fetched doesn't count as new because a filter now hits it, though it's listed.
+  - **Excludes**: up to 8 more words or phrases, matched the same way as
+    filters. A headline with one in it is left out everywhere (the popup, the
+    phone's list and the charts' marks), even if it mentions a market, event or
+    filter: an exclude always wins. Changing one also redraws the last data
+    without fetching.
   - **What matches**: a headline's words, not its summary. A market matches by
     its asset's ticker, in capitals and as a whole word (BTC, not BTCUSD; words
     headlines capitalize anyway, like AI, aren't taken as tickers), or for common

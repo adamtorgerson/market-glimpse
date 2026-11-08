@@ -470,6 +470,8 @@ const newsCtrl = new AbortController();
 let newsTargets: NewsTarget[] = [];
 
 const filterTargets = (s: Settings) => s.newsFilters.map(filterTarget);
+/** Headlines hit by these are left out everywhere, whatever else they mention. */
+const excludeTargets = (s: Settings) => s.newsExcludes.map(filterTarget);
 /** Headlines waiting to go up: taken from the feeds, and kept here until they're on the display. */
 let heldPopup: NewsMatch[] = [];
 /** True while headlines are up in place of the chart. */
@@ -519,10 +521,11 @@ function takeNews(s: Settings, targets: NewsTarget[], reuse: boolean): { marks: 
   renderNews();
   const filters = filterTargets(s);
   const hits = [...targets, ...filters];
-  const found = newsFeeds.store.matches(s.newsSources, hits);
+  const excludes = excludeTargets(s);
+  const found = newsFeeds.store.matches(s.newsSources, hits, excludes);
   const now = Math.floor(Date.now() / 1000);
   const byKey = new Map(targets.map((t) => [t.key, newsMarks(found, t, now, filters)]));
-  heldPopup = [...newsFeeds.store.takeNew(s.newsSources, hits), ...heldPopup];
+  heldPopup = [...newsFeeds.store.takeNew(s.newsSources, hits, excludes), ...heldPopup];
   const shown = new Set(heldPopup.map((a) => a.title));
   const show = heldPopup.length > 0 || (DIAGNOSTICS && alwaysNewsPopup && !reuse && found.length > 0);
   return { marks: (key) => byKey.get(key), popup: heldPopup, earlier: found.filter((a) => !shown.has(a.title)), show };
@@ -565,42 +568,50 @@ function dismissPopup(): void {
 const newsSourcesEl = $('news-sources');
 const newsHintEl = $('news-hint');
 const newsListEl = $<HTMLUListElement>('news-list');
-const newsFilterList = $<HTMLUListElement>('news-filters');
-const addNewsFilterBtn = $<HTMLButtonElement>('add-news-filter');
 
-function addNewsFilterRow(filter = ''): void {
-  const li = document.createElement('li');
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.placeholder = 'e.g. Fed, or rate cut';
-  input.maxLength = MAX_NEWS_FILTER;
-  input.spellcheck = false;
-  input.autocapitalize = 'off';
-  input.setAttribute('aria-label', 'News filter');
-  input.value = filter;
-  const remove = document.createElement('button');
-  remove.type = 'button';
-  remove.className = 'secondary';
-  remove.textContent = '✕';
-  remove.setAttribute('aria-label', 'Remove');
-  remove.addEventListener('click', () => {
-    li.remove();
-    syncNewsFilterControls();
-    void applyForm();
+/** A list of news filters (or excludes) on the phone page: a text box per word or phrase, up to `MAX_NEWS_FILTERS`. */
+function newsFilterControls(list: HTMLUListElement, addBtn: HTMLButtonElement, placeholder: string, describe: string) {
+  const sync = () => { addBtn.disabled = list.children.length >= MAX_NEWS_FILTERS; };
+  const addRow = (filter = '') => {
+    const li = document.createElement('li');
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = placeholder;
+    input.maxLength = MAX_NEWS_FILTER;
+    input.spellcheck = false;
+    input.autocapitalize = 'off';
+    input.setAttribute('aria-label', describe);
+    input.value = filter;
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'secondary';
+    remove.textContent = '✕';
+    remove.setAttribute('aria-label', 'Remove');
+    remove.addEventListener('click', () => {
+      li.remove();
+      sync();
+      void applyForm();
+    });
+    li.append(input, remove);
+    list.append(li);
+    sync();
+  };
+  addBtn.addEventListener('click', () => {
+    addRow();
+    list.querySelector<HTMLInputElement>('li:last-child input')!.focus();
   });
-  li.append(input, remove);
-  newsFilterList.append(li);
-  syncNewsFilterControls();
+  return {
+    inputs: () => [...list.querySelectorAll('input')],
+    show(filters: string[]) {
+      list.replaceChildren();
+      for (const f of filters) addRow(f);
+      sync();
+    },
+  };
 }
 
-function syncNewsFilterControls(): void {
-  addNewsFilterBtn.disabled = newsFilterList.children.length >= MAX_NEWS_FILTERS;
-}
-
-addNewsFilterBtn.addEventListener('click', () => {
-  addNewsFilterRow();
-  newsFilterList.querySelector<HTMLInputElement>('li:last-child input')!.focus();
-});
+const newsFilterRows = newsFilterControls($<HTMLUListElement>('news-filters'), $<HTMLButtonElement>('add-news-filter'), 'e.g. Fed, or rate cut', 'News filter');
+const newsExcludeRows = newsFilterControls($<HTMLUListElement>('news-excludes'), $<HTMLButtonElement>('add-news-exclude'), 'e.g. sponsored, or podcast', 'News exclude');
 
 const newsBoxes = new Map(NEWS_SOURCES.map((src) => {
   const label = document.createElement('label');
@@ -680,7 +691,7 @@ function newsActions(item: NewsMatch): HTMLElement {
 /** The phone's News section: up to `MAX_NEWS_LIST` headlines mentioning what's monitored, newest first, each with a way to pass on its link; or why there are none. */
 function renderNews(): void {
   const on = settings.newsSources;
-  const items = newsFeeds.store.matches(on, [...newsTargets, ...filterTargets(settings)]).slice(0, MAX_NEWS_LIST);
+  const items = newsFeeds.store.matches(on, [...newsTargets, ...filterTargets(settings)], excludeTargets(settings)).slice(0, MAX_NEWS_LIST);
   const labels = new Map(NEWS_SOURCES.map((src) => [src.id, src.label]));
   const failures = on.flatMap((id) => (newsFeeds.errors.has(id) ? [`${labels.get(id)}: ${newsFeeds.errors.get(id)}`] : []));
   const empty = on.length === 0 ? 'Tick a source to fetch headlines with each update.' : items.length ? '' : 'No headlines are hits yet.';
@@ -1788,9 +1799,8 @@ function fillForm(s: Settings): void {
   syncMarketControls();
   renderExplore();
   for (const [id, box] of newsBoxes) box.checked = s.newsSources.includes(id);
-  newsFilterList.replaceChildren();
-  for (const f of s.newsFilters) addNewsFilterRow(f);
-  syncNewsFilterControls();
+  newsFilterRows.show(s.newsFilters);
+  newsExcludeRows.show(s.newsExcludes);
   showIndexBox.checked = s.showIndex;
   gesturesBox.checked = s.gestures;
   cycleFavoritesBox.checked = s.cycleFavorites;
@@ -1874,7 +1884,8 @@ function readForm(): Settings {
     gestures: gesturesBox.checked,
     cycleFavorites: cycleFavoritesBox.checked,
     newsSources: [...newsBoxes].filter(([, box]) => box.checked).map(([id]) => id),
-    newsFilters: [...newsFilterList.querySelectorAll('input')].map((i) => i.value),
+    newsFilters: newsFilterRows.inputs().map((i) => i.value),
+    newsExcludes: newsExcludeRows.inputs().map((i) => i.value),
     analysis: analysisBox.checked,
     analysisKind: analysisSel.value as Analysis,
     analysisSecond: analysisSecondSel.value as Analysis | 'none',
@@ -1930,7 +1941,7 @@ async function applyForm(cycling = false): Promise<boolean> {
     if (text.value) text.value = marketList.dataset.kind === 'events' ? eventSlug(text.value) : normalizeMarket(text.value);
   }
   // Without rebuilding rows, as for the markets above: empty ones wait to be filled in.
-  for (const input of newsFilterList.querySelectorAll('input')) input.value = cleanNewsFilter(input.value);
+  for (const input of [...newsFilterRows.inputs(), ...newsExcludeRows.inputs()]) input.value = cleanNewsFilter(input.value);
   refreshInput.value = formatDuration(next.refreshSec);
   refreshInput.disabled = next.manualOnly;
   displayInput.disabled = next.alwaysOn;
@@ -1961,9 +1972,9 @@ async function applyForm(cycling = false): Promise<boolean> {
     || next.explore !== prev.explore || next.exploreBy !== prev.exploreBy || next.exploreView !== prev.exploreView
     || next.newsSources.join() !== prev.newsSources.join();
   if (chartChanged) restartSchedule({ cancel: true, manual: true });
-  // A new font, dimming, thinning, analysis or news filter needs no new data: redraw the last, sparing the APIs
+  // A new font, dimming, thinning, analysis or news filter (or exclude) needs no new data: redraw the last, sparing the APIs
   // (CoinGecko drops the index when asked too often). Without data to reuse, this fetches.
-  else if (next.font !== prev.font || next.imageDim !== prev.imageDim || next.imageThin !== prev.imageThin || next.eventAnalysis !== prev.eventAnalysis || next.newsFilters.join('\n') !== prev.newsFilters.join('\n') || JSON.stringify(analysisSpecs(next)) !== JSON.stringify(analysisSpecs(prev))) void update({ cancel: true, manual: true, reuse: true });
+  else if (next.font !== prev.font || next.imageDim !== prev.imageDim || next.imageThin !== prev.imageThin || next.eventAnalysis !== prev.eventAnalysis || next.newsFilters.join('\n') !== prev.newsFilters.join('\n') || next.newsExcludes.join('\n') !== prev.newsExcludes.join('\n') || JSON.stringify(analysisSpecs(next)) !== JSON.stringify(analysisSpecs(prev))) void update({ cancel: true, manual: true, reuse: true });
   // Leaving manual-only: fetch in the background now and start the schedule.
   else if (prev.manualOnly && !next.manualOnly) restartSchedule();
   else scheduleAt(nextAt - prev.refreshSec * 1000 + next.refreshSec * 1000);

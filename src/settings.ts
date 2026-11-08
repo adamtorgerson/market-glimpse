@@ -34,7 +34,7 @@ export function exploreCharts(view: ExploreView, max: number): number {
   return view === 'list' ? 0 : Math.min(Number(view), max);
 }
 export const MAX_MARKETS = 8;
-/** News filters allowed. */
+/** News filters allowed, and as many excludes. */
 export const MAX_NEWS_FILTERS = 8;
 /** Saved watchlists allowed per `watchlistKey`. */
 export const MAX_WATCHLISTS = 20;
@@ -188,6 +188,8 @@ export interface Settings {
   newsSources: string[];
   /** Words or phrases that make a headline a hit, as a market or event it mentions does. */
   newsFilters: string[];
+  /** Words or phrases that keep a headline out, whatever else it mentions: they win over everything that makes it a hit. */
+  newsExcludes: string[];
 }
 
 /** Exactly what `sanitize` makes of them: a change is spotted by comparing settings, and a difference here would look like one. */
@@ -240,6 +242,7 @@ export const DEFAULT_SETTINGS: Settings = {
   cycleFavorites: false,
   newsSources: [],
   newsFilters: [],
+  newsExcludes: [],
 };
 
 export function normalizeMarket(raw: string): string {
@@ -380,13 +383,17 @@ export function sanitize(input: Partial<Settings>): Settings {
   const gestures = typeof input.gestures === 'boolean' ? input.gestures : d.gestures;
   const cycleFavorites = typeof input.cycleFavorites === 'boolean' ? input.cycleFavorites : d.cycleFavorites;
   const newsSources = Array.isArray(input.newsSources) ? NEWS_SOURCE_IDS.filter((id) => input.newsSources!.includes(id)) : d.newsSources;
-  const seenFilters = new Set<string>();
-  const newsFilters = (Array.isArray(input.newsFilters) ? input.newsFilters : d.newsFilters).map(cleanNewsFilter).filter((f) => {
-    const key = f.toLowerCase();
-    if (!f || seenFilters.has(key)) return false;
-    seenFilters.add(key);
-    return true;
-  }).slice(0, MAX_NEWS_FILTERS);
+  const filterList = (raw: unknown, fallback: string[]) => {
+    const seen = new Set<string>();
+    return (Array.isArray(raw) ? raw : fallback).map(cleanNewsFilter).filter((f) => {
+      const key = f.toLowerCase();
+      if (!f || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, MAX_NEWS_FILTERS);
+  };
+  const newsFilters = filterList(input.newsFilters, d.newsFilters);
+  const newsExcludes = filterList(input.newsExcludes, d.newsExcludes);
   const explore = typeof input.explore === 'boolean' ? input.explore : d.explore;
   // A ranking the source offers (Polymarket US has only volume).
   const rankings = isPredictionSource(source) ? getPredictionSource(source).exploreRankings : undefined;
@@ -394,7 +401,7 @@ export function sanitize(input: Partial<Settings>): Settings {
   const exploreBy = !rankings || rankings.includes(wantBy) ? wantBy : rankings[0]!;
   const exploreView = (EXPLORE_VIEWS as readonly string[]).includes(input.exploreView as string) ? input.exploreView! : d.exploreView;
 
-  return { source, favorites, currency, markets, charts, interval, events, eventCharts, watchlists, activeWatchlist, eventInterval, eventTextChart, eventAnalysis, explore, exploreBy, exploreView, candleWidth, font, imageDim, imageThin, showList, textList, showIndex, analysis, analysisKind, analysisSecond, smaPeriod, emaPeriod, rsiPeriod, atrPeriod, bollingerPeriod, donchianPeriod, bollingerK, macdFast, macdSlow, macdSignal, sarStep, sarMax, manualOnly, lookUpUpdate, lookUpCal, refreshSec, displaySec, alwaysOn, gestures, cycleFavorites, newsSources, newsFilters };
+  return { source, favorites, currency, markets, charts, interval, events, eventCharts, watchlists, activeWatchlist, eventInterval, eventTextChart, eventAnalysis, explore, exploreBy, exploreView, candleWidth, font, imageDim, imageThin, showList, textList, showIndex, analysis, analysisKind, analysisSecond, smaPeriod, emaPeriod, rsiPeriod, atrPeriod, bollingerPeriod, donchianPeriod, bollingerK, macdFast, macdSlow, macdSignal, sarStep, sarMax, manualOnly, lookUpUpdate, lookUpCal, refreshSec, displaySec, alwaysOn, gestures, cycleFavorites, newsSources, newsFilters, newsExcludes };
 }
 
 /** The indicators to draw with `s`, in order: none if analysis is off. */

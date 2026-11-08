@@ -139,6 +139,11 @@ export function filterTarget(filter: string): NewsTarget {
   return { key: `filter:${filter}`, label: filter, matches: (title) => test.test(title) };
 }
 
+/** A headline hit by any of `excludes`: it's left out whatever else it mentions. */
+function excluded(title: string, excludes: NewsTarget[]): boolean {
+  return excludes.some((x) => x.matches(title));
+}
+
 /** Words too common in events' titles to say a headline is about one. */
 const EVENT_STOP_WORDS = new Set([
   'the', 'and', 'for', 'with', 'will', 'who', 'what', 'when', 'which', 'where', 'how', 'why', 'does', 'did', 'has', 'have', 'been', 'are', 'was', 'were', 'this', 'that', 'than', 'from', 'into', 'over', 'under', 'above', 'below', 'after', 'before', 'between', 'during', 'end', 'ends', 'next', 'more', 'most', 'less', 'least', 'any', 'not', 'yes', 'out', 'off', 'all', 'its', 'his', 'her', 'their', 'our', 'you', 'your', 'first', 'last', 'new', 'win', 'wins', 'winner', 'winners', 'won', 'lose', 'loses', 'loser', 'price', 'prices', 'hit', 'hits', 'reach', 'reaches', 'high', 'low', 'market', 'markets', 'largest', 'biggest', 'company', 'companies', 'year', 'years', 'month', 'months', 'week', 'weeks', 'day', 'days', 'today', 'tomorrow', 'up', 'down', 'closing', 'close', 'closes', 'open', 'opens', 'number', 'much', 'many', 'champion', 'champions',
@@ -198,13 +203,13 @@ export class NewsStore {
     this.articles.set(source, [...articles, ...kept].sort((a, b) => b.time - a.time).slice(0, MAX_PER_SOURCE));
   }
 
-  /** Articles from `sources` mentioning any of `targets`, newest first, each story once. */
-  matches(sources: string[], targets: NewsTarget[]): NewsMatch[] {
+  /** Articles from `sources` mentioning any of `targets` and none of `excludes`, newest first, each story once. */
+  matches(sources: string[], targets: NewsTarget[], excludes: NewsTarget[] = []): NewsMatch[] {
     const stories = new Map<string, NewsMatch>();
     for (const source of sources) {
       for (const a of this.articles.get(source) ?? []) {
         const key = storyKey(a.title);
-        if (stories.has(key)) continue;
+        if (stories.has(key) || excluded(a.title, excludes)) continue;
         const about = targets.filter((t) => t.matches(a.title)).map((t) => t.label);
         if (about.length) stories.set(key, { ...a, about: [...new Set(about)] });
       }
@@ -213,13 +218,14 @@ export class NewsStore {
   }
 
   /**
-   * The new articles from `sources` mentioning `targets`, newest first, once
-   * each: they count as announced from here. New ones mentioning none of them
-   * (they may be another source's list's) are dropped too.
+   * The new articles from `sources` mentioning `targets` and none of
+   * `excludes`, newest first, once each: they count as announced from here. New
+   * ones mentioning none of them (they may be another source's list's), or an
+   * exclude, are dropped too.
    */
-  takeNew(sources: string[], targets: NewsTarget[]): NewsMatch[] {
+  takeNew(sources: string[], targets: NewsTarget[], excludes: NewsTarget[] = []): NewsMatch[] {
     const taken = this.fresh.flatMap((a) => {
-      if (!sources.includes(a.source)) return [];
+      if (!sources.includes(a.source) || excluded(a.title, excludes)) return [];
       const about = targets.filter((t) => t.matches(a.title)).map((t) => t.label);
       return about.length ? [{ ...a, about: [...new Set(about)] }] : [];
     });

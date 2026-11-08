@@ -133,6 +133,17 @@ describe('a news filter', () => {
     expect(store.takeNew(['cnbc'], hits).map((a) => a.title)).toEqual(['Zebra crossing opens']);
   });
 
+  it('leaves out a headline an exclude hits, whatever else hits it', () => {
+    const store = new NewsStore();
+    store.add('cnbc', [article('Bitcoin podcast: zebra edition', 20), article('Bitcoin falls', 10)], NOW);
+    const hits = [marketTarget('BTC-USDC'), filterTarget('zebra')];
+    const excludes = [filterTarget('Podcast')];
+    expect(store.matches(['cnbc'], hits, excludes).map((a) => a.title)).toEqual(['Bitcoin falls']);
+    expect(store.takeNew(['cnbc'], hits, excludes).map((a) => a.title)).toEqual(['Bitcoin falls']);
+    expect(store.takeNew(['cnbc'], hits)).toEqual([]);
+    expect(store.matches(['cnbc'], hits)).toHaveLength(2);
+  });
+
   it('marks every chart with its hits, but no market in a list', () => {
     const marks = newsMarks([article('Zebra crossing opens', 100)], marketTarget('BTC-USDC'), NOW, [filterTarget('zebra')]);
     expect(marks).toEqual({ times: [NOW - 100], recent: false });
@@ -352,6 +363,13 @@ describe('settings', () => {
 
   it('start with no news filters', () => {
     expect(sanitize({}).newsFilters).toEqual([]);
+  });
+
+  it('start with no news excludes, and keep up to 8 as filters are kept', () => {
+    expect(sanitize({}).newsExcludes).toEqual([]);
+    expect(sanitize({ newsExcludes: [' Podcast ', '', 'podcast', 'sponsored'] }).newsExcludes).toEqual(['Podcast', 'sponsored']);
+    expect(sanitize({ newsExcludes: Array.from({ length: 12 }, (_, i) => `x${i}`) }).newsExcludes).toHaveLength(8);
+    expect(sanitize({ newsExcludes: 'Podcast' as unknown as string[] }).newsExcludes).toEqual([]);
   });
 
   it('keep up to 8 news filters, without blanks or repeats in any case', () => {
