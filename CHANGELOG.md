@@ -4,6 +4,8 @@ Notable changes to MarketGlimpse, by release tag.
 
 ## [Unreleased]
 
+## [0.4.7] - 2026-11-08
+
 ### Added
 - **News**: WSJ Markets and Bitcoin.com, each with its own checkbox, off by
   default.
@@ -285,6 +287,7 @@ schedule.
   gesture (calibrated from the IMU) to trigger an update.
 - Chart tiles sent to the glasses in parallel.
 
+[0.4.7]: https://github.com/adamtorgerson/market-glimpse/compare/v0.4.6...v0.4.7
 [0.4.6]: https://github.com/adamtorgerson/market-glimpse/compare/v0.4.5...v0.4.6
 [0.4.5]: https://github.com/adamtorgerson/market-glimpse/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/adamtorgerson/market-glimpse/compare/v0.4.3...v0.4.4
