@@ -1,8 +1,10 @@
 import { PublicApi, isAbort } from './http';
 import { coinGeckoName, type Instrument } from './symbols';
 
-// The keyless API allows only a few calls a minute per IP, so space them well beyond MIN_GAP_MS.
-const api = new PublicApi('https://api.coingecko.com/api/v3', 12_000);
+// The keyless API allows "~5 calls/min (dynamic, varies by server load)" per IP
+// (docs.coingecko.com/docs/keyless-public-api), so stay under it at 4 a minute.
+// The shortest refresh is 15s, so an update still never waits on this.
+const api = new PublicApi('https://api.coingecko.com/api/v3', 15_000);
 
 /** Rough ms for the index request if made now. */
 export function estimateIndexMs(markets: string[]): number {

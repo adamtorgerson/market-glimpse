@@ -11,8 +11,9 @@ export interface NewsSource {
   label: string;
   /**
    * Least time between requests, however often the charts update. Feeds are
-   * cached for about a minute, so sooner would find nothing new; `cv` allows
-   * only 10 requests an hour.
+   * cached for about a minute, so sooner would find nothing new. `cv`'s
+   * x-ratelimit-limit header says 20 an hour (10 when first checked), so it's
+   * asked at most 10 times an hour.
    */
   minAgeMs: number;
   fetch(signal: AbortSignal): Promise<NewsArticle[]>;
