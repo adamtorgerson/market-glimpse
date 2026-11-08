@@ -209,6 +209,12 @@ refreshes every 2m, chart shown for 12s, narrow candles.
   minute, and cryptocurrency.cv, which allows 10 requests an hour, at most every
   6 minutes, however often the charts update. A source's failure only shows in
   the section.
+  - **Automatic filters**: the markets or events the last chart monitored, each
+    with what finds it in a headline ("BTC, Bitcoin") and a checkbox. Unticking
+    one stops its headlines being hits and its own marks on its chart (it still
+    gets the filters'). It stays off whenever it's monitored again, until ticked;
+    Reset turns them all back on. They're listed after the first update, as an
+    event's title comes with its data.
   - **Filters**: up to 8 words or phrases of your own, up to 40 characters each.
     A headline with one in it, whole and in any case ("Fed", not "federal"), is a
     hit like one mentioning a market: it can bring up the popup, and it's listed

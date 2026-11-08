@@ -36,6 +36,8 @@ export function exploreCharts(view: ExploreView, max: number): number {
 export const MAX_MARKETS = 8;
 /** News filters allowed, and as many excludes. */
 export const MAX_NEWS_FILTERS = 8;
+/** Markets and events whose automatic news filter is kept turned off. */
+export const MAX_NEWS_OFF = 200;
 /** Saved watchlists allowed per `watchlistKey`. */
 export const MAX_WATCHLISTS = 20;
 export const MAX_WATCHLIST_NAME = 24;
@@ -190,6 +192,8 @@ export interface Settings {
   newsFilters: string[];
   /** Words or phrases that keep a headline out, whatever else it mentions: they win over everything that makes it a hit. */
   newsExcludes: string[];
+  /** Markets and event slugs (`NewsTarget.key`) whose automatic news filter is turned off: headlines about them aren't hits. */
+  newsOff: string[];
 }
 
 /** Exactly what `sanitize` makes of them: a change is spotted by comparing settings, and a difference here would look like one. */
@@ -243,6 +247,7 @@ export const DEFAULT_SETTINGS: Settings = {
   newsSources: [],
   newsFilters: [],
   newsExcludes: [],
+  newsOff: [],
 };
 
 export function normalizeMarket(raw: string): string {
@@ -394,6 +399,9 @@ export function sanitize(input: Partial<Settings>): Settings {
   };
   const newsFilters = filterList(input.newsFilters, d.newsFilters);
   const newsExcludes = filterList(input.newsExcludes, d.newsExcludes);
+  const newsOff = Array.isArray(input.newsOff)
+    ? dedupe(input.newsOff.filter((k): k is string => typeof k === 'string' && k.length > 0 && k.length <= 200)).slice(-MAX_NEWS_OFF)
+    : d.newsOff;
   const explore = typeof input.explore === 'boolean' ? input.explore : d.explore;
   // A ranking the source offers (Polymarket US has only volume).
   const rankings = isPredictionSource(source) ? getPredictionSource(source).exploreRankings : undefined;
@@ -401,7 +409,7 @@ export function sanitize(input: Partial<Settings>): Settings {
   const exploreBy = !rankings || rankings.includes(wantBy) ? wantBy : rankings[0]!;
   const exploreView = (EXPLORE_VIEWS as readonly string[]).includes(input.exploreView as string) ? input.exploreView! : d.exploreView;
 
-  return { source, favorites, currency, markets, charts, interval, events, eventCharts, watchlists, activeWatchlist, eventInterval, eventTextChart, eventAnalysis, explore, exploreBy, exploreView, candleWidth, font, imageDim, imageThin, showList, textList, showIndex, analysis, analysisKind, analysisSecond, smaPeriod, emaPeriod, rsiPeriod, atrPeriod, bollingerPeriod, donchianPeriod, bollingerK, macdFast, macdSlow, macdSignal, sarStep, sarMax, manualOnly, lookUpUpdate, lookUpCal, refreshSec, displaySec, alwaysOn, gestures, cycleFavorites, newsSources, newsFilters, newsExcludes };
+  return { source, favorites, currency, markets, charts, interval, events, eventCharts, watchlists, activeWatchlist, eventInterval, eventTextChart, eventAnalysis, explore, exploreBy, exploreView, candleWidth, font, imageDim, imageThin, showList, textList, showIndex, analysis, analysisKind, analysisSecond, smaPeriod, emaPeriod, rsiPeriod, atrPeriod, bollingerPeriod, donchianPeriod, bollingerK, macdFast, macdSlow, macdSignal, sarStep, sarMax, manualOnly, lookUpUpdate, lookUpCal, refreshSec, displaySec, alwaysOn, gestures, cycleFavorites, newsSources, newsFilters, newsExcludes, newsOff };
 }
 
 /** The indicators to draw with `s`, in order: none if analysis is off. */

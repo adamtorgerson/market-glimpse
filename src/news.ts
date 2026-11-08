@@ -27,6 +27,10 @@ export interface NewsTarget {
   key: string;
   /** How it's named beside a headline. */
   label: string;
+  /** How it's named in the phone's list of automatic filters. */
+  name: string;
+  /** What it's found by, for that list: "BTC, Bitcoin". */
+  findBy: string;
   matches(title: string): boolean;
 }
 
@@ -118,11 +122,9 @@ function wordRegExp(term: string, flags: string): RegExp {
 export function marketTarget(market: string): NewsTarget {
   const asset = canonAsset(market.split('-')[0] ?? '');
   const ticker = [asset, asset.replace(/X$/, ''), asset.replace(/^X/, '')].find((t) => ASSET_NAMES[t]) ?? asset;
-  const tests = [
-    ...(ticker.length >= 2 && !NOT_TICKERS.has(ticker) ? [wordRegExp(ticker, '')] : []),
-    ...(ASSET_NAMES[ticker] ?? []).map((name) => wordRegExp(name, 'i')),
-  ];
-  return { key: market, label: ticker, matches: (title) => tests.some((t) => t.test(title)) };
+  const terms = [...(ticker.length >= 2 && !NOT_TICKERS.has(ticker) ? [ticker] : []), ...(ASSET_NAMES[ticker] ?? [])];
+  const tests = terms.map((term, i) => wordRegExp(term, i === 0 && term === ticker ? '' : 'i'));
+  return { key: market, label: ticker, name: market, findBy: [...new Set(terms)].join(', '), matches: (title) => tests.some((t) => t.test(title)) };
 }
 
 /** Longest a news filter is kept. */
@@ -136,7 +138,7 @@ export function cleanNewsFilter(raw: unknown): string {
 /** A user's news filter, found in a headline as whole words, in any case. */
 export function filterTarget(filter: string): NewsTarget {
   const test = wordRegExp(filter, 'i');
-  return { key: `filter:${filter}`, label: filter, matches: (title) => test.test(title) };
+  return { key: `filter:${filter}`, label: filter, name: filter, findBy: filter, matches: (title) => test.test(title) };
 }
 
 /** A headline hit by any of `excludes`: it's left out whatever else it mentions. */
@@ -158,14 +160,21 @@ const EVENT_STOP_WORDS = new Set([
  * about something else.
  */
 export function eventTarget(slug: string, title: string): NewsTarget {
-  const assets = Object.values(ASSET_NAMES).flat().filter((name) => wordRegExp(name, 'i').test(title)).map((name) => wordRegExp(name, 'i'));
-  const words = [...new Set((title.toLowerCase().match(/\p{L}[\p{L}\p{N}'-]*/gu) ?? []).map((w) => w.replace(/'s$/, '')))]
-    .filter((w) => w.length >= 3 && !EVENT_STOP_WORDS.has(w))
-    .map((w) => wordRegExp(w, 'i'));
+  const assetNames = Object.values(ASSET_NAMES).flat().filter((name) => wordRegExp(name, 'i').test(title));
+  const assets = assetNames.map((name) => wordRegExp(name, 'i'));
+  const wordList = [...new Set((title.toLowerCase().match(/\p{L}[\p{L}\p{N}'-]*/gu) ?? []).map((w) => w.replace(/'s$/, '')))]
+    .filter((w) => w.length >= 3 && !EVENT_STOP_WORDS.has(w));
+  const words = wordList.map((w) => wordRegExp(w, 'i'));
   const needed = Math.min(2, words.length);
+  // For the list: with an asset named, a headline naming it is a hit already, so only the other words add anything.
+  const lowerAssets = new Set(assetNames.map((n) => n.toLowerCase()));
+  const others = wordList.filter((w) => !lowerAssets.has(w));
+  const byWords = others.length < needed ? '' : needed === 1 ? others[0]! : `2 of ${others.join(', ')}`;
   return {
     key: slug,
     label: title,
+    name: title,
+    findBy: [assetNames.join(', '), byWords].filter(Boolean).join('; or '),
     matches: (headline) => assets.some((t) => t.test(headline)) || (needed > 0 && words.filter((t) => t.test(headline)).length >= needed),
   };
 }

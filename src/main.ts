@@ -470,6 +470,10 @@ const newsCtrl = new AbortController();
 let newsTargets: NewsTarget[] = [];
 
 const filterTargets = (s: Settings) => s.newsFilters.map(filterTarget);
+/** What's monitored, less the markets and events whose automatic filter is turned off. */
+const activeTargets = (s: Settings, targets: NewsTarget[]) => targets.filter((t) => !s.newsOff.includes(t.key));
+/** Stands in for a market or event whose filter is off: its chart still gets the filters' marks. */
+const NO_HITS: NewsTarget = { key: '', label: '', name: '', findBy: '', matches: () => false };
 /** Headlines hit by these are left out everywhere, whatever else they mention. */
 const excludeTargets = (s: Settings) => s.newsExcludes.map(filterTarget);
 /** Headlines waiting to go up: taken from the feeds, and kept here until they're on the display. */
@@ -518,13 +522,15 @@ async function withNews<T>(s: Settings, market: Promise<T>): Promise<T> {
  */
 function takeNews(s: Settings, targets: NewsTarget[], reuse: boolean): { marks: (key: string) => ReturnType<typeof newsMarks>; popup: NewsMatch[]; earlier: NewsMatch[]; show: boolean } {
   newsTargets = targets;
+  renderNewsAuto();
   renderNews();
   const filters = filterTargets(s);
-  const hits = [...targets, ...filters];
+  const active = activeTargets(s, targets);
+  const hits = [...active, ...filters];
   const excludes = excludeTargets(s);
   const found = newsFeeds.store.matches(s.newsSources, hits, excludes);
   const now = Math.floor(Date.now() / 1000);
-  const byKey = new Map(targets.map((t) => [t.key, newsMarks(found, t, now, filters)]));
+  const byKey = new Map(targets.map((t) => [t.key, newsMarks(found, active.includes(t) ? t : NO_HITS, now, filters)]));
   heldPopup = [...newsFeeds.store.takeNew(s.newsSources, hits, excludes), ...heldPopup];
   const shown = new Set(heldPopup.map((a) => a.title));
   const show = heldPopup.length > 0 || (DIAGNOSTICS && alwaysNewsPopup && !reuse && found.length > 0);
@@ -610,6 +616,52 @@ function newsFilterControls(list: HTMLUListElement, addBtn: HTMLButtonElement, p
   };
 }
 
+const newsAutoEl = $<HTMLUListElement>('news-auto');
+/** The form's markets and events turned off, listed or not: Reset clears them all. */
+let newsOffKept: string[] = [];
+
+/**
+ * The automatic filters: what the last chart monitored, each with a checkbox to
+ * turn it off. One that's off is remembered for when it's monitored again.
+ */
+function renderNewsAuto(): void {
+  const seen = new Set<string>();
+  const targets = newsTargets.filter((t) => !seen.has(t.key) && seen.add(t.key));
+  if (!targets.length) {
+    const li = document.createElement('li');
+    li.className = 'muted small';
+    li.textContent = 'Your markets or events are listed here after the next update.';
+    newsAutoEl.replaceChildren(li);
+    return;
+  }
+  newsAutoEl.replaceChildren(...targets.map((t) => {
+    const li = document.createElement('li');
+    const label = document.createElement('label');
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.dataset.key = t.key;
+    box.checked = !newsOffKept.includes(t.key);
+    const name = document.createElement('span');
+    name.textContent = t.name;
+    const findBy = document.createElement('span');
+    findBy.className = 'meta';
+    findBy.textContent = t.findBy ? `Matches ${t.findBy}` : 'Matches nothing: its ticker is too short or too common, and it has no known name';
+    const text = document.createElement('span');
+    text.append(name, findBy);
+    label.append(text, box);
+    li.append(label);
+    return li;
+  }));
+}
+
+/** Markets and events turned off: those in the list as unticked, and those not in it as they were. */
+function readNewsOff(): string[] {
+  const boxes = [...newsAutoEl.querySelectorAll<HTMLInputElement>('input[type=checkbox]')];
+  const listed = new Set(boxes.map((b) => b.dataset.key!));
+  newsOffKept = [...newsOffKept.filter((k) => !listed.has(k)), ...boxes.filter((b) => !b.checked).map((b) => b.dataset.key!)];
+  return newsOffKept;
+}
+
 const newsFilterRows = newsFilterControls($<HTMLUListElement>('news-filters'), $<HTMLButtonElement>('add-news-filter'), 'e.g. Fed, or rate cut', 'News filter');
 const newsExcludeRows = newsFilterControls($<HTMLUListElement>('news-excludes'), $<HTMLButtonElement>('add-news-exclude'), 'e.g. sponsored, or podcast', 'News exclude');
 
@@ -691,7 +743,7 @@ function newsActions(item: NewsMatch): HTMLElement {
 /** The phone's News section: up to `MAX_NEWS_LIST` headlines mentioning what's monitored, newest first, each with a way to pass on its link; or why there are none. */
 function renderNews(): void {
   const on = settings.newsSources;
-  const items = newsFeeds.store.matches(on, [...newsTargets, ...filterTargets(settings)], excludeTargets(settings)).slice(0, MAX_NEWS_LIST);
+  const items = newsFeeds.store.matches(on, [...activeTargets(settings, newsTargets), ...filterTargets(settings)], excludeTargets(settings)).slice(0, MAX_NEWS_LIST);
   const labels = new Map(NEWS_SOURCES.map((src) => [src.id, src.label]));
   const failures = on.flatMap((id) => (newsFeeds.errors.has(id) ? [`${labels.get(id)}: ${newsFeeds.errors.get(id)}`] : []));
   const empty = on.length === 0 ? 'Tick a source to fetch headlines with each update.' : items.length ? '' : 'No headlines are hits yet.';
@@ -1801,6 +1853,8 @@ function fillForm(s: Settings): void {
   for (const [id, box] of newsBoxes) box.checked = s.newsSources.includes(id);
   newsFilterRows.show(s.newsFilters);
   newsExcludeRows.show(s.newsExcludes);
+  newsOffKept = s.newsOff;
+  renderNewsAuto();
   showIndexBox.checked = s.showIndex;
   gesturesBox.checked = s.gestures;
   cycleFavoritesBox.checked = s.cycleFavorites;
@@ -1886,6 +1940,7 @@ function readForm(): Settings {
     newsSources: [...newsBoxes].filter(([, box]) => box.checked).map(([id]) => id),
     newsFilters: newsFilterRows.inputs().map((i) => i.value),
     newsExcludes: newsExcludeRows.inputs().map((i) => i.value),
+    newsOff: readNewsOff(),
     analysis: analysisBox.checked,
     analysisKind: analysisSel.value as Analysis,
     analysisSecond: analysisSecondSel.value as Analysis | 'none',
@@ -1974,7 +2029,7 @@ async function applyForm(cycling = false): Promise<boolean> {
   if (chartChanged) restartSchedule({ cancel: true, manual: true });
   // A new font, dimming, thinning, analysis or news filter (or exclude) needs no new data: redraw the last, sparing the APIs
   // (CoinGecko drops the index when asked too often). Without data to reuse, this fetches.
-  else if (next.font !== prev.font || next.imageDim !== prev.imageDim || next.imageThin !== prev.imageThin || next.eventAnalysis !== prev.eventAnalysis || next.newsFilters.join('\n') !== prev.newsFilters.join('\n') || next.newsExcludes.join('\n') !== prev.newsExcludes.join('\n') || JSON.stringify(analysisSpecs(next)) !== JSON.stringify(analysisSpecs(prev))) void update({ cancel: true, manual: true, reuse: true });
+  else if (next.font !== prev.font || next.imageDim !== prev.imageDim || next.imageThin !== prev.imageThin || next.eventAnalysis !== prev.eventAnalysis || next.newsFilters.join('\n') !== prev.newsFilters.join('\n') || next.newsExcludes.join('\n') !== prev.newsExcludes.join('\n') || next.newsOff.join('\n') !== prev.newsOff.join('\n') || JSON.stringify(analysisSpecs(next)) !== JSON.stringify(analysisSpecs(prev))) void update({ cancel: true, manual: true, reuse: true });
   // Leaving manual-only: fetch in the background now and start the schedule.
   else if (prev.manualOnly && !next.manualOnly) restartSchedule();
   else scheduleAt(nextAt - prev.refreshSec * 1000 + next.refreshSec * 1000);

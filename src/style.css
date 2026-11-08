@@ -148,6 +148,10 @@ label > input:disabled { opacity: 0.4; }
 #news-filters li, #news-excludes li { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 #news-filters input, #news-excludes input { flex: 1; }
 #news-filters button, #news-excludes button { padding: 6px 12px; }
+#news-auto { list-style: none; margin: 10px 0; padding: 0; }
+#news-auto li { margin-bottom: 6px; overflow-wrap: anywhere; }
+#news-auto label { margin: 0; }
+#news-auto .meta { display: block; color: var(--muted); font-size: 0.8rem; }
 #news-list { list-style: none; margin: 10px 0 0; padding: 0; }
 #news-list li { padding: 8px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
 #news-list .meta { display: block; margin-top: 2px; color: var(--muted); font-size: 0.8rem; }

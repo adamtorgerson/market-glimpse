@@ -101,6 +101,21 @@ describe('what a headline mentions', () => {
   });
 });
 
+describe('an automatic filter, as listed', () => {
+  it('names a market and what finds it', () => {
+    expect(marketTarget('BTC-USDC')).toMatchObject({ name: 'BTC-USDC', findBy: 'BTC, Bitcoin' });
+    expect(marketTarget('AMD-USD').findBy).toBe('AMD');
+    expect(marketTarget('ONE-USD').findBy).toBe('');
+  });
+
+  it('names an event and what finds it', () => {
+    expect(eventTarget('btc-price', 'What price will Bitcoin hit?')).toMatchObject({ name: 'What price will Bitcoin hit?', findBy: 'Bitcoin' });
+    expect(eventTarget('btc-trump', 'Bitcoin reserve by Trump?').findBy).toBe('Bitcoin; or 2 of reserve, trump');
+    expect(eventTarget('fed', 'Fed rate cut in December?').findBy).toBe('2 of fed, rate, cut');
+    expect(eventTarget('x', 'Recession?').findBy).toBe('recession');
+  });
+});
+
 describe('a news filter', () => {
   it('hits a headline with it as a whole word, in any case', () => {
     const fed = filterTarget('Fed');
@@ -370,6 +385,13 @@ describe('settings', () => {
     expect(sanitize({ newsExcludes: [' Podcast ', '', 'podcast', 'sponsored'] }).newsExcludes).toEqual(['Podcast', 'sponsored']);
     expect(sanitize({ newsExcludes: Array.from({ length: 12 }, (_, i) => `x${i}`) }).newsExcludes).toHaveLength(8);
     expect(sanitize({ newsExcludes: 'Podcast' as unknown as string[] }).newsExcludes).toEqual([]);
+  });
+
+  it('keep the markets and events whose automatic filter is off, without blanks or repeats', () => {
+    expect(sanitize({}).newsOff).toEqual([]);
+    expect(sanitize({ newsOff: ['BTC-USDC', '', 'BTC-USDC', 'fed-rate', 3 as unknown as string] }).newsOff).toEqual(['BTC-USDC', 'fed-rate']);
+    expect(sanitize({ newsOff: Array.from({ length: 250 }, (_, i) => `m${i}`) }).newsOff).toHaveLength(200);
+    expect(sanitize({ newsOff: 'BTC' as unknown as string[] }).newsOff).toEqual([]);
   });
 
   it('keep up to 8 news filters, without blanks or repeats in any case', () => {

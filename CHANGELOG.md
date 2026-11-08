@@ -7,6 +7,8 @@ Notable changes to MarketGlimpse, by release tag.
 ### Added
 - **News**: WSJ Markets and Bitcoin.com, each with its own checkbox, off by
   default.
+- **News**: the automatic filters, one per monitored market or event, are
+  listed in the section with what each matches, and a checkbox to turn each off.
 - **News excludes**: up to 8 words or phrases that keep a headline out of the
   popup, the phone's list and the charts' marks, even if it mentions a market,
   event or filter.
