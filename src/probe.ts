@@ -67,7 +67,8 @@ const state: Beat = {
   phaseSince: now,
   glassesQueue: 0,
   glassesBusySince: 0,
-  hidden: document.hidden,
+  // Imported by glasses.ts, so also loaded by tests in Node, where there's no document.
+  hidden: typeof document !== 'undefined' && document.hidden,
   hiddenSince: now,
   visibilityChanges: 0,
   errors: [],

@@ -18,6 +18,9 @@ export type TextWidth = Extract<CandleWidth, `text${string}`>;
 export const CHART_FONTS = ['atkinson', 'b612', 'dejavu-mono', 'hack', 'terminus'] as const;
 export type ChartFont = (typeof CHART_FONTS)[number];
 
+/** The steps, in percent, image charts can be dimmed or thinned by before they're sent. */
+export const IMAGE_STEPS = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90] as const;
+
 export const MAX_CHARTS = 4;
 /** Charts allowed with analysis on: smaller ones have too few candles for an indicator to settle. */
 export const MAX_ANALYSIS_CHARTS = 2;
@@ -127,6 +130,10 @@ export interface Settings {
   candleWidth: CandleWidth;
   /** Font for the text in chart images (not text candles, which use the glasses' font). */
   font: ChartFont;
+  /** Dim image screens by this percent (`IMAGE_STEPS`) before sending them (not text screens, which the glasses draw). */
+  imageDim: number;
+  /** Turn off this percent (`IMAGE_STEPS`) of image screens' lit pixels before sending them. */
+  imageThin: number;
   /**
    * Show the full-screen market list instead of charts. Takes precedence over
    * them: any ticked (or Explore's charted layout) are kept but not drawn.
@@ -203,6 +210,8 @@ export const DEFAULT_SETTINGS: Settings = {
   exploreView: 'list',
   candleWidth: 'narrow',
   font: 'atkinson',
+  imageDim: 0,
+  imageThin: 0,
   showList: false,
   textList: false,
   showIndex: true,
@@ -331,6 +340,9 @@ export function sanitize(input: Partial<Settings>): Settings {
   const candleWidth = (CANDLE_WIDTHS as readonly string[]).includes(width as string) ? width! : d.candleWidth;
 
   const font = (CHART_FONTS as readonly string[]).includes(input.font as string) ? input.font! : d.font;
+  const step = (v: unknown, fallback: number) => Math.round(clampInt(v, 0, 90, fallback) / 10) * 10;
+  const imageDim = step(input.imageDim, d.imageDim);
+  const imageThin = step(input.imageThin, d.imageThin);
 
   const analysis = typeof input.analysis === 'boolean' ? input.analysis : d.analysis;
   const charts = dedupe((input.charts ?? d.charts).map(normalizeMarket))
@@ -382,7 +394,7 @@ export function sanitize(input: Partial<Settings>): Settings {
   const exploreBy = !rankings || rankings.includes(wantBy) ? wantBy : rankings[0]!;
   const exploreView = (EXPLORE_VIEWS as readonly string[]).includes(input.exploreView as string) ? input.exploreView! : d.exploreView;
 
-  return { source, favorites, currency, markets, charts, interval, events, eventCharts, watchlists, activeWatchlist, eventInterval, eventTextChart, eventAnalysis, explore, exploreBy, exploreView, candleWidth, font, showList, textList, showIndex, analysis, analysisKind, analysisSecond, smaPeriod, emaPeriod, rsiPeriod, atrPeriod, bollingerPeriod, donchianPeriod, bollingerK, macdFast, macdSlow, macdSignal, sarStep, sarMax, manualOnly, lookUpUpdate, lookUpCal, refreshSec, displaySec, alwaysOn, gestures, cycleFavorites, newsSources, newsFilters };
+  return { source, favorites, currency, markets, charts, interval, events, eventCharts, watchlists, activeWatchlist, eventInterval, eventTextChart, eventAnalysis, explore, exploreBy, exploreView, candleWidth, font, imageDim, imageThin, showList, textList, showIndex, analysis, analysisKind, analysisSecond, smaPeriod, emaPeriod, rsiPeriod, atrPeriod, bollingerPeriod, donchianPeriod, bollingerK, macdFast, macdSlow, macdSignal, sarStep, sarMax, manualOnly, lookUpUpdate, lookUpCal, refreshSec, displaySec, alwaysOn, gestures, cycleFavorites, newsSources, newsFilters };
 }
 
 /** The indicators to draw with `s`, in order: none if analysis is off. */

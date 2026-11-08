@@ -43,6 +43,7 @@ import {
   watchlistKey,
   type CandleWidth,
   type ChartFont,
+  IMAGE_STEPS,
   type ExploreView,
   type SavedWatchlist,
   type Settings,
@@ -985,7 +986,7 @@ async function present(ctrl: AbortController, showAt: number, textBoxes: TextBox
       // Encoded only now, since a loading screen that went up while waiting
       // must be covered by the tiles.
       const encodeStart = Date.now();
-      const tiles = encodeTiles(canvas, TILE_W, TILE_H, wasLoading ? glasses.loadingRects() : []);
+      const tiles = encodeTiles(canvas, TILE_W, TILE_H, wasLoading ? glasses.loadingRects() : [], { dim: settings.imageDim, thin: settings.imageThin });
       drawMs = average(drawMs, renderMs + Date.now() - encodeStart);
       const uploadStart = Date.now();
       showUploadStats(await glasses.show(tiles, wasLoading));
@@ -1290,6 +1291,8 @@ const guardCancelBtn = $<HTMLButtonElement>('watchlist-guard-cancel');
 const intervalSel = $<HTMLSelectElement>('interval');
 const candleWidthSel = $<HTMLSelectElement>('candle-width');
 const fontSel = $<HTMLSelectElement>('font');
+const imageDimSel = $<HTMLSelectElement>('image-dim');
+const imageThinSel = $<HTMLSelectElement>('image-thin');
 const showIndexBox = $<HTMLInputElement>('show-index');
 const gesturesBox = $<HTMLInputElement>('gestures');
 const analysisBox = $<HTMLInputElement>('analysis');
@@ -1347,6 +1350,10 @@ for (const a of ANALYSES) analysisSel.add(new Option(ANALYSIS_LABELS[a], a));
 analysisSecondSel.add(new Option('None', 'none'));
 for (const a of ANALYSES) analysisSecondSel.add(new Option(ANALYSIS_LABELS[a], a));
 for (const f of CHART_FONTS) fontSel.add(new Option(FONTS[f].label, f));
+for (const p of IMAGE_STEPS) {
+  imageDimSel.add(new Option(p ? `${p}% dimmer` : 'Off', String(p)));
+  imageThinSel.add(new Option(p ? `${p}% of pixels off` : 'Off', String(p)));
+}
 let lastAxisW = DEFAULT_AXIS_W;
 
 /**
@@ -1774,6 +1781,8 @@ function fillForm(s: Settings): void {
   eventStyleSel.value = s.eventTextChart ? 'text' : 'image';
   syncExploreView();
   fontSel.value = s.font;
+  imageDimSel.value = String(s.imageDim);
+  imageThinSel.value = String(s.imageThin);
   showListBox.checked = s.showList;
   textListBox.checked = s.textList;
   syncMarketControls();
@@ -1857,6 +1866,8 @@ function readForm(): Settings {
     exploreView: exploreViewSel.value as ExploreView,
     candleWidth: candleWidthSel.value as CandleWidth,
     font: fontSel.value as ChartFont,
+    imageDim: Number(imageDimSel.value),
+    imageThin: Number(imageThinSel.value),
     showList: showListBox.checked,
     textList: textListBox.checked,
     showIndex: showIndexBox.checked,
@@ -1950,9 +1961,9 @@ async function applyForm(cycling = false): Promise<boolean> {
     || next.explore !== prev.explore || next.exploreBy !== prev.exploreBy || next.exploreView !== prev.exploreView
     || next.newsSources.join() !== prev.newsSources.join();
   if (chartChanged) restartSchedule({ cancel: true, manual: true });
-  // A new font, analysis or news filter needs no new data: redraw the last, sparing the APIs
+  // A new font, dimming, thinning, analysis or news filter needs no new data: redraw the last, sparing the APIs
   // (CoinGecko drops the index when asked too often). Without data to reuse, this fetches.
-  else if (next.font !== prev.font || next.eventAnalysis !== prev.eventAnalysis || next.newsFilters.join('\n') !== prev.newsFilters.join('\n') || JSON.stringify(analysisSpecs(next)) !== JSON.stringify(analysisSpecs(prev))) void update({ cancel: true, manual: true, reuse: true });
+  else if (next.font !== prev.font || next.imageDim !== prev.imageDim || next.imageThin !== prev.imageThin || next.eventAnalysis !== prev.eventAnalysis || next.newsFilters.join('\n') !== prev.newsFilters.join('\n') || JSON.stringify(analysisSpecs(next)) !== JSON.stringify(analysisSpecs(prev))) void update({ cancel: true, manual: true, reuse: true });
   // Leaving manual-only: fetch in the background now and start the schedule.
   else if (prev.manualOnly && !next.manualOnly) restartSchedule();
   else scheduleAt(nextAt - prev.refreshSec * 1000 + next.refreshSec * 1000);

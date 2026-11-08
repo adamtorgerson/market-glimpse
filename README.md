@@ -293,6 +293,18 @@ refreshes every 2m, chart shown for 12s, narrow candles.
   Atkinson Hyperlegible, B612 and Terminus under the SIL Open Font License,
   DejaVu Sans Mono under the Bitstream Vera license, and Hack under MIT.
   Terminus is shipped unmodified, as its license requires to keep the name.
+- **Image dimming** and **Image thinning**: two ways to tone down image
+  screens (charts and the image market list) before they're sent, each off by
+  default and set from 10% to 90% in steps of 10. They can be combined. Text
+  screens, which the glasses draw themselves, aren't affected. Changing either
+  redraws the last data without fetching again.
+  - Dimming scales every grey level down by that much. Anything lit stays lit
+    at the faintest level at least, so detail dims rather than disappears.
+    Upload size barely changes, since the same pixels are sent.
+  - Thinning turns off that share of the lit pixels in an evenly scattered
+    pattern (an 8×8 ordered dither), fixed to the screen so tiles meet without a
+    seam and a chart thins the same way each update. Lines become dotted and
+    text grainier, but there are fewer pixels to send, so uploads can be faster.
 - **Show index price (CoinGecko)**: on by default. Turn it off to skip the
   CoinGecko request on each update.
 - **Analysis** (its own section; exchanges only): **Show analysis** draws

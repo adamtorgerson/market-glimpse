@@ -7,6 +7,14 @@ export interface Rect {
   h: number;
 }
 
+/** How image screens are toned down before they're sent, each in percent (0–100). */
+export interface ImageLook {
+  /** Every lit pixel this much dimmer. */
+  dim?: number;
+  /** This share of the lit pixels turned off. */
+  thin?: number;
+}
+
 export interface Tile extends Rect {
   png: Uint8Array;
 }
@@ -23,14 +31,17 @@ const MIN_SIDE = 20;
  * costs decoding on the phone and Bluetooth time, and an all-black tile is
  * left out. Black needs no image: the screen is black where nothing is drawn.
  * `cover` lists areas that must be drawn over even if black (e.g. the loading
- * text, which should be covered by the chart).
+ * text, which should be covered by the chart). `look` dims and thins the
+ * pixels first; see `dimLevels` and `thinLevels`.
  */
-export function encodeTiles(canvas: HTMLCanvasElement, tileW: number, tileH: number, cover: Rect[] = []): Tile[] {
+export function encodeTiles(canvas: HTMLCanvasElement, tileW: number, tileH: number, cover: Rect[] = [], look: ImageLook = {}): Tile[] {
   const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
   const tiles: Tile[] = [];
   for (let y = 0; y < canvas.height; y += tileH) {
     for (let x = 0; x < canvas.width; x += tileW) {
       const levels = gray4Levels(ctx.getImageData(x, y, tileW, tileH).data);
+      dimLevels(levels, look.dim ?? 0);
+      thinLevels(levels, tileW, x, y, look.thin ?? 0);
       const covered = cover.map((r) => ({ x: r.x - x, y: r.y - y, w: r.w, h: r.h }));
       const box = contentBox(levels, tileW, tileH, covered);
       if (!box) continue;
@@ -49,6 +60,52 @@ export function gray4Levels(px: Uint8ClampedArray): Uint8Array {
     out[i] = Math.round(lum / 17);
   }
   return out;
+}
+
+/**
+ * `levels` dimmed by `percent` (0–100), in place. A lit pixel stays lit, at
+ * level 1 at least, so faint detail dims rather than vanishes and the tiles
+ * keep the same bounds.
+ */
+export function dimLevels(levels: Uint8Array, percent: number): Uint8Array {
+  if (percent <= 0) return levels;
+  const keep = 1 - percent / 100;
+  for (let i = 0; i < levels.length; i++) {
+    if (levels[i]) levels[i] = Math.max(1, Math.round(levels[i]! * keep));
+  }
+  return levels;
+}
+
+/** 8×8 Bayer matrix: thresholds 0–63, spread so any share of them is evenly scattered. */
+const BAYER8 = (() => {
+  const m = new Uint8Array(64);
+  for (let y = 0; y < 8; y++) {
+    for (let x = 0; x < 8; x++) {
+      let v = 0;
+      // Interleave the bits of x^y and y, least significant first: the low bits pick the coarsest spread.
+      for (let bit = 0, xy = x ^ y; bit < 3; bit++) v = (v << 2) | (((xy >> bit) & 1) << 1) | ((y >> bit) & 1);
+      m[y * 8 + x] = v;
+    }
+  }
+  return m;
+})();
+
+/**
+ * `levels` (a row-major tile `stride` wide, at `x0`,`y0` on the screen) with
+ * `percent` (0–100) of its lit pixels turned off, in place, in an ordered
+ * pattern: evenly scattered, and fixed to the screen, so tiles meet without a
+ * seam and the same chart thins the same way each update. Fewer lit pixels
+ * are less to send, as well as dimmer.
+ */
+export function thinLevels(levels: Uint8Array, stride: number, x0: number, y0: number, percent: number): Uint8Array {
+  if (percent <= 0) return levels;
+  const cut = Math.round((percent / 100) * 64);
+  for (let i = 0; i < levels.length; i++) {
+    if (!levels[i]) continue;
+    const x = x0 + (i % stride), y = y0 + Math.floor(i / stride);
+    if (BAYER8[(y & 7) * 8 + (x & 7)]! < cut) levels[i] = 0;
+  }
+  return levels;
 }
 
 /**

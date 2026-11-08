@@ -7,6 +7,13 @@ Notable changes to MarketGlimpse, by release tag.
 ### Added
 - **News**: WSJ Markets and Bitcoin.com, each with its own checkbox, off by
   default.
+- **Image dimming** and **Image thinning**: image charts can be sent dimmer
+  (every grey level scaled down) or thinned (a share of the lit pixels turned
+  off, in an even pattern), each from 10% to 90% in steps of 10.
+
+### Fixed
+- Tests that load the glasses code no longer fail on the diagnostic build's
+  heartbeat, which read the page's visibility before there was a page.
 
 ## [0.4.6] - 2026-11-05
 
