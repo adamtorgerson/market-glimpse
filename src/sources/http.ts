@@ -6,12 +6,16 @@
  *
  * `PublicApi` enforces rule 1. Requests run one at a time, each starting at
  * least `MIN_GAP_MS` after the previous one started. Requests still waiting
- * when their signal aborts are dropped without being sent. Rules 2 and 3 are
- * up to each source.
+ * when their signal aborts are dropped without being sent. A request not
+ * answered within `REQUEST_TIMEOUT_MS` fails with "timed out", so an API that
+ * hangs holds up the requests behind it for no longer than that. Rules 2 and
+ * 3 are up to each source.
  */
 import { byteSize, countNetwork } from '../traffic';
 
 export const MIN_GAP_MS = 1500;
+/** How long a request (sent to body read) may take before it fails. */
+export const REQUEST_TIMEOUT_MS = 10_000;
 
 export class PublicApi {
   private queue: Promise<unknown> = Promise.resolve();
@@ -19,7 +23,7 @@ export class PublicApi {
   /** Running average of response times (request sent to body parsed), in ms. */
   private responseMs = 500;
 
-  constructor(private readonly base: string, private readonly minGapMs = MIN_GAP_MS) {}
+  constructor(private readonly base: string, private readonly minGapMs = MIN_GAP_MS, private readonly timeoutMs = REQUEST_TIMEOUT_MS) {}
 
   /** GET `path` and parse the JSON body. Network and HTTP errors reject. */
   get<T>(path: string, signal: AbortSignal): Promise<T> {
@@ -43,15 +47,33 @@ export class PublicApi {
     const run = this.queue.then(async () => {
       signal.throwIfAborted();
       await sleep(this.nextAt - Date.now(), signal);
+      signal.throwIfAborted();
       const sent = Date.now();
       this.nextAt = sent + this.minGapMs;
       const url = this.base + path;
-      const res = await fetch(url, payload === undefined
-        ? { signal, cache: 'no-store', ...(headers && { headers }) }
-        : { signal, cache: 'no-store', method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload });
-      // Read as bytes to count them; headers aren't visible to the page, so
-      // only the URL, any body sent and the (decompressed) body received are counted.
-      const bytes = new Uint8Array(await (res.ok ? res.arrayBuffer() : res.arrayBuffer().catch(() => new ArrayBuffer(0))));
+      // Stopped by the caller's signal, or by the timeout. WebKit rejects
+      // either way with its own AbortError, whatever the reason given, so a
+      // timeout is told apart by `timedOut`: as an AbortError it would be
+      // taken for a cancellation (`isAbort`), and the update dropped.
+      const ctrl = new AbortController();
+      const stop = () => ctrl.abort(signal.reason);
+      signal.addEventListener('abort', stop, { once: true });
+      let timedOut = false;
+      const timer = setTimeout(() => { timedOut = true; ctrl.abort(); }, this.timeoutMs);
+      let res: Response, bytes: Uint8Array;
+      try {
+        res = await fetch(url, payload === undefined
+          ? { signal: ctrl.signal, cache: 'no-store', ...(headers && { headers }) }
+          : { signal: ctrl.signal, cache: 'no-store', method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload });
+        // Read as bytes to count them; headers aren't visible to the page, so
+        // only the URL, any body sent and the (decompressed) body received are counted.
+        bytes = new Uint8Array(await (res.ok ? res.arrayBuffer() : res.arrayBuffer().catch(() => new ArrayBuffer(0))));
+      } catch (e) {
+        throw timedOut && !signal.aborted ? new Error('timed out') : e;
+      } finally {
+        clearTimeout(timer);
+        signal.removeEventListener('abort', stop);
+      }
       countNetwork(byteSize(url) + byteSize(payload), bytes.length);
       const text = new TextDecoder().decode(bytes);
       if (!res.ok) throw new HttpError(res.status, text);

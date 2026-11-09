@@ -4,6 +4,13 @@ Notable changes to MarketGlimpse, by release tag.
 
 ## [Unreleased]
 
+### Fixed
+- A market API that stops answering (Kraken, 2026-11-09) no longer holds up the
+  chart: each request fails with "timed out" after 10 seconds, and the chart
+  goes up with the error.
+- Asking for a chart while an update runs well past its estimate starts a new
+  one, instead of showing the old update's prices beside the current time.
+
 ## [0.4.7] - 2026-11-08
 
 ### Added

@@ -279,12 +279,18 @@ function canReuse(s: Settings): boolean {
 
 /** When the update in progress should have its chart up (ms), for the loading estimate. */
 let inFlightEta = 0;
+/** How far past that a request for a chart restarts the update instead of joining it. */
+const OVERDUE_MS = 5000;
 
 /** Fetch, draw, show on the glasses, then blank them after `displaySec`. */
 async function update({ cancel = false, manual = false, showAt = 0, reuse = false }: UpdateOptions = {}): Promise<void> {
   if (exited) return;
-  // An update in progress is left to finish unless cancelled; its chart will replace the loading screen.
-  const joining = inFlight !== null && !cancel;
+  // An update in progress is left to finish unless cancelled; its chart will
+  // replace the loading screen. One well past its estimate (an API hanging) is
+  // started afresh when asked for, rather than putting its prices, fetched back
+  // when it began, up beside the current time.
+  const overdue = manual && !reuse && Date.now() > inFlightEta + OVERDUE_MS;
+  const joining = inFlight !== null && !cancel && !overdue;
   if (!joining) {
     inFlight?.abort();
     // Redrawing the last data skips the fetch, and its list is complete from the start.
