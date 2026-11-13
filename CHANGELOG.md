@@ -4,7 +4,10 @@ Notable changes to MarketGlimpse, by release tag.
 
 ## [Unreleased]
 
+## [0.4.8] - 2026-11-13
+
 ### Fixed
+- Putting the glasses on shows a fresh chart in manual-only mode too.
 - A market API that stops answering (Kraken, 2026-11-09) no longer holds up the
   chart: each request fails with "timed out" after 10 seconds, and the chart
   goes up with the error.
@@ -294,6 +297,7 @@ schedule.
   gesture (calibrated from the IMU) to trigger an update.
 - Chart tiles sent to the glasses in parallel.
 
+[0.4.8]: https://github.com/adamtorgerson/market-glimpse/compare/v0.4.7...v0.4.8
 [0.4.7]: https://github.com/adamtorgerson/market-glimpse/compare/v0.4.6...v0.4.7
 [0.4.6]: https://github.com/adamtorgerson/market-glimpse/compare/v0.4.5...v0.4.6
 [0.4.5]: https://github.com/adamtorgerson/market-glimpse/compare/v0.4.4...v0.4.5
