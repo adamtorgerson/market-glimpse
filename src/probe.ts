@@ -45,6 +45,8 @@ interface Beat {
   hiddenSince: number;
   visibilityChanges: number;
   launch?: string;
+  /** The last few glasses status changes, newest last: "clock time (uptime) connectType worn case". */
+  glasses?: string[];
   errors: string[];
   /** [uptime minutes, heap MB or -1, DOM nodes]. */
   history: [number, number, number][];
@@ -73,6 +75,7 @@ const state: Beat = {
   visibilityChanges: 0,
   errors: [],
   history: [],
+  glasses: [],
 };
 
 // Read before anything is written, or the first beat would overwrite it.
@@ -99,6 +102,24 @@ export function glassesCall(delta: 1 | -1): void {
 /** A glasses call started running (the one before it in the queue is done). */
 export function glassesCallStarted(): void {
   if (PROBE) state.glassesBusySince = Date.now();
+}
+
+const GLASSES_MAX = 8;
+let lastGlasses = '';
+
+/**
+ * A status from the Even app: connection, worn, in case. Only changes are
+ * kept, so the report shows when the glasses went away relative to the hang.
+ */
+export function glassesStatus(s: { connectType?: string; isWearing?: boolean; isInCase?: boolean }): void {
+  if (!PROBE) return;
+  const key = `${s.connectType ?? '?'} worn=${s.isWearing ?? '?'} case=${s.isInCase ?? '?'}`;
+  if (key === lastGlasses) return;
+  lastGlasses = key;
+  const t = Date.now();
+  const list = (state.glasses ??= []);
+  list.push(`${new Date(t).toLocaleTimeString()} (${dur(t - state.start)}) ${key}`);
+  if (list.length > GLASSES_MAX) list.shift();
 }
 
 export function launchSource(source: string): void {
@@ -220,6 +241,7 @@ function describe(b: Beat, live = false): string {
   if (b.glassesQueue) parts.push(`glasses queue ${b.glassesQueue}, busy ${dur(b.beat - b.glassesBusySince)}`);
   parts.push(`${b.hidden ? 'hidden' : 'visible'} for ${dur(b.beat - b.hiddenSince)} (${b.visibilityChanges} changes)`);
   if (b.launch) parts.push(`launched from ${b.launch}`);
+  if (b.glasses?.length) parts.push(`glasses: ${b.glasses.join(' | ')}`);
   if (b.errors.length) parts.push(`errors: ${b.errors.join(' | ')}`);
   if (!live && b.history.length > 1) parts.push(`heap MB / nodes every 10 min: ${b.history.map(([, h, n]) => `${h < 0 ? '?' : h}/${n}`).join(' ')}`);
   return parts.join(' · ');

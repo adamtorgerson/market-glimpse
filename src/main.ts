@@ -48,7 +48,7 @@ import {
   type SavedWatchlist,
   type Settings,
 } from './settings';
-import { launchSource, phase, startProbe } from './probe';
+import { glassesStatus, launchSource, phase, startProbe } from './probe';
 
 /**
  * The Diagnostics section on the phone page, in development builds only; the
@@ -1234,6 +1234,7 @@ const wearLog: string[] = [];
 function logGlassesStatus(status: GlassesStatus, inUse: boolean): void {
   const line = `${new Date().toLocaleTimeString()} ${status.connectType} worn=${status.isWearing} case=${status.isInCase}: ${inUse ? 'in use' : 'not in use'}`;
   console.info('Glasses status', line);
+  glassesStatus(status);
   if (!DIAGNOSTICS) return;
   wearLog.unshift(line);
   wearLog.length = Math.min(wearLog.length, 8);
