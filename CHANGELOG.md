@@ -4,6 +4,12 @@ Notable changes to MarketGlimpse, by release tag.
 
 ## [Unreleased]
 
+## [0.4.9] - 2026-11-16
+
+### Added
+- The diagnostic build's report lists the last 8 changes in the glasses'
+  status (connected, worn, in case), with the time and uptime of each.
+
 ## [0.4.8] - 2026-11-13
 
 ### Fixed
