@@ -4,6 +4,18 @@ Notable changes to MarketGlimpse, by release tag.
 
 ## [Unreleased]
 
+## [0.4.10] - 2026-11-19
+
+### Changed
+- The phone page's dropdowns open a list drawn by the page itself instead of
+  Android's native popup. That popup comes from the Even app, and it stops
+  opening when the Even app's own UI hangs, while the rest of the page still works.
+
+### Added
+- The diagnostic build's report lists the page's last 16 lifecycle events
+  (hidden, visible, freeze, resume) and every stretch over 15 seconds when its
+  timers didn't run, each with its time and uptime.
+
 ## [0.4.9] - 2026-11-16
 
 ### Added
