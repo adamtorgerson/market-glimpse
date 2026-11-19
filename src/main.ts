@@ -49,6 +49,7 @@ import {
   type Settings,
 } from './settings';
 import { glassesStatus, launchSource, phase, startProbe } from './probe';
+import { enhanceSelects } from './dropdown';
 
 /**
  * The Diagnostics section on the phone page, in development builds only; the
@@ -1426,6 +1427,8 @@ for (const [label, sources] of [['Exchanges', SOURCES], ['Prediction markets', P
   for (const src of sources) group.append(new Option(src.label, src.id));
   sourceSel.append(group);
 }
+// Drawn by the page: the WebView's native popups stop opening when the Even app's UI wedges.
+enhanceSelects();
 const CANDLE_WIDTH_LABELS: Record<CandleWidth, string> = { wide: 'Wide', narrow: 'Narrow', thin: 'Thin', 'text-blocks': 'Text blocks, 1 chart', 'text-wide': 'Text wide, 1 chart', 'text-narrow': 'Text narrow, 1 chart', 'text-thin': 'Text thin, 1 chart' };
 for (const w of CANDLE_WIDTHS) candleWidthSel.add(new Option(CANDLE_WIDTH_LABELS[w], w));
 for (const a of ANALYSES) analysisSel.add(new Option(ANALYSIS_LABELS[a], a));

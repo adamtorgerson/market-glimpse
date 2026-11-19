@@ -106,6 +106,39 @@ input, select {
 }
 label > input, label > select { width: 8rem; }
 label > select { width: auto; min-width: 8rem; }
+
+/* Page-drawn dropdowns (dropdown.ts): the WebView's native popups depend on the Even app. */
+.dropdown {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  min-width: 8rem; max-width: 65%;
+  font: inherit; color: var(--fg); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px;
+  font-weight: 400; text-align: left;
+}
+.dropdown-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dropdown-caret { color: var(--muted); flex: none; }
+.dropdown:disabled { opacity: 0.4; }
+body.dropdown-open { overflow: hidden; }
+.dropdown-backdrop {
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px; background: rgba(0, 0, 0, 0.6);
+}
+.dropdown-list {
+  width: min(100%, 360px); max-height: 75vh; overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: 6px 0; overscroll-behavior: contain;
+}
+.dropdown-group { padding: 10px 16px 4px; font-size: 0.8rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.dropdown-option {
+  display: block; width: 100%; min-height: 44px;
+  padding: 10px 16px; margin: 0;
+  font: inherit; font-weight: 400; text-align: left; color: var(--fg);
+  background: transparent; border: 0; border-radius: 0;
+}
+.dropdown-option[aria-selected="true"] { color: var(--accent); font-weight: 600; }
+.dropdown-option[aria-selected="true"]::after { content: " ✓"; }
+.dropdown-option:disabled { opacity: 0.4; }
 label > input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent); }
 label > input:disabled { opacity: 0.4; }
 .sub { padding-left: 16px; }
@@ -117,7 +150,7 @@ label > input:disabled { opacity: 0.4; }
 .row button { padding: 6px 12px; }
 
 #watchlist-name { flex: 1; }
-#watchlist-select { max-width: 60%; }
+#watchlist-select, #watchlist-select-button { max-width: 60%; }
 .guard { border: 1px solid var(--error); border-radius: 8px; padding: 10px; margin: 0 0 10px; }
 .guard p { margin: 0; overflow-wrap: anywhere; }
 .guard .actions { flex-wrap: wrap; margin: 8px 0 0; }

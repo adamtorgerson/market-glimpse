@@ -47,6 +47,12 @@ interface Beat {
   launch?: string;
   /** The last few glasses status changes, newest last: "clock time (uptime) connectType worn case". */
   glasses?: string[];
+  /**
+   * Page lifecycle, newest last: each hide/show, freeze/resume and pagehide/show,
+   * and each gap in the 1s tick over GAP_MS (timers paused or the thread blocked),
+   * as "clock time (uptime) what".
+   */
+  events?: string[];
   errors: string[];
   /** [uptime minutes, heap MB or -1, DOM nodes]. */
   history: [number, number, number][];
@@ -76,6 +82,7 @@ const state: Beat = {
   errors: [],
   history: [],
   glasses: [],
+  events: [],
 };
 
 // Read before anything is written, or the first beat would overwrite it.
@@ -106,6 +113,20 @@ export function glassesCallStarted(): void {
 
 const GLASSES_MAX = 8;
 let lastGlasses = '';
+const EVENTS_MAX = 16;
+/** A 1s tick this late is logged as a gap, from when it began to when it ended. */
+const GAP_MS = 15_000;
+
+function stamp(t: number): string {
+  return `${new Date(t).toLocaleString()} (${dur(t - state.start)})`;
+}
+
+/** Log a page event; `bare` leaves out the stamp (the text has its own). */
+function event(what: string, t = Date.now(), bare = false): void {
+  const list = (state.events ??= []);
+  list.push(bare ? `${new Date(t).toLocaleTimeString()} ${what}` : `${stamp(t)} ${what}`);
+  if (list.length > EVENTS_MAX) list.shift();
+}
 
 /**
  * A status from the Even app: connection, worn, in case. Only changes are
@@ -196,9 +217,21 @@ function watch(): void {
   // A 1s tick that arrives late, while the page is visible, means the main thread was blocked.
   let last = Date.now();
   let wasVisible = !document.hidden;
+  let gap: { since: number; entry: string } | null = null;
   setInterval(() => {
     const t = Date.now();
     const late = t - last - 1000;
+    if (late > GAP_MS) {
+      // A hidden page's timers may run once a minute: back-to-back gaps are one entry.
+      const list = (state.events ??= []);
+      const merge = gap !== null && list[list.length - 1] === gap.entry;
+      if (merge) list.pop();
+      const since = merge ? gap!.since : last;
+      event(`ticks late: ${dur(t - since)} since ${stamp(since)}, ${document.hidden ? 'hidden' : 'visible'} now`, t, true);
+      gap = { since, entry: list[list.length - 1]! };
+    } else {
+      gap = null;
+    }
     if (wasVisible && !document.hidden && late > state.stall) {
       state.stall = late;
       state.stallAt = t - state.start;
@@ -219,7 +252,13 @@ function watch(): void {
     state.hiddenSince = Date.now();
     state.visibilityChanges++;
     wasVisible = false; // the gap across a hide isn't a stall
+    event(document.hidden ? 'hidden' : 'visible');
   });
+  // Chromium's page lifecycle: a frozen page runs no timers at all.
+  document.addEventListener('freeze', () => event('freeze'));
+  document.addEventListener('resume', () => event('resume'));
+  window.addEventListener('pagehide', (e) => event(`pagehide${e.persisted ? ' (persisted)' : ''}`));
+  window.addEventListener('pageshow', (e) => { if (e.persisted) event('pageshow (from cache)'); });
   const error = (msg: string) => {
     state.errors.push(`${dur(Date.now() - state.start)}: ${msg.slice(0, 160)}`);
     if (state.errors.length > 5) state.errors.shift();
@@ -242,6 +281,7 @@ function describe(b: Beat, live = false): string {
   parts.push(`${b.hidden ? 'hidden' : 'visible'} for ${dur(b.beat - b.hiddenSince)} (${b.visibilityChanges} changes)`);
   if (b.launch) parts.push(`launched from ${b.launch}`);
   if (b.glasses?.length) parts.push(`glasses: ${b.glasses.join(' | ')}`);
+  if (b.events?.length) parts.push(`page events: ${b.events.join(' | ')}`);
   if (b.errors.length) parts.push(`errors: ${b.errors.join(' | ')}`);
   if (!live && b.history.length > 1) parts.push(`heap MB / nodes every 10 min: ${b.history.map(([, h, n]) => `${h < 0 ? '?' : h}/${n}`).join(' ')}`);
   return parts.join(' · ');
