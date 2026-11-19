@@ -4,6 +4,11 @@ Notable changes to MarketGlimpse, by release tag.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-19
+
+### Added
+- The phone page shows the app's version beside its title.
+
 ## [0.4.10] - 2026-11-19
 
 ### Changed
@@ -315,6 +320,9 @@ schedule.
   gesture (calibrated from the IMU) to trigger an update.
 - Chart tiles sent to the glasses in parallel.
 
+[0.5.0]: https://github.com/adamtorgerson/market-glimpse/compare/v0.4.10...v0.5.0
+[0.4.10]: https://github.com/adamtorgerson/market-glimpse/compare/v0.4.9...v0.4.10
+[0.4.9]: https://github.com/adamtorgerson/market-glimpse/compare/v0.4.8...v0.4.9
 [0.4.8]: https://github.com/adamtorgerson/market-glimpse/compare/v0.4.7...v0.4.8
 [0.4.7]: https://github.com/adamtorgerson/market-glimpse/compare/v0.4.6...v0.4.7
 [0.4.6]: https://github.com/adamtorgerson/market-glimpse/compare/v0.4.5...v0.4.6
