@@ -4,6 +4,13 @@ Notable changes to MarketGlimpse, by release tag.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-20
+
+### Changed
+- The network whitelist also lists the hosts of the news feeds fetched through
+  Jina Reader. The app still only contacts `r.jina.ai` for them; the store's
+  review flags any URL in the app that isn't on the list.
+
 ## [0.5.0] - 2026-11-19
 
 ### Added
@@ -320,6 +327,7 @@ schedule.
   gesture (calibrated from the IMU) to trigger an update.
 - Chart tiles sent to the glasses in parallel.
 
+[0.5.1]: https://github.com/adamtorgerson/market-glimpse/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/adamtorgerson/market-glimpse/compare/v0.4.10...v0.5.0
 [0.4.10]: https://github.com/adamtorgerson/market-glimpse/compare/v0.4.9...v0.4.10
 [0.4.9]: https://github.com/adamtorgerson/market-glimpse/compare/v0.4.8...v0.4.9
